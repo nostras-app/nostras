@@ -20,9 +20,13 @@ read it for the "why" before making architectural changes.
 ## Status
 
 Phase 0 (MVP) is underway. The client can read a live kind:1 feed (from
-local + public relays) and publish new kind:1 notes (scoped to the local
-relay only, see below). Signing currently uses a temporary dev-only local
-key (`client/src/lib/signer.ts`) — this is explicitly not the Phase 1
+local + public relays), publish new kind:1 notes, and set/edit kind:0
+profile metadata (name/about) — all publishing scoped to the local relay
+only, see below. Profile lookups are cached in `client/src/hooks/useProfile.ts`
+via `useSyncExternalStore` (module-level cache, shared across components,
+reactive to `setCachedProfile` so a freshly-saved profile shows immediately
+without a relay round-trip). Signing currently uses a temporary dev-only
+local key (`client/src/lib/signer.ts`) — this is explicitly not the Phase 1
 NIP-46/NIP-07 bring-your-own-signer implementation and must not be treated
 as the real security model. Check `client/package.json` / `server/go.mod`
 before assuming a command exists.
