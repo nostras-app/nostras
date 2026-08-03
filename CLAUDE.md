@@ -87,6 +87,37 @@ view is just the composer and feed. Verified visually in-browser: desktop,
 a 390×750 mobile viewport (no overflow, cards reflow correctly), the
 settings panel open/closed, and the zap amount/invoice panel expansion.
 
+**Rich note rendering and engagement (2026-08-04)**: raw content used to
+show image/video URLs as plain text, which is why the feed looked
+unpolished. `client/src/lib/parseContent.ts` splits note content into
+text/link/image/video/audio segments by extension-sniffing URLs (not NIP-92
+`imeta` tags — simple and broad-compatibility over precise), and
+`client/src/components/NoteContent.tsx` renders media inline (images/video/
+audio as real elements, not raw links) and truncates long notes (>400
+chars) with a show more/less toggle. **NIP-23 long-form articles (kind
+30023) are explicitly out of scope** — deliberate choice, not an oversight;
+only kind:1 truncation was requested for this pass.
+
+`client/src/components/EngagementBar.tsx` adds like (NIP-25, kind 7,
+content `"+"`), repost (NIP-18, kind 6, content = stringified original
+event via `event.rawEvent()`), and reply (kind 1 with a NIP-10
+`["e", id, "", "reply"]` tag) — all via `client/src/hooks/useEventCount.ts`
+(generic count of a given kind tagging a note, reused for all three) and
+all publishing through `devPublishRelaySet` like everything else, so
+liking/reposting real public content during dev never broadcasts to the
+public network. Reply opens an inline composer; there's no threaded
+display of actual replies yet, just a count — replies still show up in the
+main feed as ordinary kind:1 notes since the Feed subscribes to all of
+them. "Liked"/"reposted" state is session-local only (not derived from
+existing reactions on reload), so a refreshed page won't show a
+prior-session like as already-applied — a known simplification, not a bug.
+
+Verified end-to-end against real live public-relay content: confirmed
+real images/video (e.g. `blossom.primal.net` URLs) render inline instead
+of as raw text, and published a real like/repost/reply through the UI,
+confirming each landed on the local relay with correct
+NIP-25/NIP-18/NIP-10 tag shapes.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 

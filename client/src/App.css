@@ -329,7 +329,103 @@
 
 .feed-item-footer {
   display: flex;
-  justify-content: flex-end;
+}
+
+/* ---------- Note content (media, links, truncation) ---------- */
+
+.note-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.note-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.note-link:hover {
+  text-decoration: underline;
+}
+
+.note-media {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.note-media-image,
+.note-media-video {
+  display: block;
+  max-width: 100%;
+  width: 100%;
+  border-radius: 10px;
+}
+
+.note-media-audio {
+  width: 100%;
+}
+
+.show-more-btn {
+  align-self: flex-start;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.show-more-btn:hover {
+  text-decoration: underline;
+}
+
+/* ---------- Engagement bar (like / repost / reply) ---------- */
+
+.engagement-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.engagement-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.engage-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 5px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.engage-btn:hover:not(:disabled) {
+  background: var(--accent-bg);
+  color: var(--text-h);
+}
+
+.engage-btn:disabled {
+  cursor: default;
+}
+
+.engage-btn-active {
+  color: var(--accent);
+}
+
+.reply-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* ---------- Zap button ---------- */
