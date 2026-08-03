@@ -115,14 +115,13 @@ exists.
   `purplepag.es`.
   **Sandbox testing note**: this dev/CLI sandbox allows outbound HTTPS but
   blocks outbound WebSocket connections (confirmed via both a raw Go dial
-  and Node — both get a `503` on the WS handshake), so the actual
-  fetch-from-a-real-relay behavior could not be verified from inside this
-  environment. What *was* verified here: it builds and vets cleanly, and
-  the local-store path (query with an `Authors` filter, no aggregation
-  needed) still works correctly with no regression. The remote-fetch path
-  should be checked against a real deployment (the user's own machine or
-  a server with normal internet access), where this restriction won't
-  apply.
+  and Node — both get a `503` on the WS handshake), so the remote-fetch
+  path couldn't be exercised from inside this environment — only build/vet
+  and the local-store regression path were verified here. **Confirmed
+  working end-to-end by the user on their own machine** (2026-08-03) using
+  `nak req -k 1 -a <pubkey> ws://localhost:7777` against a pubkey that had
+  never touched the local relay — real notes came back, fetched live via
+  that author's actual NIP-65 write relays.
 
 ## Key decisions already locked (see strategy doc for full reasoning)
 
