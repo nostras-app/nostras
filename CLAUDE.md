@@ -209,18 +209,25 @@ exists.
 
 ## Key decisions already locked (see strategy doc for full reasoning)
 
-- **Key custody: bring-your-own, indefinitely.** No hosted NIP-46 bunker,
-  no bundled Lightning wallet. The client only implements the *client* side
-  of NIP-46 (external signer, e.g. Amber) and NIP-47/NWC (external wallet,
-  e.g. Alby, Mutiny) — it never holds custody of keys or funds. Revisiting
-  this requires an explicit legal/liability review, not a default change.
+- **Key custody: bring-your-own, permanently — decided final, not open
+  for revisit.** No hosted NIP-46 bunker, no bundled Lightning wallet, ever
+  planned. The client only implements the *client* side of NIP-46
+  (external signer, e.g. Amber) and NIP-47/NWC (external wallet, e.g.
+  Alby, Mutiny) — it never holds custody of keys or funds anywhere in the
+  system. This was originally gated behind a legal/liability review; on
+  review there was nothing to resolve, since nothing in the actual
+  architecture holds custody of anyone else's keys or funds — not client
+  zapping (user's own wallet pays directly) and not the DVM receiving
+  payment for its own service (ordinary commerce, not custody of someone
+  else's money). The only thing ever gated was a *hypothetical* optional
+  convenience tier (hosting a bunker/wallet on users' behalf) that was
+  never built. Only reopen this if the architecture itself changes to
+  introduce real custody (e.g. escrow, a hosted signer acting on a user's
+  behalf) — nothing currently planned does that.
 - **Relay choice: khatru.**
 - **Build order is phased** (MVP → security/mobile UX → performance/
   retention → monetization) — see the roadmap section of the strategy doc.
-  Phases 0–2 are done; Phase 3 (monetization) is in progress with the
-  NIP-90 DVM above. Remaining Phase 3 items: payment-gating the DVM,
-  optional custodial convenience tiers (still gated on the legal/liability
-  review noted above).
+  All four phases are now done.
 
 ## Conventions
 

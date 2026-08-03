@@ -473,23 +473,41 @@ choice, since those only need to subscribe like a regular client.
 
 **Status**: confirmed by user (2026-08-03) — locked in for Phase 0 build-out.
 
-### Custody stance: bring-your-own, for now (decided)
+### Custody stance: bring-your-own, permanently (decided, final)
 
-**Choice**: stay non-custodial on both fronts indefinitely for the moment —
-no hosted/backend bunker, no bundled wallet. The PWA implements the
-*client* side of NIP-46 and NIP-47 only, connecting out to whatever signer
-(e.g. Amber) or wallet (e.g. Alby, Mutiny) the user already has or sets up
-themselves. No backend signer or wallet infrastructure is built.
+**Choice**: stay non-custodial on both fronts, permanently — no
+hosted/backend bunker, no bundled wallet, no revisit trigger. The PWA
+implements the *client* side of NIP-46 and NIP-47 only, connecting out to
+whatever signer (e.g. Amber) or wallet (e.g. Alby, Mutiny) the user already
+has or sets up themselves. No backend signer or wallet infrastructure
+exists or is planned.
 
-**Why**: avoids taking on custody of either private keys or funds, which is
-a security/legal liability commitment, not just an engineering feature.
-Matches Phase 1 scope in the roadmap as already written (frontend-only
-NIP-46/NIP-47 client support).
+**Why**: originally deferred pending a legal/liability review of custody
+risk. On review, there's nothing to resolve: as built, NOSTRAS never holds
+custody of anyone else's keys or funds anywhere in the system —
 
-**Status**: confirmed by user (2026-08-03). Revisit later — hosted bunker
-and/or bundled wallet remain optional Phase 3 convenience tiers if there's
-a clear product reason to reconsider, gated on an explicit legal/liability
-review at that time.
+- **Client zapping**: the user's own wallet (their own NWC connection)
+  pays directly; funds never pass through NOSTRAS.
+- **DVM payments** (`server/cmd/dvm`): the DVM operator receives payment
+  *for a service it renders*, into its own wallet — ordinary
+  Lightning-accepting commerce, not custody of someone else's money. This
+  was never the thing the legal gate was about, and shouldn't be confused
+  with it.
+
+The only thing ever gated was the *hypothetical* optional convenience
+tier — hosting a bunker or wallet *on behalf of users* who don't want to
+self-manage. That was never built. The custody question resolves by simply
+never building it, not by obtaining a legal opinion on a system that holds
+no custody. If a future version of NOSTRAS ever did add a flow where funds
+or keys pass through or are held by the server — even momentarily (e.g.
+escrow, a hosted bunker signing on a user's behalf) — that would
+reintroduce real custody risk and require this decision to be reopened
+with actual legal counsel at that time. Nothing currently planned does
+that.
+
+**Status**: confirmed by user (2026-08-04) as final. Not gated on further
+review; no revisit trigger unless the architecture itself changes to
+introduce real custody.
 
 ## Next steps
 
