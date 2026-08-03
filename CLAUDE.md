@@ -37,12 +37,22 @@ reactive via the `activeUser:change` event — components must use this
 hook rather than reading `ndk.activeUser` once at render time, since it
 changes whenever the signer is swapped (this was a real bug: `ProfileEditor`
 kept editing the old user's profile after a signer switch until it was
-fixed to use this hook). NIP-07 (browser extension) support is not yet
-implemented. There is still a temporary dev-only local key
-(`client/src/lib/signer.ts`) used as the default/fallback signer — this
-was always meant to be replaced/supplemented by real signer support, not
-removed outright, since it's still useful for quick local testing. Check
-`client/package.json` / `server/go.mod` before assuming a command exists.
+fixed to use this hook).
+
+NIP-07 (browser extension, e.g. Alby/nos2x) support has also landed, in
+the same `remoteSigner.ts`/`SignerConnect.tsx` — the "Connect browser
+extension" button only enables when `window.nostr` is actually present.
+Both NIP-46 and NIP-07 share one signer-mode flag in localStorage
+(`nostras:signer-mode`) so reload correctly restores whichever one was
+last connected. Verified end-to-end against a real Alby install: connect,
+sign, publish (real pubkey, valid signature, local-relay-only), reload
+persistence, and disconnect all confirmed working.
+
+There is still a temporary dev-only local key (`client/src/lib/signer.ts`)
+used as the default/fallback signer — this was always meant to be
+replaced/supplemented by real signer support, not removed outright, since
+it's still useful for quick local testing. Check `client/package.json` /
+`server/go.mod` before assuming a command exists.
 
 ## Architecture
 
