@@ -139,6 +139,28 @@ exists.
   testable in-sandbox, no outbound relay connections needed): published
   three notes with distinct content, confirmed each search term matched
   only its note and an unmatched term returned nothing.
+- **Phase 3 has started: a NIP-90 DVM (Data Vending Machine) is implemented**
+  at `server/cmd/dvm/main.go` — a second binary in the same Go module as the
+  relay (`go run ./cmd/dvm` from `server/`), not a separate module, since it
+  shares the relay's dependencies. Offers text summarization (job kind
+  `5001` -> result kind `6001`, per the NIP-90 kind registry — see
+  `github.com/nbd-wtf/go-nostr/nip90` for the full catalog). Listens on the
+  local relay only, free (no payment gating yet — that's the natural next
+  step alongside the NIP-57/NWC work above). Uses the real Claude API
+  (`github.com/anthropics/anthropic-sdk-go`, model `claude-opus-5`) for the
+  actual summarization — this is not a placeholder/mock, per an explicit
+  user decision to wire up a real LLM rather than a naive heuristic.
+  **Requires `NOSTRAS_ANTHROPIC_API_KEY` in `nostras.env`** at the project
+  root (loaded via a minimal hand-rolled `.env` parser in `main.go`, since
+  no dotenv dependency was added for one variable) — the DVM won't start
+  without it. Verified end-to-end with a real API call: published a
+  `kind:5001` job request with real text, confirmed `kind:7000` "processing"
+  feedback and a `kind:6001` result containing a genuine, accurate Claude
+  summary. (An apparent double-delivery of the feedback event during
+  testing turned out to be the diagnostic script not deduping identical
+  `EVENT` frames over the wire — normal, allowed relay behavior; only one
+  real API call was made. Real clients, including this project's own
+  `Feed.tsx`, already dedupe by event ID for exactly this reason.)
 
 ## Key decisions already locked (see strategy doc for full reasoning)
 
@@ -149,9 +171,11 @@ exists.
   this requires an explicit legal/liability review, not a default change.
 - **Relay choice: khatru.**
 - **Build order is phased** (MVP → security/mobile UX → performance/
-  retention → monetization) — see the roadmap section of the strategy doc
-  before jumping ahead to later-phase features (NIP-90 DVMs, outbox
-  aggregation, search) in `client/` or `server/` code.
+  retention → monetization) — see the roadmap section of the strategy doc.
+  Phases 0–2 are done; Phase 3 (monetization) is in progress with the
+  NIP-90 DVM above. Remaining Phase 3 items: payment-gating the DVM,
+  optional custodial convenience tiers (still gated on the legal/liability
+  review noted above).
 
 ## Conventions
 
