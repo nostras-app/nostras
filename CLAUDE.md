@@ -97,10 +97,32 @@ exists.
 - `server/` — the relay/node. [khatru](https://github.com/fiatjaf/khatru)
   (Go relay framework), chosen over binary relays like `strfry` because
   later roadmap phases need to intercept/rewrite `REQ` filters in code
-  (NIP-65 outbox aggregation, NIP-50 search) rather than configure a
-  black-box binary. Storage is the `badger` eventstore backend (pure Go, no
-  cgo) writing to `server/data/` (gitignored). Listens on `:7777`. Run with
-  `go run .` from `server/`.
+  rather than configure a black-box binary. Storage is the `badger`
+  eventstore backend (pure Go, no cgo) writing to `server/data/`
+  (gitignored). Listens on `:7777`. Run with `go run .` from `server/`.
+- **NIP-65 outbox aggregation is implemented** (`server/outbox.go`,
+  wired into `relay.QueryEvents` in `main.go`), using
+  `github.com/nbd-wtf/go-nostr/sdk`'s `System` — it already has this exact
+  model built in (`FetchOutboxRelays`, `FetchFeedPage`), no need to
+  hand-roll it. For any `REQ` filter with `Authors` set, the query function
+  serves local results first, then calls `sys.FetchFeedPage` to fan out to
+  each author's declared write relays (per their kind:10002) and fetch
+  anything missing, deduplicating by event ID before sending to the
+  client. Fetched events get written into the same badger store as a side
+  effect, so repeat queries get progressively cheaper. Filters with no
+  `Authors` skip aggregation entirely (local-only). Bootstrap relays for
+  discovering kind:10002 lists: `relay.damus.io`, `relay.primal.net`,
+  `purplepag.es`.
+  **Sandbox testing note**: this dev/CLI sandbox allows outbound HTTPS but
+  blocks outbound WebSocket connections (confirmed via both a raw Go dial
+  and Node — both get a `503` on the WS handshake), so the actual
+  fetch-from-a-real-relay behavior could not be verified from inside this
+  environment. What *was* verified here: it builds and vets cleanly, and
+  the local-store path (query with an `Authors` filter, no aggregation
+  needed) still works correctly with no regression. The remote-fetch path
+  should be checked against a real deployment (the user's own machine or
+  a server with normal internet access), where this restriction won't
+  apply.
 
 ## Key decisions already locked (see strategy doc for full reasoning)
 

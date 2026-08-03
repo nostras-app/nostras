@@ -6,6 +6,7 @@ import (
 
 	"github.com/fiatjaf/eventstore/badger"
 	"github.com/fiatjaf/khatru"
+	"github.com/nbd-wtf/go-nostr/sdk"
 )
 
 func main() {
@@ -22,9 +23,20 @@ func main() {
 	}
 
 	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent)
-	relay.QueryEvents = append(relay.QueryEvents, db.QueryEvents)
 	relay.DeleteEvent = append(relay.DeleteEvent, db.DeleteEvent)
 	relay.CountEvents = append(relay.CountEvents, db.CountEvents)
+
+	// NIP-65 outbox aggregation: resolve each queried author's write relays
+	// and fan out to them too, caching results back into db. See outbox.go.
+	sys := sdk.NewSystem(
+		sdk.WithStore(&db),
+		sdk.WithRelayListRelays([]string{
+			"wss://relay.damus.io",
+			"wss://relay.primal.net",
+			"wss://purplepag.es",
+		}),
+	)
+	relay.QueryEvents = append(relay.QueryEvents, newAggregatedQuery(&db, sys))
 
 	fmt.Println("NOSTRAS relay running on :7777")
 	http.ListenAndServe(":7777", relay)
