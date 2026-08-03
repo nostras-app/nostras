@@ -19,10 +19,13 @@ read it for the "why" before making architectural changes.
 
 ## Status
 
-Phase 0 (MVP) scaffolding is in place in both `client/` and `server/`, but
-neither has real feed/relay behavior yet — just proof the stack connects
-end to end. Check `client/package.json` / `server/go.mod` before assuming a
-command exists.
+Phase 0 (MVP) is underway. The client can read a live kind:1 feed (from
+local + public relays) and publish new kind:1 notes (scoped to the local
+relay only, see below). Signing currently uses a temporary dev-only local
+key (`client/src/lib/signer.ts`) — this is explicitly not the Phase 1
+NIP-46/NIP-07 bring-your-own-signer implementation and must not be treated
+as the real security model. Check `client/package.json` / `server/go.mod`
+before assuming a command exists.
 
 ## Architecture
 
@@ -30,9 +33,19 @@ command exists.
   `vite-plugin-pwa` (Workbox-based service worker/installability, manifest
   under the NOSTRAS name), `@nostr-dev-kit/ndk` for relay pool management,
   event caching, and signer abstraction. Bootstrap relay list lives in
-  `client/src/lib/ndk.ts` (`ws://localhost:7777` placeholder for the local
-  khatru node + a couple of public relays for dev). Run with `npm run dev`
-  from `client/`.
+  `client/src/lib/ndk.ts` (`ws://localhost:7777` for the local khatru node +
+  a couple of public relays, read-only, so the dev feed isn't empty).
+  **Publishing is scoped to `devPublishRelaySet` (local relay only)** — do
+  not change this to publish to the public relays without deliberately
+  deciding to, since anything typed into the dev composer would otherwise
+  broadcast to the real public Nostr network. Run with `npm run dev` from
+  `client/`.
+- **`ndk.connect()` gotcha**: always call it with a timeout (e.g.
+  `ndk.connect(5000)`). `NDKPool.connect()` waits for *every* relay in the
+  set to reach `CONNECTED` and, with no timeout argument, its fallback
+  promise never resolves — so one slow/unreachable relay hangs the whole
+  app's connection state forever. This bit us once already; see
+  `client/src/App.tsx`.
 - `server/` — the relay/node. [khatru](https://github.com/fiatjaf/khatru)
   (Go relay framework), chosen over binary relays like `strfry` because
   later roadmap phases need to intercept/rewrite `REQ` filters in code
