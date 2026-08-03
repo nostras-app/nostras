@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { useProfile, setCachedProfile } from '../hooks/useProfile'
+import { useActiveUser } from '../hooks/useActiveUser'
 
 export function ProfileEditor() {
-  const pubkey = ndk.activeUser?.pubkey
+  const activeUser = useActiveUser()
+  const pubkey = activeUser?.pubkey
   const profile = useProfile(pubkey)
   const [name, setName] = useState('')
   const [about, setAbout] = useState('')

@@ -25,11 +25,24 @@ profile metadata (name/about) — all publishing scoped to the local relay
 only, see below. Profile lookups are cached in `client/src/hooks/useProfile.ts`
 via `useSyncExternalStore` (module-level cache, shared across components,
 reactive to `setCachedProfile` so a freshly-saved profile shows immediately
-without a relay round-trip). Signing currently uses a temporary dev-only
-local key (`client/src/lib/signer.ts`) — this is explicitly not the Phase 1
-NIP-46/NIP-07 bring-your-own-signer implementation and must not be treated
-as the real security model. Check `client/package.json` / `server/go.mod`
-before assuming a command exists.
+without a relay round-trip).
+
+Phase 1's real bring-your-own-signer support has also landed: NIP-46
+(remote signer / bunker) is implemented in `client/src/lib/remoteSigner.ts`
+and `client/src/components/SignerConnect.tsx` — paste a `bunker://` URI to
+connect, disconnect to fall back to the dev key, session persists across
+reloads (the local connection key is saved so reconnecting doesn't require
+re-approval). `client/src/hooks/useActiveUser.ts` makes `ndk.activeUser`
+reactive via the `activeUser:change` event — components must use this
+hook rather than reading `ndk.activeUser` once at render time, since it
+changes whenever the signer is swapped (this was a real bug: `ProfileEditor`
+kept editing the old user's profile after a signer switch until it was
+fixed to use this hook). NIP-07 (browser extension) support is not yet
+implemented. There is still a temporary dev-only local key
+(`client/src/lib/signer.ts`) used as the default/fallback signer — this
+was always meant to be replaced/supplemented by real signer support, not
+removed outright, since it's still useful for quick local testing. Check
+`client/package.json` / `server/go.mod` before assuming a command exists.
 
 ## Architecture
 
