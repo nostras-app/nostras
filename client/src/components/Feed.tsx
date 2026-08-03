@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk } from '../lib/ndk'
 import { useProfile } from '../hooks/useProfile'
+import { ZapButton } from './ZapButton'
 
 function FeedItem({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
@@ -16,6 +17,7 @@ function FeedItem({ event }: { event: NDKEvent }) {
         <strong>{label}</strong>
       </div>
       <p>{event.content}</p>
+      <ZapButton event={event} />
     </li>
   )
 }

@@ -4,6 +4,7 @@ import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
 import { SignerConnect } from './components/SignerConnect'
+import { NwcConnect } from './components/NwcConnect'
 import './App.css'
 
 type ConnectionState = 'connecting' | 'connected' | 'error'
@@ -38,6 +39,7 @@ function App() {
       {state === 'connected' && (
         <>
           <SignerConnect />
+          <NwcConnect />
           <ProfileEditor />
           <Composer />
           <Feed />

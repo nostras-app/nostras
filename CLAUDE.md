@@ -51,8 +51,29 @@ persistence, and disconnect all confirmed working.
 There is still a temporary dev-only local key (`client/src/lib/signer.ts`)
 used as the default/fallback signer — this was always meant to be
 replaced/supplemented by real signer support, not removed outright, since
-it's still useful for quick local testing. Check `client/package.json` /
-`server/go.mod` before assuming a command exists.
+it's still useful for quick local testing.
+
+Phase 1's zap support (NIP-57 + NIP-47/NWC) has also landed:
+`client/src/lib/zap.ts` builds a zap request and fetches a real bolt11
+invoice from the recipient's LNURL-pay endpoint (`lud16`/`lud06`) — this
+only does HTTP GETs, no funds move. `client/src/lib/nwc.ts` implements the
+NIP-47 wallet-connect protocol by hand (kind 23194 request / 23195
+response, NIP-04 encrypted) since core `@nostr-dev-kit/ndk` doesn't ship a
+wallet client, only zap orchestration (`NDKZapper`, `generateZapRequest`,
+`zapInvoiceFromEvent`, `getNip57ZapSpecFromLud`). `ZapButton.tsx` always
+offers "Copy invoice" for manual payment, and additionally "Pay with
+connected wallet" once a `nostr+walletconnect://` URI is saved via
+`NwcConnect.tsx`. **`payInvoiceWithNwc` executes a real payment against
+whatever wallet the connection string points to — it must only ever run
+from an explicit user click, never automatically or as part of any
+scripted/agent flow.** It was verified against a disposable mock wallet
+(fake keys, fake response, no real Lightning involved) to prove the
+request/response protocol wiring is correct; it has not been exercised
+against a real wallet, since that would mean an AI agent authorizing a
+real financial transaction.
+
+Check `client/package.json` / `server/go.mod` before assuming a command
+exists.
 
 ## Architecture
 

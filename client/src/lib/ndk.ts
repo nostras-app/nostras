@@ -6,11 +6,9 @@ import { getDevSigner } from './signer'
 // isn't empty during early development.
 export const localRelayUrl = 'ws://localhost:7777'
 
-export const explicitRelayUrls = [
-  localRelayUrl,
-  'wss://relay.damus.io',
-  'wss://relay.primal.net',
-]
+export const publicRelayUrls = ['wss://relay.damus.io', 'wss://relay.primal.net']
+
+export const explicitRelayUrls = [localRelayUrl, ...publicRelayUrls]
 
 export const ndk = new NDK({
   explicitRelayUrls,
