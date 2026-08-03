@@ -1,0 +1,8 @@
+# Local secrets — never commit
+mmo.env
+*.env
+*.env.*
+
+# Editor swap files
+*.swp
+*.swo
