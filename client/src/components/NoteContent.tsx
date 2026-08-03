@@ -3,34 +3,33 @@ import { parseContentSegments, shortenUrl } from '../lib/parseContent'
 
 const TRUNCATE_AT = 400
 
+// Cuts at the last space before the limit (not mid-word/mid-URL) so a
+// truncated preview never leaves a broken link fragment behind.
+function truncateSafely(content: string, limit: number) {
+  if (content.length <= limit) return { text: content, truncated: false }
+  const slice = content.slice(0, limit)
+  const lastSpace = slice.lastIndexOf(' ')
+  const safeSlice = lastSpace > limit * 0.6 ? slice.slice(0, lastSpace) : slice
+  return { text: safeSlice.trimEnd(), truncated: true }
+}
+
 export function NoteContent({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false)
-  const isLong = content.length > TRUNCATE_AT
+  const { text: preview, truncated } = truncateSafely(content, TRUNCATE_AT)
 
-  if (isLong && !expanded) {
-    return (
-      <div className="note-content">
-        <p className="feed-item-content">
-          {content.slice(0, TRUNCATE_AT).trimEnd()}…
-        </p>
-        <button
-          type="button"
-          className="show-more-btn"
-          onClick={() => setExpanded(true)}
-        >
-          Show more
-        </button>
-      </div>
-    )
-  }
-
-  const segments = parseContentSegments(content)
+  const displayContent = expanded || !truncated ? content : preview
+  const segments = parseContentSegments(displayContent)
   const textSegments = segments.filter(
     (s) => s.type === 'text' || s.type === 'link',
   )
-  const mediaSegments = segments.filter(
-    (s) => s.type === 'image' || s.type === 'video' || s.type === 'audio',
-  )
+  // Media stays hidden until a truncated note is expanded, so a long note
+  // doesn't load heavy content the reader hasn't opted into yet.
+  const showMedia = expanded || !truncated
+  const mediaSegments = showMedia
+    ? segments.filter(
+        (s) => s.type === 'image' || s.type === 'video' || s.type === 'audio',
+      )
+    : []
 
   return (
     <div className="note-content">
@@ -50,6 +49,7 @@ export function NoteContent({ content }: { content: string }) {
             <span key={i}>{seg.value}</span>
           ),
         )}
+        {truncated && !expanded && '…'}
       </p>
 
       {mediaSegments.length > 0 && (
@@ -63,6 +63,9 @@ export function NoteContent({ content }: { content: string }) {
                   alt=""
                   loading="lazy"
                   className="note-media-image"
+                  onLoad={(e) => {
+                    e.currentTarget.classList.add('is-loaded')
+                  }}
                   onError={(e) => {
                     ;(e.currentTarget as HTMLImageElement).style.display =
                       'none'
@@ -92,13 +95,13 @@ export function NoteContent({ content }: { content: string }) {
         </div>
       )}
 
-      {isLong && (
+      {truncated && (
         <button
           type="button"
           className="show-more-btn"
-          onClick={() => setExpanded(false)}
+          onClick={() => setExpanded((v) => !v)}
         >
-          Show less
+          {expanded ? 'Show less' : 'Show more'}
         </button>
       )}
     </div>

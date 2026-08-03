@@ -5,6 +5,7 @@ import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
 import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
+import { SettingsIcon } from './components/icons'
 import './App.css'
 
 type ConnectionState = 'connecting' | 'connected' | 'error'
@@ -50,7 +51,7 @@ function App() {
               aria-label="Account settings"
               title="Account settings"
             >
-              ⚙
+              <SettingsIcon />
             </button>
           )}
         </div>

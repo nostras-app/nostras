@@ -4,6 +4,7 @@ import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { useEventCount } from '../hooks/useEventCount'
 import { ZapButton } from './ZapButton'
+import { ReplyIcon, RepostIcon, HeartIcon } from './icons'
 
 export function EngagementBar({ event }: { event: NDKEventType }) {
   const likeCount = useEventCount(event.id, 7)
@@ -79,26 +80,29 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
       <div className="engagement-row">
         <button
           type="button"
-          className="engage-btn"
+          className="engage-btn engage-btn-reply"
           onClick={() => setReplying((v) => !v)}
         >
-          💬 {replyCount > 0 ? replyCount : ''}
+          <ReplyIcon />
+          {replyCount > 0 ? <span>{replyCount}</span> : null}
         </button>
         <button
           type="button"
-          className={`engage-btn${reposted ? ' engage-btn-active' : ''}`}
+          className={`engage-btn engage-btn-repost${reposted ? ' engage-btn-active' : ''}`}
           onClick={handleRepost}
           disabled={reposted || busy}
         >
-          🔁 {repostCount > 0 ? repostCount : ''}
+          <RepostIcon />
+          {repostCount > 0 ? <span>{repostCount}</span> : null}
         </button>
         <button
           type="button"
-          className={`engage-btn${liked ? ' engage-btn-active' : ''}`}
+          className={`engage-btn engage-btn-like${liked ? ' engage-btn-active' : ''}`}
           onClick={handleLike}
           disabled={liked || busy}
         >
-          {liked ? '❤️' : '🤍'} {likeCount > 0 ? likeCount : ''}
+          <HeartIcon filled={liked} />
+          {likeCount > 0 ? <span>{likeCount}</span> : null}
         </button>
         <ZapButton event={event} />
       </div>

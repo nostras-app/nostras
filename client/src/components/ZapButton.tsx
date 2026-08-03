@@ -3,6 +3,7 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { createZapInvoice } from '../lib/zap'
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
 import { useZapTotal } from '../hooks/useZapTotal'
+import { ZapIcon } from './icons'
 
 type State = 'idle' | 'open' | 'fetching' | 'invoice' | 'paying' | 'paid' | 'error'
 
@@ -49,7 +50,8 @@ export function ZapButton({ event }: { event: NDKEvent }) {
   if (state === 'idle') {
     return (
       <button type="button" className="zap-pill" onClick={() => setState('open')}>
-        ⚡ {total > 0 ? `${total} sats` : 'Zap'}
+        <ZapIcon filled />
+        {total > 0 ? `${total} sats` : 'Zap'}
       </button>
     )
   }

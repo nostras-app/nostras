@@ -118,6 +118,50 @@ of as raw text, and published a real like/repost/reply through the UI,
 confirming each landed on the local relay with correct
 NIP-25/NIP-18/NIP-10 tag shapes.
 
+**General UI polish pass (2026-08-04)**: the earlier design pass got the
+app functional but it still read as "default Vite app," not a real
+client — no visual identity, no timestamps, emoji-based icons with known
+cross-platform rendering issues, and a truncated-note bug where URLs in
+collapsed long notes showed as raw unshortened text (only the expanded
+view ran them through `parseContent.ts`). Direction (Nostr-native/
+purple-branded vs. Twitter-like vs. minimal-editorial) was an explicit
+user choice — user picked Nostr-native/purple. `client/src/index.css`
+gained `--accent-2`, `--accent-glow`, `--accent-gradient` (violet→pink,
+both light/dark sets) used for the gradient wordmark
+(`background-clip: text`), primary buttons, and avatar-fallback
+backgrounds. `client/src/components/icons.tsx` is a new small set of
+hand-written inline SVG icons (reply/repost/heart/zap/settings,
+`currentColor` stroke, `filled` prop for active states) replacing every
+emoji in `EngagementBar.tsx`, `ZapButton.tsx`, and the header settings
+gear in `App.tsx` — fixes the emoji-rendering-inconsistency issue found
+during the previous pass's verification, not just a cosmetic swap.
+`client/src/lib/time.ts` adds `formatRelativeTime()` (built on
+`Intl.RelativeTimeFormat`, no new dependency) and `Feed.tsx` now shows it
+next to each author name — timestamps didn't exist at all before this.
+`NoteContent.tsx` was restructured around a `truncateSafely()` helper
+that cuts at the last whitespace before the 400-char limit and then runs
+the *safe* slice through the same `parseContentSegments()` path used for
+expanded notes, so link chips render correctly in both the collapsed and
+expanded states — this replaced the old two-branch component (one path
+for plain-text truncation, one for full parsing) with a single path,
+fixing the bug and removing duplication at the same time. Media stays
+hidden until a truncated note is expanded (preserved from before,
+intentional — don't load heavy content the reader hasn't opted into).
+`Composer.tsx` now shows the active signer's own avatar next to the
+input (via `useActiveUser` + `useProfile`, the same reactive-cache hooks
+used elsewhere) instead of a bare textarea. `Feed.tsx` also gained a
+loading skeleton (driven by the subscription's `eose` event, so "no
+notes yet" only renders once relays have actually finished their initial
+reply — before that it's a pulse-animated skeleton) and a friendlier
+empty state. Verified in-browser: desktop and a 390×750 mobile viewport
+(no overflow), both light and dark palettes (dark is the live OS
+setting; light was checked by temporarily forcing the light token values
+via injected CSS, since there's no in-app theme toggle to switch OS
+preference from a script), like/reply interaction states, the settings
+panel, and real inline media (image) rendering with the new fade-in/
+border/max-height treatment — all against live public-relay content, no
+mock data.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 
