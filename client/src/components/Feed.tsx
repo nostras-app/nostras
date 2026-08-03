@@ -9,15 +9,19 @@ function FeedItem({ event }: { event: NDKEvent }) {
   const label = profile?.name || profile?.displayName || `${event.author.npub.slice(0, 12)}…`
 
   return (
-    <li>
-      <div>
-        {profile?.picture && (
-          <img src={profile.picture} alt="" width={24} height={24} />
-        )}
-        <strong>{label}</strong>
+    <li className="feed-item">
+      {profile?.picture ? (
+        <img className="avatar" src={profile.picture} alt="" />
+      ) : (
+        <span className="avatar-fallback">{label.charAt(0)}</span>
+      )}
+      <div className="feed-item-body">
+        <span className="feed-item-name">{label}</span>
+        <p className="feed-item-content">{event.content}</p>
+        <div className="feed-item-footer">
+          <ZapButton event={event} />
+        </div>
       </div>
-      <p>{event.content}</p>
-      <ZapButton event={event} />
     </li>
   )
 }
@@ -41,11 +45,11 @@ export function Feed() {
   }, [])
 
   if (events.length === 0) {
-    return <p>No notes yet.</p>
+    return <p className="feed-empty">No notes yet.</p>
   }
 
   return (
-    <ul>
+    <ul className="feed">
       {events.map((event) => (
         <FeedItem key={event.id} event={event} />
       ))}

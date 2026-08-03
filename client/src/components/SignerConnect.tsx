@@ -62,9 +62,15 @@ export function SignerConnect() {
 
   if (status === 'connected') {
     return (
-      <div>
-        <p>Remote signer connected as {activeUser?.npub}</p>
-        <button type="button" onClick={handleDisconnect}>
+      <div className="field-row" style={{ alignItems: 'center' }}>
+        <p className="field-hint" style={{ flex: 1 }}>
+          Connected as {activeUser?.npub.slice(0, 16)}…
+        </p>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={handleDisconnect}
+        >
           Disconnect
         </button>
       </div>
@@ -72,42 +78,47 @@ export function SignerConnect() {
   }
 
   return (
-    <div>
-      <p>
+    <div className="stack">
+      <p className="field-hint">
         Signing with a temporary local dev key. Connect a real signer
         instead:
       </p>
-      <button
-        type="button"
-        onClick={handleConnectExtension}
-        disabled={status === 'connecting' || !hasNip07Extension()}
-        title={
-          hasNip07Extension()
-            ? undefined
-            : 'No NIP-07 browser extension detected (e.g. Alby, nos2x)'
-        }
-      >
-        {status === 'connecting'
-          ? 'Connecting…'
-          : hasNip07Extension()
-            ? 'Connect browser extension (NIP-07)'
-            : 'No extension detected'}
-      </button>
-      <div>
+      <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={handleConnectExtension}
+          disabled={status === 'connecting' || !hasNip07Extension()}
+          title={
+            hasNip07Extension()
+              ? undefined
+              : 'No NIP-07 browser extension detected (e.g. Alby, nos2x)'
+          }
+        >
+          {status === 'connecting'
+            ? 'Connecting…'
+            : hasNip07Extension()
+              ? 'Connect browser extension (NIP-07)'
+              : 'No extension detected'}
+        </button>
+      </div>
+      <div className="field-row">
         <input
+          className="input"
           value={uri}
           onChange={(e) => setUri(e.target.value)}
           placeholder="bunker://... (NIP-46)"
         />
         <button
           type="button"
+          className="btn btn-secondary btn-sm"
           onClick={handleConnectBunker}
           disabled={status === 'connecting' || !uri.trim()}
         >
           {status === 'connecting' ? 'Connecting…' : 'Connect'}
         </button>
       </div>
-      {error && <p role="alert">{error}</p>}
+      {error && <p className="alert-error">{error}</p>}
     </div>
   )
 }

@@ -11,6 +11,7 @@ type ConnectionState = 'connecting' | 'connected' | 'error'
 
 function App() {
   const [state, setState] = useState<ConnectionState>('connecting')
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -33,19 +34,55 @@ function App() {
   }, [])
 
   return (
-    <>
-      <h1>NOSTRAS</h1>
-      <p>Status: {state}</p>
+    <div className="app">
+      <header className="app-header">
+        <h1>NOSTRAS</h1>
+        <div className="header-right">
+          <span className="status-pill" data-state={state}>
+            <span className="status-dot" />
+            {state}
+          </span>
+          {state === 'connected' && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setSettingsOpen((v) => !v)}
+              aria-label="Account settings"
+              title="Account settings"
+            >
+              ⚙
+            </button>
+          )}
+        </div>
+      </header>
+
       {state === 'connected' && (
-        <>
-          <SignerConnect />
-          <NwcConnect />
-          <ProfileEditor />
-          <Composer />
+        <main className="app-main">
+          {settingsOpen && (
+            <section className="card settings-panel">
+              <div className="settings-section">
+                <span className="settings-section-title">Signer</span>
+                <SignerConnect />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Wallet</span>
+                <NwcConnect />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Profile</span>
+                <ProfileEditor />
+              </div>
+            </section>
+          )}
+
+          <section className="card">
+            <Composer />
+          </section>
+
           <Feed />
-        </>
+        </main>
       )}
-    </>
+    </div>
   )
 }
 

@@ -19,20 +19,24 @@ export function Composer() {
   }
 
   return (
-    <div>
+    <div className="composer">
       <textarea
+        className="textarea"
         value={content}
         onChange={(e) => setContent(e.target.value)}
         placeholder="What's happening?"
         rows={3}
       />
-      <button
-        type="button"
-        onClick={handlePublish}
-        disabled={publishing || !content.trim()}
-      >
-        {publishing ? 'Publishing…' : 'Publish'}
-      </button>
+      <div className="btn-row">
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={handlePublish}
+          disabled={publishing || !content.trim()}
+        >
+          {publishing ? 'Publishing…' : 'Publish'}
+        </button>
+      </div>
     </div>
   )
 }

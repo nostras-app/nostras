@@ -40,20 +40,31 @@ export function ProfileEditor() {
   }
 
   return (
-    <div>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Name"
-      />
-      <input
-        value={about}
-        onChange={(e) => setAbout(e.target.value)}
-        placeholder="About"
-      />
-      <button type="button" onClick={handleSave} disabled={saving}>
-        {saving ? 'Saving…' : 'Save profile'}
-      </button>
+    <div className="stack">
+      <div className="field-row">
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name"
+        />
+        <input
+          className="input"
+          value={about}
+          onChange={(e) => setAbout(e.target.value)}
+          placeholder="About"
+        />
+      </div>
+      <div className="btn-row">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? 'Saving…' : 'Save profile'}
+        </button>
+      </div>
     </div>
   )
 }

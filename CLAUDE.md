@@ -72,6 +72,21 @@ request/response protocol wiring is correct; it has not been exercised
 against a real wallet, since that would mean an AI agent authorizing a
 real financial transaction.
 
+The client also got a real design pass (previously plain unstyled HTML).
+`client/src/index.css` holds the design tokens (CSS custom properties:
+`--bg`, `--bg-card`, `--text`, `--accent`, `--success`, `--danger`,
+`--zap`, etc. — both a light and a `prefers-color-scheme: dark` set,
+already existed from the Vite template and were extended rather than
+replaced). `client/src/App.css` holds actual component styles (`.card`,
+`.btn`/`.btn-primary`/`.btn-secondary`, `.input`/`.textarea`, `.feed-item`,
+`.zap-pill`, etc.) — components use these classes, no CSS-in-JS or
+Tailwind. `App.tsx` now has a header (wordmark + connection status pill +
+gear icon) and tucks `SignerConnect`/`NwcConnect`/`ProfileEditor` into a
+collapsible settings panel instead of always showing them, so the primary
+view is just the composer and feed. Verified visually in-browser: desktop,
+a 390×750 mobile viewport (no overflow, cards reflow correctly), the
+settings panel open/closed, and the zap amount/invoice panel expansion.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 

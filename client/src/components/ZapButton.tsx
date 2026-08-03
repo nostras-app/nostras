@@ -48,7 +48,7 @@ export function ZapButton({ event }: { event: NDKEvent }) {
 
   if (state === 'idle') {
     return (
-      <button type="button" onClick={() => setState('open')}>
+      <button type="button" className="zap-pill" onClick={() => setState('open')}>
         ⚡ {total > 0 ? `${total} sats` : 'Zap'}
       </button>
     )
@@ -58,47 +58,62 @@ export function ZapButton({ event }: { event: NDKEvent }) {
     state === 'invoice' || state === 'paying' || state === 'paid'
 
   return (
-    <div>
-      <input
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-        placeholder="sats"
-        inputMode="numeric"
-      />
-      <button
-        type="button"
-        onClick={handleGetInvoice}
-        disabled={state === 'fetching'}
-      >
-        {state === 'fetching' ? 'Fetching…' : 'Get invoice'}
-      </button>
-      <button type="button" onClick={() => setState('idle')}>
-        Cancel
-      </button>
+    <div className="zap-panel">
+      <div className="zap-amount-row">
+        <input
+          className="input"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="sats"
+          inputMode="numeric"
+        />
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={handleGetInvoice}
+          disabled={state === 'fetching'}
+        >
+          {state === 'fetching' ? 'Fetching…' : 'Get invoice'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => setState('idle')}
+        >
+          Cancel
+        </button>
+      </div>
 
       {showInvoice && (
-        <div>
-          <textarea readOnly value={invoice} rows={3} />
-          <button type="button" onClick={handleCopyInvoice}>
-            Copy invoice
-          </button>
-          {getSavedNwcUri() && (
+        <div className="stack">
+          <textarea className="textarea" readOnly value={invoice} rows={3} />
+          <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
             <button
               type="button"
-              onClick={handlePayWithWallet}
-              disabled={state === 'paying' || state === 'paid'}
+              className="btn btn-secondary btn-sm"
+              onClick={handleCopyInvoice}
             >
-              {state === 'paid'
-                ? 'Paid ✓'
-                : state === 'paying'
-                  ? 'Paying…'
-                  : 'Pay with connected wallet'}
+              Copy invoice
             </button>
-          )}
+            {getSavedNwcUri() && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handlePayWithWallet}
+                disabled={state === 'paying' || state === 'paid'}
+              >
+                {state === 'paid'
+                  ? 'Paid ✓'
+                  : state === 'paying'
+                    ? 'Paying…'
+                    : 'Pay with connected wallet'}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      {error && <p role="alert">{error}</p>}
+      {error && <p className="alert-error">{error}</p>}
     </div>
   )
 }

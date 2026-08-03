@@ -19,9 +19,15 @@ export function NwcConnect() {
 
   if (savedUri) {
     return (
-      <div>
-        <p>Wallet connected (NWC)</p>
-        <button type="button" onClick={handleDisconnect}>
+      <div className="field-row" style={{ alignItems: 'center' }}>
+        <p className="field-hint" style={{ flex: 1 }}>
+          Wallet connected (NWC)
+        </p>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={handleDisconnect}
+        >
           Disconnect wallet
         </button>
       </div>
@@ -29,13 +35,19 @@ export function NwcConnect() {
   }
 
   return (
-    <div>
+    <div className="field-row">
       <input
+        className="input"
         value={input}
         onChange={(e) => setInput(e.target.value)}
         placeholder="nostr+walletconnect://..."
       />
-      <button type="button" onClick={handleConnect} disabled={!input.trim()}>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        onClick={handleConnect}
+        disabled={!input.trim()}
+      >
         Connect wallet
       </button>
     </div>
