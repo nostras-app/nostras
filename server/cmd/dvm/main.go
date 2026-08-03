@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -15,14 +17,25 @@ import (
 
 // NOSTRAS DVM: a NIP-90 Data Vending Machine offering text summarization
 // (job kind 5001 -> result kind 6001, per the NIP-90 kind registry). This is
-// the proof-of-concept DVM from the roadmap's Phase 3 — free (no payment
-// gating yet), listening on the local relay only.
+// the proof-of-concept DVM from the roadmap's Phase 3, listening on the
+// local relay only. Payment-gated (kind 7000 "payment-required" + a real
+// NWC-minted invoice) when NOSTRAS_DVM_NWC_URI is configured; free
+// otherwise — see loadPaymentConfig.
 const (
 	relayURL        = "ws://localhost:7777"
 	kindJobRequest  = 5001
 	kindJobResult   = 6001
 	kindJobFeedback = 7000
+
+	defaultPriceSats  = 21
+	paymentPollEvery  = 3 * time.Second
+	paymentWaitWindow = 2 * time.Minute
 )
+
+type paymentConfig struct {
+	nwc       *nwcClient
+	priceSats int64
+}
 
 func main() {
 	loadEnvFile("../nostras.env")
@@ -40,6 +53,8 @@ func main() {
 		panic(err)
 	}
 
+	payment := loadPaymentConfig(ctx)
+
 	// Throwaway identity for this DVM instance. It never touches the user's
 	// real key material — it's just the pubkey the DVM signs job
 	// feedback/results with.
@@ -47,6 +62,11 @@ func main() {
 	pk, _ := nostr.GetPublicKey(sk)
 	fmt.Println("NOSTRAS DVM (NIP-90 summarization, kind 5001 -> 6001) running as", pk)
 	fmt.Println("listening on", relayURL)
+	if payment == nil {
+		fmt.Println("payment gating: OFF (set NOSTRAS_DVM_NWC_URI to enable)")
+	} else {
+		fmt.Printf("payment gating: ON — %d sats per job\n", payment.priceSats)
+	}
 
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{Kinds: []int{kindJobRequest}, Since: &since}})
@@ -55,11 +75,37 @@ func main() {
 	}
 
 	for evt := range sub.Events {
-		go handleJob(ctx, relay, claude, sk, evt)
+		go handleJob(ctx, relay, claude, sk, payment, evt)
 	}
 }
 
-func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client, sk string, req *nostr.Event) {
+// loadPaymentConfig reads the DVM operator's own receiving wallet from
+// NOSTRAS_DVM_NWC_URI. Unset -> nil -> the DVM runs free, same as before.
+// A configured-but-unreachable wallet degrades to free mode too (with a
+// warning) rather than taking the whole DVM down.
+func loadPaymentConfig(ctx context.Context) *paymentConfig {
+	uri := os.Getenv("NOSTRAS_DVM_NWC_URI")
+	if uri == "" {
+		return nil
+	}
+
+	price := int64(defaultPriceSats)
+	if v := os.Getenv("NOSTRAS_DVM_PRICE_SATS"); v != "" {
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil && parsed > 0 {
+			price = parsed
+		}
+	}
+
+	client, err := newNwcClient(ctx, uri)
+	if err != nil {
+		fmt.Println("warning: NOSTRAS_DVM_NWC_URI set but could not connect, running free:", err)
+		return nil
+	}
+
+	return &paymentConfig{nwc: client, priceSats: price}
+}
+
+func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client, sk string, payment *paymentConfig, req *nostr.Event) {
 	iTag := req.Tags.Find("i")
 	if len(iTag) < 2 {
 		publishFeedback(ctx, relay, sk, req, "error", "missing required i tag (input)")
@@ -86,6 +132,19 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 		return
 	}
 
+	if payment != nil {
+		paid, err := requirePayment(ctx, relay, sk, payment, req)
+		if err != nil {
+			publishFeedback(ctx, relay, sk, req, "error", err.Error())
+			return
+		}
+		if !paid {
+			// requirePayment already published the "payment not received"
+			// feedback on timeout.
+			return
+		}
+	}
+
 	publishFeedback(ctx, relay, sk, req, "processing", "")
 
 	summary, err := summarize(ctx, claude, text)
@@ -95,6 +154,34 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 	}
 
 	publishResult(ctx, relay, sk, req, summary)
+}
+
+// requirePayment mints a real invoice via the operator's NWC wallet,
+// publishes it as a NIP-90 "payment-required" feedback event, and polls the
+// wallet until the invoice is settled or the wait window expires.
+func requirePayment(ctx context.Context, relay *nostr.Relay, sk string, payment *paymentConfig, req *nostr.Event) (bool, error) {
+	amountMsat := payment.priceSats * 1000
+	inv, err := payment.nwc.MakeInvoice(ctx, amountMsat, "NOSTRAS DVM summarization job "+req.ID[:8])
+	if err != nil {
+		return false, fmt.Errorf("could not create invoice: %w", err)
+	}
+
+	publishPaymentRequired(ctx, relay, sk, req, amountMsat, inv.Invoice)
+
+	deadline := time.Now().Add(paymentWaitWindow)
+	for time.Now().Before(deadline) {
+		time.Sleep(paymentPollEvery)
+		status, err := payment.nwc.LookupInvoice(ctx, inv.PaymentHash)
+		if err != nil {
+			continue // transient lookup failure — keep polling until the deadline
+		}
+		if status.SettledAt != nil && *status.SettledAt > 0 {
+			return true, nil
+		}
+	}
+
+	publishFeedback(ctx, relay, sk, req, "error", "payment not received in time")
+	return false, nil
 }
 
 func summarize(ctx context.Context, claude anthropic.Client, text string) (string, error) {
@@ -126,6 +213,21 @@ func publishFeedback(ctx context.Context, relay *nostr.Relay, sk string, req *no
 		Content:   message,
 		Tags: nostr.Tags{
 			{"status", status},
+			{"e", req.ID},
+			{"p", req.PubKey},
+		},
+	}
+	signAndPublish(ctx, relay, sk, evt)
+}
+
+func publishPaymentRequired(ctx context.Context, relay *nostr.Relay, sk string, req *nostr.Event, amountMsat int64, bolt11 string) {
+	evt := nostr.Event{
+		Kind:      kindJobFeedback,
+		CreatedAt: nostr.Now(),
+		Content:   "",
+		Tags: nostr.Tags{
+			{"status", "payment-required"},
+			{"amount", strconv.FormatInt(amountMsat, 10), bolt11},
 			{"e", req.ID},
 			{"p", req.PubKey},
 		},

@@ -145,8 +145,7 @@ exists.
   shares the relay's dependencies. Offers text summarization (job kind
   `5001` -> result kind `6001`, per the NIP-90 kind registry — see
   `github.com/nbd-wtf/go-nostr/nip90` for the full catalog). Listens on the
-  local relay only, free (no payment gating yet — that's the natural next
-  step alongside the NIP-57/NWC work above). Uses the real Claude API
+  local relay only. Uses the real Claude API
   (`github.com/anthropics/anthropic-sdk-go`, model `claude-opus-5`) for the
   actual summarization — this is not a placeholder/mock, per an explicit
   user decision to wire up a real LLM rather than a naive heuristic.
@@ -161,6 +160,37 @@ exists.
   `EVENT` frames over the wire — normal, allowed relay behavior; only one
   real API call was made. Real clients, including this project's own
   `Feed.tsx`, already dedupe by event ID for exactly this reason.)
+- **The DVM is payment-gated** (`server/cmd/dvm/nwc.go` +
+  `requirePayment`/`loadPaymentConfig` in `main.go`) via a hand-rolled Go
+  NIP-47 (NWC) client — mints a real invoice through the DVM operator's own
+  receiving wallet (`make_invoice`), publishes it as a `kind:7000`
+  `payment-required` feedback event with an `amount` tag
+  (`[msats, bolt11]` per NIP-90), then polls `lookup_invoice` every 3s for
+  up to 2 minutes before either proceeding (summary published normally) or
+  giving up with an `error` feedback. **Set `NOSTRAS_DVM_NWC_URI`** (a
+  `nostr+walletconnect://` string for a wallet *you* control that can mint
+  invoices) **in `nostras.env` to enable gating** — unset, or unreachable
+  at startup, and the DVM degrades to free mode with a warning rather than
+  refusing to start. Optional `NOSTRAS_DVM_PRICE_SATS` (default 21).
+  Verified end-to-end against a disposable mock wallet (fake keys, fake
+  invoice, auto-"settles" 5s after `make_invoice` to simulate a real
+  payment): confirmed `payment-required` fires immediately with the
+  correct amount, the summary is genuinely withheld until the mock
+  reports `settled_at`, and only then does `processing` -> a real
+  Claude-generated `kind:6001` result follow. The negative path (payment
+  never arrives -> `error` after the 2-minute window) was not live-timed
+  given the wait, but is the same simple deadline-loop code already
+  exercised on the success path — verified by review, not by a live run.
+  **Evaluated and declined for now**: a related external project
+  (`github.com/llmops-pro/search-service`) offers paid web search, but
+  over L402/HTTP rather than NIP-90/Nostr, and is explicitly a "v0
+  scaffold, not production-hardened" per its own README — integrating it
+  now would mean bridging two different payment/transport protocols and
+  pulling in a live, real-money, stranger-facing service before this
+  project has any of that maturity itself. Worth revisiting later as a
+  NIP-90 search job (kind 5302) that reimplements the same idea
+  (SearXNG backend) natively in Nostr events instead of L402, not as a
+  direct integration of that repo.
 
 ## Key decisions already locked (see strategy doc for full reasoning)
 
