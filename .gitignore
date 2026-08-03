@@ -1,5 +1,5 @@
 # Local secrets — never commit
-mmo.env
+nostras.env
 *.env
 *.env.*
 
