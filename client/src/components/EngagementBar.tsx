@@ -3,13 +3,24 @@ import { NDKEvent } from '@nostr-dev-kit/ndk'
 import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { useEventCount } from '../hooks/useEventCount'
+import { useBookmark } from '../hooks/useBookmark'
 import { ZapButton } from './ZapButton'
-import { ReplyIcon, RepostIcon, HeartIcon } from './icons'
+import { TranslateButton } from './TranslateButton'
+import { NoteMenu } from './NoteMenu'
+import {
+  ReplyIcon,
+  RepostIcon,
+  HeartIcon,
+  BookmarkIcon,
+  ServerIcon,
+} from './icons'
 
 export function EngagementBar({ event }: { event: NDKEventType }) {
   const likeCount = useEventCount(event.id, 7)
   const repostCount = useEventCount(event.id, 6)
   const replyCount = useEventCount(event.id, 1)
+  const { isBookmarked, toggle: toggleBookmark, busy: bookmarkBusy } =
+    useBookmark(event.id)
 
   const [liked, setLiked] = useState(false)
   const [reposted, setReposted] = useState(false)
@@ -105,6 +116,28 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
           {likeCount > 0 ? <span>{likeCount}</span> : null}
         </button>
         <ZapButton event={event} />
+      </div>
+
+      <div className="engagement-row engagement-row-secondary">
+        <div className="engagement-group">
+          <button
+            type="button"
+            className={`engage-btn engage-btn-bookmark${isBookmarked ? ' engage-btn-active' : ''}`}
+            onClick={toggleBookmark}
+            disabled={bookmarkBusy}
+            title={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+          >
+            <BookmarkIcon filled={isBookmarked} />
+          </button>
+          <span className="seen-on-relays" title="Seen on this many relays">
+            <ServerIcon />
+            {event.onRelays.length}
+          </span>
+        </div>
+        <div className="engagement-group">
+          <TranslateButton event={event} />
+          <NoteMenu event={event} />
+        </div>
       </div>
 
       {replying && (

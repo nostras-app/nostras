@@ -55,6 +55,7 @@ function FeedSkeleton() {
 export function Feed() {
   const [events, setEvents] = useState<NDKEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [, forceUpdate] = useState(0)
 
   useEffect(() => {
     const sub = ndk.subscribe({ kinds: [1], limit: 50 })
@@ -71,6 +72,12 @@ export function Feed() {
     // eose = relays have sent everything they currently have; after this,
     // an empty list means "genuinely no notes yet", not "still loading".
     sub.on('eose', () => setLoading(false))
+
+    // event:dup fires when a relay we're already subscribed to confirms an
+    // event we already have — it's how event.onRelays grows over time.
+    // Nothing about `events` itself changes, so force a re-render to pick
+    // up the new count on the "seen on N relays" indicator.
+    sub.on('event:dup', () => forceUpdate((n) => n + 1))
 
     return () => sub.stop()
   }, [])

@@ -162,6 +162,63 @@ panel, and real inline media (image) rendering with the new fade-in/
 border/max-height treatment — all against live public-relay content, no
 mock data.
 
+**Bookmark, seen-on-relays, translate, note menu (2026-08-04)**: four
+more icons matching a reference layout the user provided. Bookmark
+(`client/src/hooks/useBookmark.ts`) is a real NIP-51 kind:10003 list —
+fetches the active user's existing list, toggles this note's `e` tag,
+republishes the whole list via `devPublishRelaySet`, same replaceable-list
+pattern reused for the mute list below. "Seen on N relays" reads NDK's
+`event.onRelays` (populated by NDK's own dedup tracking as duplicate
+copies of the same event arrive from different relays in the pool) —
+`Feed.tsx` re-renders on the subscription's `event:dup` so the count
+keeps growing after the initial render instead of freezing at 1.
+
+Translate is a **real NIP-90 DVM job** (kind 5002 → 6002), not a stub —
+the DVM server binary (`server/cmd/dvm/main.go`) was extended to dispatch
+by request kind instead of hardcoding summarization: `handleJob` now
+picks `summarize` or `translateText` (a second Claude API call, same
+pattern as summarization, target language read from a
+`["param","language",<ISO-639-1 code>]` tag, mapped to an English name via
+a small `languageNames` table since Claude follows a name better than a
+bare code) and `publishResult` takes the result kind as a parameter
+instead of assuming 6001. `client/src/lib/dvm.ts` is the client half of
+the same protocol — publishes the job request, subscribes to
+`[7000, resultKind]` tagging it, and reports
+processing/payment-required/done/error, reusing the exact tag shapes
+(`status`, `amount` as `[msats, bolt11]`) the server already emits for
+summarization. **Important protocol detail found during verification**:
+the job request sends the note's `content` directly as a NIP-90 `"text"`
+input (`["i", text, "text"]`), not an `"event"` input pointing at the
+note's id — an early version pointed at the id and failed with "could not
+find referenced event" for most of the feed, because most notes arrive at
+the browser straight from the public relays in the pool and were never
+published to the local relay the DVM queries against. Sending content
+directly needed no server change, since the server's `"event"` handling
+was always the special case, not the default. `TranslateButton.tsx`
+reuses the exact NWC invoice/pay-with-wallet UI pattern from `ZapButton`
+for the payment-required path. Verified end-to-end for real: a live
+Japanese note translated to Spanish via the actual Claude API, in free
+mode (no `NOSTRAS_DVM_NWC_URI` set in this environment) — the payment-gated
+path itself was already proven correct in the earlier DVM work and wasn't
+re-exercised here.
+
+`NoteMenu.tsx` is the three-dot dropdown: copy event ID / user ID (npub)
+/ share link (`event.encode()` → `https://njump.me/<nevent>`) / note
+content are pure clipboard actions; "view raw event" shows
+`event.rawEvent()` as pretty-printed JSON; "report" publishes a real
+NIP-56 kind:1984 event with an NIP-56 reason type
+(`["e", id, reason]` / `["p", pubkey, reason]`) picked from a
+spam/nudity/profanity/illegal/impersonation/malware/other list; "mute
+user" is a real NIP-51 kind:10000 list edit, same fetch-then-republish
+pattern as bookmarks. All publish through `devPublishRelaySet`. Every
+action here — bookmark toggle, mute, and report reason selection — was
+verified by round-tripping through the actual local relay (`nak req`)
+and checking the resulting event's tags, not just the UI state. Known
+simplification, consistent with likes/reposts elsewhere: bookmarked/muted/
+reported state isn't pre-loaded against the existing list on first
+render, only updated locally once the user actually interacts with a
+given note's controls.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 
