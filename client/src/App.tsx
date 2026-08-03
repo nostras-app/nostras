@@ -37,7 +37,11 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>NOSTRAS</h1>
+        <div className="header-spacer" aria-hidden="true" />
+        <div className="brand">
+          <img src="/favicon.svg" alt="" className="brand-icon" />
+          <h1>NOSTRAS</h1>
+        </div>
         <div className="header-right">
           <span className="status-pill" data-state={state}>
             <span className="status-dot" />
