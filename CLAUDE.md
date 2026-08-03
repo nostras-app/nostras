@@ -4,6 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
+App name: **NOSTRAS**.
+
+
 A Nostr PWA client paired with a self-hosted Nostr relay/node, distributed
 without app stores. The client is the trust-neutral, protocol-native piece;
 the relay/node is where differentiated services (search, aggregation,

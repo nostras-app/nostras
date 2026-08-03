@@ -440,6 +440,14 @@ have been deliberately decided (not defaulted into).
 
 ## Decisions log
 
+### App name: NOSTRAS (decided)
+
+**Choice**: the client app is named **NOSTRAS**. Used as the npm package
+name (`nostras`), the PWA display name (manifest `name`/`short_name`), and
+the `index.html` title.
+
+**Status**: confirmed by user (2026-08-03).
+
 ### Relay software: khatru (decided)
 
 **Choice**: build the relay on [khatru](https://github.com/fiatjaf/khatru)
