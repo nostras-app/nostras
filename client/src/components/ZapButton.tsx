@@ -49,9 +49,14 @@ export function ZapButton({ event }: { event: NDKEvent }) {
 
   if (state === 'idle') {
     return (
-      <button type="button" className="zap-pill" onClick={() => setState('open')}>
+      <button
+        type="button"
+        className="engage-btn engage-btn-zap"
+        onClick={() => setState('open')}
+        title="Zap"
+      >
         <ZapIcon filled />
-        {total > 0 ? `${total} sats` : 'Zap'}
+        {total > 0 ? <span>{total}</span> : null}
       </button>
     )
   }

@@ -503,7 +503,9 @@
 .engagement-row {
   display: flex;
   align-items: center;
-  gap: 18px;
+  flex-wrap: wrap;
+  gap: 4px;
+  position: relative;
 }
 
 .engage-btn {
@@ -554,24 +556,15 @@
   color: #f43f5e;
 }
 
+.engage-btn-zap:hover:not(:disabled) {
+  background: var(--zap-bg);
+  color: var(--zap);
+}
+
 .reply-composer {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.engagement-row-secondary {
-  justify-content: space-between;
-  padding-top: 8px;
-  margin-top: 2px;
-  border-top: 1px solid var(--border);
-}
-
-.engagement-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  position: relative;
 }
 
 .engage-btn-bookmark:hover:not(:disabled) {
@@ -715,33 +708,7 @@
   z-index: 20;
 }
 
-/* ---------- Zap button ---------- */
-
-.zap-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--zap);
-  background: var(--zap-bg);
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 6px 12px;
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.zap-pill svg {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
-
-.zap-pill:hover {
-  border-color: var(--zap);
-  box-shadow: 0 0 0 3px var(--zap-bg);
-}
+/* ---------- Zap panel (expanded state) ---------- */
 
 .zap-panel {
   display: flex;

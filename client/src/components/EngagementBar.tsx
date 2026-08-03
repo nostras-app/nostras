@@ -116,28 +116,21 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
           {likeCount > 0 ? <span>{likeCount}</span> : null}
         </button>
         <ZapButton event={event} />
-      </div>
-
-      <div className="engagement-row engagement-row-secondary">
-        <div className="engagement-group">
-          <button
-            type="button"
-            className={`engage-btn engage-btn-bookmark${isBookmarked ? ' engage-btn-active' : ''}`}
-            onClick={toggleBookmark}
-            disabled={bookmarkBusy}
-            title={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
-          >
-            <BookmarkIcon filled={isBookmarked} />
-          </button>
-          <span className="seen-on-relays" title="Seen on this many relays">
-            <ServerIcon />
-            {event.onRelays.length}
-          </span>
-        </div>
-        <div className="engagement-group">
-          <TranslateButton event={event} />
-          <NoteMenu event={event} />
-        </div>
+        <button
+          type="button"
+          className={`engage-btn engage-btn-bookmark${isBookmarked ? ' engage-btn-active' : ''}`}
+          onClick={toggleBookmark}
+          disabled={bookmarkBusy}
+          title={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+        >
+          <BookmarkIcon filled={isBookmarked} />
+        </button>
+        <span className="seen-on-relays" title="Seen on this many relays">
+          <ServerIcon />
+          {event.onRelays.length}
+        </span>
+        <TranslateButton event={event} />
+        <NoteMenu event={event} />
       </div>
 
       {replying && (
