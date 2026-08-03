@@ -509,10 +509,77 @@ that.
 review; no revisit trigger unless the architecture itself changes to
 introduce real custody.
 
-## Next steps
+## Post-roadmap: polish, hosting, distribution
 
-- Phase 0 tech stack for the PWA client: framework choice, key storage
-  approach, service worker/install setup.
+All four build-order phases (MVP → security/mobile UX → performance/
+retention → monetization) are done as of 2026-08-04. Remaining work is
+productionization, not new protocol features.
+
+### UI/UX polish (backlog, not started)
+
+The 2026-08-04 design pass (design tokens, cards, buttons, settings panel)
+made the client presentable but not yet "professional client" quality per
+the user's own assessment. Deliberately deferred — revisit when there's
+time to invest properly, ideally with a clearer point of view going in
+(reference apps, brand feel) rather than another open-ended pass.
+
+### Hosting: Fly.io (decided)
+
+**Choice**: host `server/` (relay + DVM) on Fly.io — the user already runs
+`llmops.pro` products there, so this is a consistency choice as much as a
+technical one, and Fly is a reasonable fit on the technical merits too.
+
+**Shape**:
+- One Fly app, two named processes sharing it: `web` (the relay, exposes
+  WSS on 443) and `dvm` (no exposed service, reaches the relay over Fly's
+  private network at `nostras.internal` rather than the public internet).
+- A Fly Volume backing `server/data/` (badger) and `server/search-index/`
+  (bluge) — both are embedded, single-process stores, which means **this
+  must run as one machine, not horizontally scaled**, unless the storage
+  backend is later swapped for something networked (e.g.
+  `eventstore/postgresql`). A real architectural constraint to remember,
+  not just a starting point.
+- `min_machines_running = 1`, no scale-to-zero — the relay holds live
+  WebSocket connections and the DVM listens continuously; Fly's
+  auto-stop-on-idle would break both.
+- Secrets via `fly secrets set`: `NOSTRAS_ANTHROPIC_API_KEY` and
+  `NOSTRAS_DVM_NWC_URI` (the **DVM's own operator wallet**, not the user's
+  personal one). **The user's personal `nostras.env` / real nsec must
+  never be deployed** — production only needs DVM-operator-level secrets,
+  not the user's personal identity.
+- The client (`client/`) is a static SPA build and doesn't need Fly
+  compute — a static host (Cloudflare Pages, Netlify, or Fly's own static
+  serving) is simpler/cheaper. Once the relay has a real `wss://` URL,
+  the hardcoded `ws://localhost:7777` in `client/src/lib/ndk.ts` needs to
+  become an env-driven config (e.g. `VITE_RELAY_URL`) so dev and prod
+  point at different relays.
+- Domain/TLS: free `<app>.fly.dev` with HTTPS/WSS by default, or a real
+  domain via `fly certs` if/when the user has one for this project.
+
+**Status**: plan agreed 2026-08-04, not yet implemented (no Dockerfile /
+fly.toml / env-driven relay URL exist yet).
+
+### PWA distribution (no app store required)
+
+- **Install mechanics**: on Android/desktop Chrome/Edge, add an explicit
+  "Install NOSTRAS" button that triggers the `beforeinstallprompt` flow
+  rather than relying on the browser's own subtle affordance. **iOS has
+  no install API** — Safari never auto-prompts, so the app needs its own
+  instructional UI ("tap Share → Add to Home Screen").
+- **Primary channel is the URL itself** — a landing page, QR codes, social
+  sharing. This replaces app-store search as the top-of-funnel.
+- **Optional store bridge** if store presence is ever wanted: Android via
+  a Trusted Web Activity (Google's `bubblewrap` tool wraps the PWA in a
+  thin native shell for a real Play Store listing; actual app updates
+  still bypass store review, only the wrapper submission is reviewed).
+  Microsoft Store has an equivalent, generally easier path via PWA
+  Builder. **Apple's App Store does not meaningfully support this** —
+  iOS stays Add-to-Home-Screen-only regardless.
+- **Nostr-native discovery** — list on community directories (e.g.
+  `nostrapps.com`) and use NIP-89 (app handler recommendation events) so
+  other Nostr clients/users can discover NOSTRAS natively within the
+  protocol, not just via a website — consistent with the project's
+  protocol-native positioning throughout.
 
 ---
 *This document is a running log of strategy discussion, not an implementation
