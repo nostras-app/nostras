@@ -19,22 +19,27 @@ read it for the "why" before making architectural changes.
 
 ## Status
 
-Pre-code / greenfield. `client/` and `server/` are empty scaffolding
-directories — there are no build, test, or lint commands yet. Do not assume
-any tooling exists until it's actually added; check for a `package.json` /
-`go.mod` before running package-manager commands. This repo is not yet a
-git repository.
+Phase 0 (MVP) scaffolding is in place in both `client/` and `server/`, but
+neither has real feed/relay behavior yet — just proof the stack connects
+end to end. Check `client/package.json` / `server/go.mod` before assuming a
+command exists.
 
 ## Architecture
 
-- `client/` — the PWA. Planned stack: React + Vite + `vite-plugin-pwa`
-  (Workbox-based service worker/installability) + NDK (Nostr Dev Kit) for
-  relay pool management, event caching, and signer abstraction.
-- `server/` — the relay/node. Planned stack: [khatru](https://github.com/fiatjaf/khatru)
+- `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
+  `vite-plugin-pwa` (Workbox-based service worker/installability, manifest
+  under the NOSTRAS name), `@nostr-dev-kit/ndk` for relay pool management,
+  event caching, and signer abstraction. Bootstrap relay list lives in
+  `client/src/lib/ndk.ts` (`ws://localhost:7777` placeholder for the local
+  khatru node + a couple of public relays for dev). Run with `npm run dev`
+  from `client/`.
+- `server/` — the relay/node. [khatru](https://github.com/fiatjaf/khatru)
   (Go relay framework), chosen over binary relays like `strfry` because
   later roadmap phases need to intercept/rewrite `REQ` filters in code
   (NIP-65 outbox aggregation, NIP-50 search) rather than configure a
-  black-box binary.
+  black-box binary. Storage is the `badger` eventstore backend (pure Go, no
+  cgo) writing to `server/data/` (gitignored). Listens on `:7777`. Run with
+  `go run .` from `server/`.
 
 ## Key decisions already locked (see strategy doc for full reasoning)
 
