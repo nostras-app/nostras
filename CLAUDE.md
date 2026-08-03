@@ -122,6 +122,23 @@ exists.
   `nak req -k 1 -a <pubkey> ws://localhost:7777` against a pubkey that had
   never touched the local relay — real notes came back, fetched live via
   that author's actual NIP-65 write relays.
+- **NIP-50 search is implemented** (`server/search.go`), using
+  `github.com/fiatjaf/eventstore/bluge` — a pure-Go (no cgo) full-text
+  index that stores only event IDs and fetches the actual events from the
+  badger store. Any `REQ` filter with a non-empty `search` field is routed
+  entirely to bluge instead of the normal query/aggregation path; filters
+  without `search` are unaffected. Indexed on `relay.StoreEvent` alongside
+  badger, so anything published directly to this relay is searchable.
+  **Known scope gap**: events pulled in via NIP-65 outbox aggregation
+  aren't indexed yet, since that path writes to the store directly rather
+  than through khatru's hooks — search currently only covers directly
+  published content. `relay.Info.AddSupportedNIP(50)` had to be added
+  explicitly — khatru only auto-advertises NIPs 9/45/77 based on which
+  hooks are registered, it has no concept of "search," so this one won't
+  show up in NIP-11 without setting it by hand. Verified locally (fully
+  testable in-sandbox, no outbound relay connections needed): published
+  three notes with distinct content, confirmed each search term matched
+  only its note and an unmatched term returned nothing.
 
 ## Key decisions already locked (see strategy doc for full reasoning)
 
