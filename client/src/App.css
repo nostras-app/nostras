@@ -201,7 +201,8 @@
   background: var(--danger);
 }
 
-.status-pill[data-state='connecting'] .status-dot {
+.status-pill[data-state='connecting'] .status-dot,
+.status-pill[data-state='reconnecting'] .status-dot {
   background: var(--zap);
   animation: pulse 1.2s ease-in-out infinite;
 }

@@ -524,6 +524,78 @@ flex chain already having `min-width: 0` at every level checked. Root
 cause not yet isolated — flagged for a future pass, not fixed here since
 it predates and is unrelated to today's notifications work.
 
+**Client hardened to recover automatically from a local relay
+restart (2026-08-04)** — directly prompted by the user hitting exactly
+this while working (killed the relay from their own terminal to clear a
+stale badger lock, restarted it, and the already-open tab stayed stuck
+showing a loading skeleton forever). `client/src/lib/relayStatus.ts` is
+new: tracks the *local* relay's connection health specifically (not
+every relay in the pool) and exposes a `generation` counter that bumps
+only on a genuine recovery (disconnected → connected, not the initial
+connect). `client/src/hooks/useNoteFeed.ts` and `client/src/hooks/
+useNotifications.ts` — the app's two long-lived live subscriptions —
+both now depend on `generation`, so a relay recovery tears down the
+stale subscription and sends a fresh `REQ`, instead of leaving one that
+NDK never resends on its own. The header's status pill is layered with
+a live "reconnecting" state (`App.tsx`) without touching the existing
+one-time `state` gate that controls whether the shell renders at all —
+a relay hiccup shouldn't hide content that's still usable, just say so
+honestly instead of silently freezing on "connected".
+
+**This took real live debugging to get right, not just code that looked
+plausible** — worth recording in detail since the failure modes weren't
+guessable from documentation alone:
+1. First bug: compared `relay.url` to the bare `localRelayUrl` constant
+   directly. NDK's `normalizeRelayUrl` always appends a trailing slash
+   (`"ws://localhost:7777"` → `"ws://localhost:7777/"`), so the
+   comparison silently never matched and the listeners never fired at
+   all. Fixed by normalizing with NDK's own `normalizeRelayUrl` instead
+   of hand-matching the format.
+2. Second bug, found only by actually killing the relay process and
+   watching a real browser tab for several minutes (this could not have
+   been caught by reading NDK's source alone): NDK's own automatic
+   reconnection **schedules retries that never fire** in this exact
+   scenario. Confirmed live — inspected the relay's internal connectivity
+   state mid-hang (`status: DISCONNECTED`, no `reconnectTimeout`
+   pending, so nothing was queued to retry) and confirmed a *manual*
+   `relay.connect()` call from that exact stuck state succeeded
+   instantly. NDK's own silence-detection (a 2-minute keepalive + a 5s
+   liveness probe) correctly *detects* the drop — the pill correctly
+   showed "reconnecting" — but the retry *scheduler* it hands off to
+   afterward just doesn't run. Fixed by having `relayStatus.ts` own a
+   simple periodic retry (`relay.connect()` every 3s) once a disconnect
+   is detected, rather than trusting NDK's internal scheduler.
+3. Third bug, same live-test method: even after the module's own
+   `relay.connect()` call resolved and `relay.connected` was genuinely
+   `true`, the `"relay:ready"` event did not reliably fire again for a
+   relay that had already been through one disconnect/reconnect cycle —
+   so a status update that waited on that event stayed stuck showing
+   "reconnecting" even after the underlying connection had actually
+   recovered. Fixed by having the retry loop check `relay.connected`
+   directly after each attempt instead of depending on the event; the
+   event listener is kept too as a harmless redundant second path.
+
+**Verified for real, end to end, three separate times** (the first two
+runs each caught one of the bugs above): reload the app, confirm
+"connected"; kill the relay process by exact PID; restart it
+immediately so it's ready when the client notices; wait out the full
+detection window (~2.5 minutes, no page interaction); confirm the pill
+live-transitions "connected" → "reconnecting" → "connected" and fresh
+notes actually render — all with **zero manual page refresh and zero
+console commands**, purely from the running app noticing on its own.
+Debugged via a temporary `window.__ndk`/`window.__relayStatus` hook to
+inspect NDK's actual internal connectivity state directly rather than
+guessing from behavior alone — removed before finalizing, not shipped.
+
+**Scope note**: only `useNoteFeed`/`useNotifications` needed this —
+`BookmarksView`/`SearchView` are one-shot fetches triggered by explicit
+user action (opening the tab, submitting a search), not long-lived
+subscriptions, so they don't have the "stale subscription never
+resent" problem in the first place; a fresh fetch after the relay
+recovers just works normally. Detection latency (~2 minutes worst case)
+is NDK's own built-in silence-detection window, left as-is — legitimate
+existing library behavior, not something this fix tried to speed up.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 

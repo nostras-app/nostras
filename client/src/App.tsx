@@ -11,6 +11,7 @@ import { ProfileEditor } from './components/ProfileEditor'
 import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
 import { NavRail, type View } from './components/NavRail'
+import { useRelayStatus } from './hooks/useRelayStatus'
 import './App.css'
 
 type ConnectionState = 'connecting' | 'connected' | 'error'
@@ -18,6 +19,18 @@ type ConnectionState = 'connecting' | 'connected' | 'error'
 function App() {
   const [state, setState] = useState<ConnectionState>('connecting')
   const [activeView, setActiveView] = useState<View>('home')
+  const { status: relayStatus } = useRelayStatus()
+
+  // Layered on top of `state` rather than replacing it: `state` gates
+  // whether the app shell renders at all (set once, from the initial
+  // connect) and shouldn't flip back just because the relay hiccups later
+  // — that would hide content that's still perfectly usable. This only
+  // adds an honest "reconnecting" label when a relay drop happens after
+  // we were already up, instead of the pill silently freezing on
+  // "connected" while a subscription is actually stale (see
+  // lib/relayStatus.ts).
+  const displayState =
+    state === 'connected' && relayStatus === 'disconnected' ? 'reconnecting' : state
 
   useEffect(() => {
     let cancelled = false
@@ -55,9 +68,9 @@ function App() {
             <h1>NOSTRAS</h1>
           </div>
           <div className="header-right">
-            <span className="status-pill" data-state={state}>
+            <span className="status-pill" data-state={displayState}>
               <span className="status-dot" />
-              {state}
+              {displayState}
             </span>
           </div>
         </header>

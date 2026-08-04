@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk } from '../lib/ndk'
 import { useActiveUser } from './useActiveUser'
+import { useRelayStatus } from './useRelayStatus'
 
 const NOTIFICATION_KINDS = [1, 6, 7, 9735]
 
@@ -13,6 +14,7 @@ export function useNotifications() {
   const activeUser = useActiveUser()
   const [events, setEvents] = useState<NDKEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const { generation } = useRelayStatus()
 
   useEffect(() => {
     if (!activeUser) {
@@ -44,7 +46,9 @@ export function useNotifications() {
     sub.on('eose', () => setLoading(false))
 
     return () => sub.stop()
-  }, [activeUser])
+    // generation bumps only on a genuine local-relay recovery — see
+    // lib/relayStatus.ts — forcing a fresh REQ after a relay restart.
+  }, [activeUser, generation])
 
   return { events, loading }
 }
