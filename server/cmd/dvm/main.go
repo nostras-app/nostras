@@ -29,8 +29,6 @@ import (
 // from its actual expected API cost (see estimateJobCostSats) rather than
 // charged flat.
 const (
-	relayURL = "ws://localhost:7777"
-
 	kindJobRequestSummarize = 5001
 	kindJobResultSummarize  = 6001
 	kindJobRequestTranslate = 5002
@@ -106,6 +104,14 @@ func main() {
 		os.Exit(1)
 	}
 	claude := anthropic.NewClient(option.WithAPIKey(apiKey))
+
+	// Defaults to localhost for local dev; the Fly deployment sets this to
+	// the relay's address on Fly's private network (see server/fly.toml)
+	// instead of going out over the public internet.
+	relayURL := os.Getenv("NOSTRAS_RELAY_URL")
+	if relayURL == "" {
+		relayURL = "ws://localhost:7777"
+	}
 
 	ctx := context.Background()
 	relay, err := nostr.RelayConnect(ctx, relayURL)

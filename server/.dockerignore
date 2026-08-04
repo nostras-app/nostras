@@ -1,0 +1,5 @@
+data
+search-index
+*.exe
+nostras-server
+cmd/dvm/dvm

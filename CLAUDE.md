@@ -756,6 +756,74 @@ list is back to just the local relay — `nak req -k 10002` alone returned
 an unrelated real user's list from general relay traffic, a reminder that
 kind queries need an explicit `-a <pubkey>` filter on a shared relay.
 
+**Fly.io deploy prep (2026-08-04)**: NOSTRAS has a real domain now
+(`nostras.app`, registered via EuroDNS, bundled with `nostras.tech` as a
+defensive redirect target — see the support-site-plan memory) and a
+public GitHub org (`github.com/nostras-app`) for docs/support only. This
+entry covers making the server deployable to Fly.io per the hosting plan
+already decided (see the Architecture section below) — the actual `fly`
+account setup/deploy itself needs the user's own Fly login, not something
+this session could do.
+
+`server/main.go` and `server/cmd/dvm/main.go` had their previously
+hardcoded local-dev values (badger/bluge paths, listen port, the DVM's
+relay URL) made env-configurable, **with the exact same defaults as
+before** when the env vars are unset — verified by restarting both the
+relay and DVM locally after the change and confirming identical log
+output/behavior to pre-change (`./data`, `./search-index`, `:7777`,
+`ws://localhost:7777`), so local dev is unaffected. `client/src/lib/ndk.ts`'s
+`localRelayUrl` now reads `import.meta.env.VITE_RELAY_URL` first, same
+localhost fallback — verified in-browser that local dev still connects
+correctly with no env var set. **The `localRelayUrl` name stays
+`localRelayUrl`** even though in production it won't literally be
+"local" — renaming it would touch a large number of call sites for a
+purely cosmetic reason; the actual invariant it represents ("our own
+relay" — dev-safe publish scope, NIP-50 search scope) is what matters,
+documented inline at its definition.
+
+`server/Dockerfile` is a multi-stage build producing both the `relay`
+and `dvm` binaries from the one Go module, copied into a minimal Alpine
+final image with no default CMD — `fly.toml`'s `[processes]` supplies
+the actual command per process group. **Not build-tested locally** —
+this sandbox's Docker daemon socket isn't accessible
+(`permission denied`) — so the first real `fly deploy` doubles as the
+first real build test; be ready to iterate on it.
+
+`server/fly.toml`: one Fly app (placeholder name `nostras` — may need to
+change at `fly launch` time if taken, same way the GitHub org name was),
+two process groups sharing the image — `web` (the relay, the only one
+with an `[http_service]` block, so the only one that gets a public IP/
+TLS) and `dvm` (no service block — no public exposure, but still reachable
+from `web` over Fly's automatic private networking, which isn't something
+that needs enabling per-service). A Volume (`nostras_data`, create via
+`fly volumes create` before first deploy) is mounted at `/data` and
+scoped to the `web` process only via `mounts.processes`, since badger and
+bluge are both single-writer, single-process embedded stores — **this
+server cannot be horizontally scaled** past one machine per process group
+without swapping to a networked backend. `min_machines_running = 1` +
+`auto_stop_machines = false` on `web`'s http_service, matching the
+decided shape (the relay holds live WebSocket connections; Fly's
+autostop-on-idle would break that). **`NOSTRAS_RELAY_URL` for the DVM
+uses `ws://web.process.nostras.internal:7777`** — Fly's private-network
+hostname convention for reaching a specific process group without a
+public round-trip — **this specific hostname form is unverified against
+a live Fly deploy** (couldn't be, from this sandbox); confirm it actually
+resolves after the first real deploy (`fly logs --process dvm` should
+show a clean "listening on ws://web.process.nostras.internal:7777" with
+no connection error) rather than trusting it blindly.
+
+**Still needed before this can actually go live** (all require the
+user's own Fly login, which this session doesn't have): `flyctl auth
+login`, `fly apps create` (confirming the app name is available), `fly
+volumes create nostras_data`, `fly secrets set NOSTRAS_ANTHROPIC_API_KEY=...
+NOSTRAS_DVM_NWC_URI=...` (**the DVM's own operator wallet NWC string, not
+the user's personal one** — same distinction already established for
+local dev), `fly certs add nostras.app` once the app has a real IP to
+point DNS at, then `fly deploy`. The client (`client/`) still needs its
+own static hosting decision executed (Cloudflare Pages/Netlify/Fly
+static — decided but not implemented) with `VITE_RELAY_URL` set at its
+build time to `wss://nostras.app`.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

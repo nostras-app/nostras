@@ -2,10 +2,14 @@ import NDK, { NDKRelaySet } from '@nostr-dev-kit/ndk'
 import { getDevSigner } from './signer'
 import { getCustomRelays } from './customRelays'
 
-// Bootstrap relay set for local development. ws://localhost:7777 is the
-// self-hosted khatru node (server/); the public relays are just so the feed
-// isn't empty during early development.
-export const localRelayUrl = 'ws://localhost:7777'
+// The self-hosted khatru node (server/). Defaults to localhost for local
+// dev; the deployed build sets VITE_RELAY_URL (e.g. wss://nostras.app) at
+// build time via Fly/CI env vars — see server/fly.toml for the deploy
+// shape. Kept as "local" in naming/comments throughout this codebase since
+// that's still accurate for local dev, and "our own relay" is the actual
+// invariant that matters (dev-safe publishing, NIP-50 search scope) — not
+// literally running on localhost.
+export const localRelayUrl = import.meta.env.VITE_RELAY_URL || 'ws://localhost:7777'
 
 export const publicRelayUrls = ['wss://relay.damus.io', 'wss://relay.primal.net']
 

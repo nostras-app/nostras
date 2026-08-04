@@ -1,0 +1,55 @@
+# NOSTRAS relay + DVM — one Fly app, two process groups sharing the same
+# image (see Dockerfile). Only "web" (the relay) is exposed publicly;
+# "dvm" has no service block, so it gets no public IP, but can still reach
+# "web" over Fly's private network (6PN) since that's automatic per-app
+# infra, not something enabled per-service.
+#
+# App name/region are placeholders — set the real ones at `fly launch`/
+# `fly apps create` time (see CLAUDE.md's Fly.io deploy notes for the
+# exact command sequence, since this needs Fly account auth this file
+# alone can't provide).
+app = "nostras"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[processes]
+  web = "/app/relay"
+  dvm = "/app/dvm"
+
+# Only the relay (web) touches the badger/bluge stores directly, so only
+# it gets the volume mounted — both are single-writer, single-process
+# embedded stores (see CLAUDE.md), this can't be horizontally scaled.
+[[mounts]]
+  source      = "nostras_data"
+  destination = "/data"
+  processes   = ["web"]
+
+[http_service]
+  processes           = ["web"]
+  internal_port        = 7777
+  force_https          = true
+  auto_stop_machines   = false
+  auto_start_machines  = true
+  min_machines_running = 1
+
+# Shared across both processes — harmless, since each binary only reads
+# the env vars it actually uses (main.go ignores NOSTRAS_RELAY_URL,
+# cmd/dvm/main.go ignores the NOSTRAS_BADGER_PATH/BLUGE_PATH/PORT ones).
+[env]
+  NOSTRAS_BADGER_PATH = "/data/badger"
+  NOSTRAS_BLUGE_PATH  = "/data/bluge"
+  NOSTRAS_PORT        = "7777"
+  # <process-group>.process.<app>.internal is Fly's private-networking
+  # hostname convention for reaching a specific process group without
+  # going out over the public internet — NOT verified against a live Fly
+  # deploy yet (couldn't be, from this sandbox). Confirm this actually
+  # resolves and connects after the first real deploy (check `fly logs
+  # --process dvm` for "listening on" with no connection error); if it
+  # doesn't, the fallback is the plain "<app>.internal" form.
+  NOSTRAS_RELAY_URL   = "ws://web.process.nostras.internal:7777"
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "512mb"
