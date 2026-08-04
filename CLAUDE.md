@@ -449,6 +449,24 @@ interpret (like `search`) — always pass `ONLY_RELAY`**, or verify
 against the relay directly (`nak req`) rather than trusting that a
 client-rendered result list reflects real relay behavior.
 
+**Profile view landed, the nav rail's last remaining piece from the
+original ask (2026-08-04)**: per the user's own reference, their avatar
+now sits at the very top of the rail, above Home, instead of a generic
+disabled person icon in the middle — `NavRail.tsx` calls
+`useActiveUser`/`useProfile` itself to render it (real picture, or a
+gradient-fallback circle with `UserIcon` while the picture is missing/
+loading). Clicking it opens `client/src/components/ProfileView.tsx`: a
+header card (avatar, name, click-to-copy npub, about) above a feed of
+*only that user's own notes*. The own-notes feed reuses `FeedItem` from
+`Feed.tsx`, same as search results do. `client/src/hooks/useNoteFeed.ts`
+is a new extraction — `Feed.tsx`'s subscribe/dedup/sort/eose/event:dup
+logic pulled out so both the global feed and this author-scoped one
+share it instead of diverging into two copies; `useNoteFeed(authors?)`
+takes an optional pubkey array (omitted = global feed). Verified
+end-to-end: the profile feed genuinely only shows this identity's own
+past notes (confirmed against real notes published earlier in this same
+session, not a mock), npub copy works, no overflow on mobile.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 

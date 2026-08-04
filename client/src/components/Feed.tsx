@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
-import { ndk } from '../lib/ndk'
 import { useProfile } from '../hooks/useProfile'
+import { useNoteFeed } from '../hooks/useNoteFeed'
 import { formatRelativeTime } from '../lib/time'
 import { NoteContent } from './NoteContent'
 import { EngagementBar } from './EngagementBar'
@@ -35,7 +34,7 @@ export function FeedItem({ event }: { event: NDKEvent }) {
   )
 }
 
-function FeedSkeleton() {
+export function FeedSkeleton() {
   return (
     <ul className="feed">
       {[0, 1, 2].map((i) => (
@@ -53,34 +52,7 @@ function FeedSkeleton() {
 }
 
 export function Feed() {
-  const [events, setEvents] = useState<NDKEvent[]>([])
-  const [loading, setLoading] = useState(true)
-  const [, forceUpdate] = useState(0)
-
-  useEffect(() => {
-    const sub = ndk.subscribe({ kinds: [1], limit: 50 })
-
-    sub.on('event', (event: NDKEvent) => {
-      setEvents((prev) => {
-        if (prev.some((existing) => existing.id === event.id)) return prev
-        return [event, ...prev].sort(
-          (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0),
-        )
-      })
-    })
-
-    // eose = relays have sent everything they currently have; after this,
-    // an empty list means "genuinely no notes yet", not "still loading".
-    sub.on('eose', () => setLoading(false))
-
-    // event:dup fires when a relay we're already subscribed to confirms an
-    // event we already have — it's how event.onRelays grows over time.
-    // Nothing about `events` itself changes, so force a re-render to pick
-    // up the new count on the "seen on N relays" indicator.
-    sub.on('event:dup', () => forceUpdate((n) => n + 1))
-
-    return () => sub.stop()
-  }, [])
+  const { events, loading } = useNoteFeed()
 
   if (loading && events.length === 0) {
     return <FeedSkeleton />

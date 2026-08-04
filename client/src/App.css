@@ -84,6 +84,36 @@
   box-shadow: 0 0 0 2px var(--accent-border);
 }
 
+.nav-rail-avatar-btn {
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.nav-rail-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+
+.nav-rail-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-gradient);
+  color: #fff;
+}
+
+.nav-rail-avatar-fallback svg {
+  width: 18px;
+  height: 18px;
+}
+
+.nav-rail-avatar-btn.nav-rail-btn-active .nav-rail-avatar {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
 /* ---------- Header ---------- */
 
 .app-header {
@@ -449,6 +479,84 @@
 
 .search-view .input {
   flex: 1;
+}
+
+/* ---------- Profile ---------- */
+
+.profile-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.profile-header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.profile-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  flex: none;
+  object-fit: cover;
+  background: var(--accent-bg);
+}
+
+.profile-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-gradient);
+  color: #fff;
+}
+
+.profile-avatar-fallback svg {
+  width: 32px;
+  height: 32px;
+}
+
+.profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.profile-name {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.profile-npub {
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.profile-npub:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.profile-about {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 145%;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Loading skeleton ---------- */

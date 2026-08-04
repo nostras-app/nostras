@@ -3,6 +3,7 @@ import { ndk } from './lib/ndk'
 import { Composer } from './components/Composer'
 import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
+import { ProfileView } from './components/ProfileView'
 import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
 import { SignerConnect } from './components/SignerConnect'
@@ -75,6 +76,10 @@ function App() {
 
             <div className={panelClass('search')}>
               <SearchView />
+            </div>
+
+            <div className={panelClass('profile')}>
+              <ProfileView />
             </div>
 
             <section className={`card settings-panel ${panelClass('settings')}`}>
