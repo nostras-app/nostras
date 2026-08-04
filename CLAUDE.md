@@ -359,6 +359,62 @@ display (temporarily re-enabled the real wallet from the entry above
 to see a real `payment-required` state, confirmed "21 sats" matched the
 invoice's actual `lnbc210n...` amount, then restored free mode).
 
+**Left nav rail replaces the stacked single-column layout (2026-08-04)**:
+the user pointed at a reference (Bluesky's desktop icon rail) and asked
+for the same pattern — a persistent slim vertical icon bar, clicking an
+icon makes that "blob" (view) fill the screen instead of everything
+being stacked in one long scroll. `client/src/components/NavRail.tsx` is
+the new rail: Home, Ask Claude (`SparkleIcon`, orange `--anthropic`
+active color), Settings, and a highlighted Compose (pencil, always-on
+accent-gradient background — it's the primary action, not just another
+icon) are real and wired up; Notifications/Messages/Search/Profile/
+Bookmarks render `disabled` with a "coming soon" tooltip — a deliberate
+choice (confirmed with the user first) to visually match the full
+reference icon set without shipping dead functional UI, since NOSTRAS
+doesn't have notifications, DMs, search UI, or a profile page yet. (A
+dedicated "view all my bookmarks" screen doesn't exist either, despite
+the per-note bookmark *action* already existing — that would be new
+work, not just nav wiring, so it's disabled too for now.)
+
+`App.tsx` now tracks a single `activeView` (`'home' | 'compose' |
+'ask-claude' | 'settings'`) and every view's section gets a
+`view-panel`/`view-panel-active` class pair instead of being
+conditionally rendered — **all views stay mounted, only hidden via CSS**,
+specifically so switching away and back doesn't lose state: a half-typed
+Ask Claude question, the feed's live subscription and loaded events, an
+open zap/translate panel, all survive a nav switch. This was verified
+directly (typed into Ask Claude, switched to Settings and back, text was
+still there) not just assumed. **CSS ordering gotcha hit while building
+this**: `.view-panel`/`.view-panel-active` were originally defined near
+the top of `App.css`, before `.settings-panel`'s own `display: flex`
+rule — since both have equal class-selector specificity, the
+later-defined rule wins a tie, so `.settings-panel` was silently
+overriding the hide/show toggle. Fixed by moving the view-panel rules to
+the very end of the file (with a comment explaining why), which
+guarantees they win any future equal-specificity conflict too, not just
+this one.
+
+Layout-wise, `.app` is now a flex row (rail full-height on the left,
+sticky, `align-self: flex-start` + `height: 100svh` — the standard
+sticky-sidebar-next-to-a-row pattern, doesn't depend on guessing the
+header's pixel height) with `.app-content` (header + main) filling the
+rest. The header's old settings gear button was removed — that's the
+rail's job now — leaving just the centered brand + connection pill.
+Verified on both desktop and a narrow (~556px, this environment's
+practical resize floor when it cooperates — see below) viewport: rail
+fits, no horizontal overflow, disabled icons are inert (confirmed via
+DOM state, not just visual graying), Home/Compose/Ask Claude/Settings
+all switch correctly and only one `view-panel-active` exists at a time.
+
+**Environment flakiness noted while verifying this (not a code issue)**:
+the browser automation tab group was lost mid-session and had to be
+recreated; the new tab then ignored several `resize_window` calls
+(reporting success but `window.innerWidth` never changed) until a
+freshly-created tab in the same group finally responded. If a mobile
+check ever seems to silently not apply, verify with
+`window.innerWidth` via JS rather than trusting the resize call's
+success message alone.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 

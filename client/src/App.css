@@ -1,8 +1,87 @@
 .app {
   text-align: left;
   display: flex;
-  flex-direction: column;
   min-height: 100svh;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Nav rail ---------- */
+
+.nav-rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 60px;
+  padding: 16px 8px;
+  border-right: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100svh;
+  box-sizing: border-box;
+}
+
+.nav-rail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.nav-rail-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.nav-rail-btn:hover:not(:disabled) {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.nav-rail-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.nav-rail-btn-active {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.nav-rail-btn-anthropic:hover:not(:disabled),
+.nav-rail-btn-anthropic.nav-rail-btn-active {
+  color: var(--anthropic);
+  background: var(--anthropic-bg);
+}
+
+.nav-rail-btn-primary {
+  margin-top: auto;
+  background: var(--accent-gradient);
+  color: var(--accent-fg);
+}
+
+.nav-rail-btn-primary:hover:not(:disabled) {
+  box-shadow: 0 4px 16px -2px var(--accent-glow);
+}
+
+.nav-rail-btn-primary.nav-rail-btn-active {
+  box-shadow: 0 0 0 2px var(--accent-border);
 }
 
 /* ---------- Header ---------- */
@@ -105,31 +184,6 @@
   50% {
     opacity: 0.35;
   }
-}
-
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.icon-btn svg {
-  width: 17px;
-  height: 17px;
-}
-
-.icon-btn:hover {
-  border-color: var(--accent-border);
-  color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-bg);
 }
 
 /* ---------- Main layout ---------- */
@@ -790,4 +844,18 @@
 
 .zap-amount-row .input {
   max-width: 100px;
+}
+
+/* ---------- View switching ----------
+   Kept last in the file so these always win any equal-specificity tie
+   against a component's own `display` rule (e.g. .settings-panel sets
+   display: flex) — panels stay mounted (state/subscriptions preserved)
+   and are only ever hidden/shown via this class, never unmounted. */
+
+.view-panel {
+  display: none;
+}
+
+.view-panel-active {
+  display: block;
 }
