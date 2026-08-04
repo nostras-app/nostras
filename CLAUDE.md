@@ -784,45 +784,93 @@ documented inline at its definition.
 `server/Dockerfile` is a multi-stage build producing both the `relay`
 and `dvm` binaries from the one Go module, copied into a minimal Alpine
 final image with no default CMD — `fly.toml`'s `[processes]` supplies
-the actual command per process group. **Not build-tested locally** —
-this sandbox's Docker daemon socket isn't accessible
-(`permission denied`) — so the first real `fly deploy` doubles as the
-first real build test; be ready to iterate on it.
+the actual command per process group. Not build-tested locally (this
+sandbox's Docker daemon socket isn't accessible, `permission denied`) —
+**built cleanly on Fly's remote builder on the very first attempt**, no
+Dockerfile iteration needed.
 
-`server/fly.toml`: one Fly app (placeholder name `nostras` — may need to
-change at `fly launch` time if taken, same way the GitHub org name was),
-two process groups sharing the image — `web` (the relay, the only one
-with an `[http_service]` block, so the only one that gets a public IP/
-TLS) and `dvm` (no service block — no public exposure, but still reachable
-from `web` over Fly's automatic private networking, which isn't something
-that needs enabling per-service). A Volume (`nostras_data`, create via
-`fly volumes create` before first deploy) is mounted at `/data` and
-scoped to the `web` process only via `mounts.processes`, since badger and
-bluge are both single-writer, single-process embedded stores — **this
-server cannot be horizontally scaled** past one machine per process group
-without swapping to a networked backend. `min_machines_running = 1` +
-`auto_stop_machines = false` on `web`'s http_service, matching the
-decided shape (the relay holds live WebSocket connections; Fly's
-autostop-on-idle would break that). **`NOSTRAS_RELAY_URL` for the DVM
-uses `ws://web.process.nostras.internal:7777`** — Fly's private-network
-hostname convention for reaching a specific process group without a
-public round-trip — **this specific hostname form is unverified against
-a live Fly deploy** (couldn't be, from this sandbox); confirm it actually
-resolves after the first real deploy (`fly logs --process dvm` should
-show a clean "listening on ws://web.process.nostras.internal:7777" with
-no connection error) rather than trusting it blindly.
+`server/fly.toml`: one Fly app (name `nostras` — available on Fly, unlike
+the `nostras` GitHub org slug), two process groups sharing the image —
+`web` (the relay, the only one with an `[http_service]` block, so the
+only one that gets a public IP/TLS) and `dvm` (no service block — no
+public exposure, but still reachable from `web` over Fly's automatic
+private networking). A Volume (`nostras_data`, 1GB, `fra` region) is
+mounted at `/data` and scoped to the `web` process only via
+`mounts.processes`, since badger and bluge are both single-writer,
+single-process embedded stores — **this server cannot be horizontally
+scaled** past one machine per process group without swapping to a
+networked backend. `min_machines_running = 1` + `auto_stop_machines =
+false` on `web`'s http_service, matching the decided shape.
 
-**Still needed before this can actually go live** (all require the
-user's own Fly login, which this session doesn't have): `flyctl auth
-login`, `fly apps create` (confirming the app name is available), `fly
-volumes create nostras_data`, `fly secrets set NOSTRAS_ANTHROPIC_API_KEY=...
-NOSTRAS_DVM_NWC_URI=...` (**the DVM's own operator wallet NWC string, not
-the user's personal one** — same distinction already established for
-local dev), `fly certs add nostras.app` once the app has a real IP to
-point DNS at, then `fly deploy`. The client (`client/`) still needs its
-own static hosting decision executed (Cloudflare Pages/Netlify/Fly
-static — decided but not implemented) with `VITE_RELAY_URL` set at its
-build time to `wss://nostras.app`.
+## Fly.io deploy — live and verified end-to-end (2026-08-04)
+
+`nostras.fly.dev` is live. Real issues hit and fixed during the actual
+deploy, not just theoretical — worth remembering the specific failure
+modes:
+
+1. **First `fly secrets set` silently didn't apply** — `flyctl secrets
+   list --app nostras` came back empty even after the user reported
+   running it, twice. Root cause never fully confirmed (likely ran
+   against the wrong app/shell context), but the fix was simple: rerun
+   it and actually check `flyctl secrets list` afterward rather than
+   trusting the command's own "success" framing — this is now the
+   standard verification step for any future secrets change here.
+2. **The DVM crash-looped 10 times and hit Fly's max-restart-count
+   circuit breaker** before the secrets actually landed — confirmed via
+   `flyctl logs --app nostras --machine <id>` (note: `flyctl logs`
+   streams indefinitely and won't return in a single command; always
+   wrap it in `timeout N` or it hangs a tool call). Every boot logged
+   `NOSTRAS_ANTHROPIC_API_KEY not set`, exited 1, Fly restarted it, until
+   `machine has reached its max restart count of 10` and it went to
+   `stopped` for good — **a circuit-broken machine does not
+   self-recover just because the underlying cause (missing secret) gets
+   fixed later**; a fresh `flyctl secrets set` triggers a rolling config
+   update but does NOT necessarily start a machine that's in this
+   stopped state — had to `flyctl machine start <id> --app nostras`
+   explicitly. **Rule for future secrets/config fixes on a
+   previously-crash-looped machine**: after fixing the root cause, check
+   `flyctl status` and manually start any machine still showing
+   `stopped`, don't assume the config update alone brings it back.
+3. **`ws://web.process.nostras.internal:7777` — the private-networking
+   hostname flagged as unverified when this was written — is confirmed
+   correct**, straight from the DVM's own boot log once it ran cleanly:
+   `listening on ws://web.process.nostras.internal:7777` with no
+   connection error, immediately followed by a successful real job
+   round-trip (see below). No fallback needed.
+4. **`NOSTRAS_DVM_NWC_URI` was set to something invalid** — the DVM logs
+   `warning: NOSTRAS_DVM_NWC_URI set but could not connect, running
+   free: invalid nostr+walletconnect:// URI` and degrades to free mode
+   exactly as designed (no crash) rather than blocking the DVM entirely.
+   Likely the literal example placeholder text got submitted instead of
+   a real wallet string. **Production DVM is currently running
+   payment-gating OFF** — not yet fixed, needs the user to re-run
+   `flyctl secrets set NOSTRAS_DVM_NWC_URI=...` with a real value if
+   payment gating in production is wanted.
+5. The dashboard's "Proxy not finding machines to route requests" banner
+   right after deploy was **stale/transient**, not a real problem — the
+   relay was independently confirmed reachable via `curl -H "Accept:
+   application/nostr+json" https://nostras.fly.dev/` (returned a valid
+   NIP-11 doc) at the same moment the banner was showing.
+
+**Full real end-to-end job verified against the live deployment**, not
+just "processes are up": published a genuine `kind:5050` job ("What is
+2+2?") to `wss://nostras.fly.dev` from this sandbox (confirming outbound
+WSS works from here, unlike the raw local-relay `ws://` port that's
+blocked — see the sandbox-network-limits memory) using a throwaway `nak`
+keypair, watched a real `kind:7000` "processing" feedback event and then
+a real `kind:6050` result with `content: "4"` — the actual Claude API
+answer — come back through the full path: relay → DVM (over Fly private
+networking) → Anthropic API → DVM → relay → back to the subscriber.
+Also confirmed the standby `dvm†` machine stayed `stopped` throughout (no
+duplicate job processing risk from Fly's automatic failover-standby
+machine).
+
+**Still open**: the DVM's NWC wallet connection (item 4 above); the
+client (`client/`) still needs its own static hosting decision executed
+(Cloudflare Pages/Netlify/Fly static — decided but not implemented) with
+`VITE_RELAY_URL` set at its build time to `wss://nostras.app`; `fly certs
+add nostras.app` + pointing EuroDNS at Fly hasn't been done yet (still on
+the free `nostras.fly.dev` hostname for now).
 
 ## Architecture
 
