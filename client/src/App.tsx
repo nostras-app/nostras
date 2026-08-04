@@ -11,6 +11,7 @@ import { ProfileEditor } from './components/ProfileEditor'
 import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
 import { RelaySettings } from './components/RelaySettings'
+import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
 import { NavRail, type View } from './components/NavRail'
 import { useRelayStatus } from './hooks/useRelayStatus'
 import './App.css'
@@ -122,6 +123,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Relays</span>
                 <RelaySettings />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Your Relay List (NIP-65)</span>
+                <Nip65RelayListEditor />
               </div>
             </section>
           </main>

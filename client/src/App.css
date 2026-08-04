@@ -271,7 +271,14 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 260px;
+  /* Fixed (not max-) height: the live relay pool changes size on its own
+     (relays connect/disconnect, outbox lookups add/evict temporary ones —
+     see the RELAYS section hint), and a height that tracked content would
+     reflow everything below it — including the NIP-65 editor's own
+     checkboxes and buttons — while the user is mid-edit, causing misclicks
+     on shifted targets. Fixed height + scroll keeps the rest of the
+     settings panel stable regardless of how many relays are connected. */
+  height: 220px;
   overflow-y: auto;
 }
 
@@ -366,6 +373,27 @@
 .relay-publish-btn:disabled {
   opacity: 0.3;
   cursor: default;
+}
+
+.nip65-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nip65-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.nip65-check input {
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .relay-remove-btn {

@@ -703,6 +703,59 @@ toggle applied still lands only on the local relay (checked directly via
 `nak req` against `ws://localhost:7777`). The local relay's toggle button
 was confirmed `disabled` in the live DOM, not just by code review.
 
+**Relay management, piece 4 (final) — NIP-65 relay list editor
+(2026-08-04)**: completes the four-piece relay-management feature.
+`client/src/hooks/useNip65RelayList.ts` follows the exact
+fetch-then-republish pattern as `useBookmark`/the mute list — fetches the
+active user's kind:10002 event (unscoped relaySet, full pool, same as
+bookmarks) and parses `["r", url, marker?]` tags into `{url, read,
+write}` (no marker = both, `"read"`/`"write"` = one only). If no list
+exists yet, seeds a sensible default (local relay, read+write) instead of
+an empty editor. Saving builds a fresh kind:10002 event and publishes via
+`devPublishRelaySet` — same session-scoped publish targets as everything
+else (local-only by default; add relays as publish targets in the
+section above it to actually get this list out to the public network).
+`Nip65RelayListEditor.tsx` renders each entry with read/write checkboxes
+and a remove button, plus the same add-relay input pattern (and
+`isValidRelayUrl` validation) as the custom-relay section.
+
+**Real layout-shift bug caught during verification, not a hypothetical**:
+the live relay-pool list above this editor (RELAYS section) churns
+constantly (relays connect/disconnect, temporary outbox-lookup relays
+appear/vanish — see piece 1's entry). Its container originally used
+`max-height` + scroll, which still let the box's *actual* height vary
+with content below the cap, reflowing everything underneath — including
+this editor's own checkboxes — while filling out the form. Caught this
+for real: a scripted test clicked a checkbox by coordinate, the pool
+list had changed size between locating and clicking, and the click
+landed on the wrong relay's checkbox (`localhost:7777` lost its `read`
+tag instead of the intended test relay). This would have hit a real user
+the same way, not just a test script. **Fixed by changing `.relay-list`
+(the RELAYS section) to a fixed `height` (not `max-height`) with
+scroll**, so its box size never changes regardless of live pool churn —
+documented inline in `App.css` since the reasoning isn't obvious from
+the rule alone. The NIP-65 editor's own entry list uses a separate
+`.nip65-list` class (no fixed height) since it's short and user-controlled,
+not subject to the same churn. Redid the verification afterward driving
+every interaction through direct DOM queries + `.click()` (matching
+elements by text content) rather than fixed pixel coordinates, specifically
+because the coordinate-based approach is what surfaced this bug — safer
+against any remaining layout movement.
+
+**Verified end-to-end for real** (not just checked in devtools state):
+added a test relay, set it to write-only, saved, then queried the local
+relay directly via `nak req -k 10002 -a <pubkey>` and confirmed the
+published tags matched exactly: `[["r","ws://localhost:7777/"],["r","wss://
+relay.nip65test.example/","write"]]` — correct NIP-65 shape, no marker
+for the read+write local relay, `"write"` marker for the read-unchecked
+one. Reloaded the page and confirmed the editor re-fetched and
+correctly re-parsed this exact list (test relay showed `read: false,
+write: true`), not the seeded default. Cleaned up afterward (removed the
+test entry, saved again) and confirmed via `nak` that the dev identity's
+list is back to just the local relay — `nak req -k 10002` alone returned
+an unrelated real user's list from general relay traffic, a reminder that
+kind queries need an explicit `-a <pubkey>` filter on a shared relay.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
