@@ -663,6 +663,46 @@ general pool, same as the two built-in public relays — publishing is
 untouched by this piece, still hardcoded local-only (see the publish-target
 toggle, planned as its own separate piece).
 
+**Relay management, piece 3 — per-relay publish-target toggle
+(2026-08-04)**: the user picked "opt-in per session, resets on reload" over
+persisting the choice, specifically so a forgotten selection from a past
+session can never silently broadcast dev/test notes to the public network
+— this is a real risk this project has cared about since the very first
+`devPublishRelaySet` decision (see the Architecture section below).
+**`devPublishRelaySet` is now a SEPARATE `NDKRelaySet` instance from
+`localRelaySet`** (`lib/ndk.ts`) — both start with just the local relay,
+but `devPublishRelaySet.relays` (a real mutable `Set`, despite the
+`readonly` TS annotation on the outer property — only reassigning the
+property itself is blocked, not calling `.add()`/`.delete()` on the Set
+it points to) gets mutated in place by the new `lib/publishTargets.ts`
+when the user opts a relay in or out. This split matters: sharing one
+instance would have leaked opt-in publish targets into `localRelaySet`,
+which NIP-50 search reads depend on staying local-only forever. Because
+`event.publish(devPublishRelaySet)` reads `.relays` fresh at call time,
+**none of the 7 existing call sites needed to change**
+(`Composer`/`EngagementBar`/`NoteMenu`/`useBookmark`/`ProfileEditor`/
+`dvm.ts`) — mutating the shared Set in place is enough.
+`publishTargets.ts` itself is session-only in-memory state (a `Set<string>`
+of extra relay URLs, `useSyncExternalStore` pattern, reset to empty on
+every module load i.e. every reload) — deliberately not localStorage, to
+match the user's chosen safety default. `RelaySettings.tsx` gained a new
+`UploadIcon` (`icons.tsx`) toggle button per relay row: pressed/accent
+when that relay is an active publish target, disabled+always-pressed for
+the local relay (can't be turned off), click toggles others on/off via
+`togglePublishTarget`. **Verified without ever publishing a real note to
+a public relay** (doing so would itself violate the safety property being
+tested) — used the same temporary `window.__x` debug-hook technique from
+the earlier relay-hardening work (`(window as
+unknown as Record<string, unknown>).__devPublishRelaySet =
+devPublishRelaySet` in `ndk.ts`, removed before finalizing) to inspect
+`devPublishRelaySet.relays` directly: confirmed it start/reload at
+local-only, confirmed toggling `wss://relay.primal.net/` on actually adds
+it to the real Set NDK's `event.publish()` will read, confirmed toggling
+off removes it again, and confirmed a real `Composer` publish with no
+toggle applied still lands only on the local relay (checked directly via
+`nak req` against `ws://localhost:7777`). The local relay's toggle button
+was confirmed `disabled` in the live DOM, not just by code review.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
