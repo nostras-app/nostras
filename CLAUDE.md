@@ -888,12 +888,48 @@ published the job request and read back results — never touched
 `payInvoiceWithNwc` or any payment-sending step**; the user paid both
 invoices themselves.
 
+## Custom domain — `nostras.app` live and verified (2026-08-04)
+
+`fly certs add nostras.app` + EuroDNS A/AAAA records pointed at it, cert
+is issued and active — `https://nostras.app/` returns a correct NIP-11
+doc and `wss://nostras.app` accepts real relay connections (verified with
+`nak`), not just checked via the dashboard.
+
+**Real gotcha hit, not just a routine wait**: this took much longer than
+typical cert propagation and needed a real fix, not just patience.
+Symptom: `flyctl certs list` showed `STATUS = Issued` almost immediately,
+but every TLS connection attempt (curl, openssl s_client, from both IPv4
+and IPv6) got reset with zero bytes back from the server — a `SSL
+routines::unexpected eof while reading` / TLS decode error immediately
+after the ClientHello, with `flyctl certs check` stuck on "Not verified"
+the whole time. Waited it out twice (background polls, ~4 min then ~8
+min) with no change. **Root cause: the app was on a *shared* IPv4**
+(`public ingress (shared)`) — Fly's shared-IP edge pool apparently
+doesn't sync a newly-issued custom-domain cert as reliably/quickly as a
+dedicated IP does. **Fixed by `fly ips allocate-v4 --app nostras --yes`**
+(a real, ongoing $2/mo cost — only done after explicitly asking the user,
+since it's a recurring charge, not a one-time action) and updating the
+EuroDNS A record to the new dedicated IP; the AAAA record was already
+dedicated and didn't need to change. Went from "Issued but nothing
+answers" to fully verified within a few minutes of switching to the
+dedicated IP.
+
+**Self-inflicted debugging mistake worth remembering**: the first two
+background polls used `curl -w "%{http_code}"` and checked for "any
+3-digit code" as the success condition — but curl prints `000` for
+`%{http_code}` even on a total TLS failure, and `000` matched the
+`^[0-9]{3}$` check used, so the *first* poll reported "success" when the
+site was still completely broken. Caught by directly re-verifying with a
+fresh `curl` right after the "success" notification rather than trusting
+it — **the general lesson: never treat curl's `%{http_code}` as
+meaningful without also checking curl's own exit code / that the
+transfer actually completed**, since `000` is indistinguishable from a
+real 3-digit HTTP status by pattern alone.
+
 **Still open**: the client (`client/`) still needs its own static
 hosting decision executed (Cloudflare Pages/Netlify/Fly static —
 decided but not implemented) with `VITE_RELAY_URL` set at its build
-time to `wss://nostras.app`; `fly certs
-add nostras.app` + pointing EuroDNS at Fly hasn't been done yet (still on
-the free `nostras.fly.dev` hostname for now).
+time to `wss://nostras.app`.
 
 ## Architecture
 
