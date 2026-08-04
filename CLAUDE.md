@@ -1218,6 +1218,44 @@ afterward correctly kept the wallet connected — matching exactly what
 was already verified above. No fix needed; this was a false alarm from
 attributing a cache-clear side effect to the login flow itself.
 
+## Real gap caught: DVM was down for ~2 hours, undetected (2026-08-04)
+
+While checking on an unrelated client machine status question, also
+checked `flyctl status --app nostras` on a hunch and found the `dvm`
+process group's **primary** machine (not the harmless always-stopped
+standby) was `stopped` — traced via its event log to the very first
+GitHub Actions CI/CD test run, roughly 2 hours earlier in wall-clock
+terms. That test run's redeploy left the machine in the same
+"config updated but never actually started" state documented earlier
+in this file (process groups without an `[http_service]` don't
+auto-start from a rolling config update) — **but this specific instance
+was never caught**, because verification at the time only checked the
+relay's HTTP endpoint (`curl` the NIP-11 doc), not the DVM machine's
+own status. Any real NIP-90 job sent during that ~2-hour window (Ask
+Claude, translate, summarize) would have gone unanswered with no
+error surfaced anywhere the user would see it.
+
+Fixed the same way as every prior instance of this exact failure mode:
+`flyctl machine start <id> --app nostras`, then verified for real by
+publishing an actual `kind:5050` job and confirming a genuine
+`payment-required` response came back (proving the machine is
+subscribed and processing, not just showing `started` in `flyctl
+status`) — did not pay the resulting test invoice, same standing rule
+as always.
+
+**Process lesson, not just a one-off fix**: this is now the *third*
+time this project has hit "process group without a service doesn't
+auto-start after a config/image update" (first the API-key secret fix,
+then this app's own initial CI/CD test, now discovered late here) —
+worth internalizing as a standing check rather than something to
+rediscover each time: **after *any* deploy or secrets/config change to
+the `nostras` app (not just ones that touch DVM code directly), check
+`flyctl status --app nostras` and confirm the `dvm` process group's
+non-standby machine specifically shows `started`, not just that the
+relay's HTTP endpoint responds** — the two process groups can silently
+diverge in health, and only checking `web` misses exactly this class
+of bug.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
