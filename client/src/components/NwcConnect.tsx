@@ -1,5 +1,22 @@
 import { useState } from 'react'
-import { clearNwcUri, getSavedNwcUri, saveNwcUri } from '../lib/nwc'
+import { nip19 } from '@nostr-dev-kit/ndk'
+import { clearNwcUri, getSavedNwcUri, saveNwcUri, parseNwcUri } from '../lib/nwc'
+
+// Truncated npub + relay host, parsed straight from the saved connection
+// string — this is real, always-present identifying info (every valid
+// NWC URI has a wallet pubkey and a relay), not something the wallet has
+// to separately opt into exposing. Falls back to a generic label if the
+// stored string is somehow no longer parseable.
+function describeConnection(uri: string): string {
+  try {
+    const { walletPubkey, relay } = parseNwcUri(uri)
+    const npub = nip19.npubEncode(walletPubkey)
+    const host = new URL(relay).host
+    return `${npub.slice(0, 12)}…  via ${host}`
+  } catch {
+    return 'Wallet connected (NWC)'
+  }
+}
 
 export function NwcConnect() {
   const [savedUri, setSavedUri] = useState(getSavedNwcUri())
@@ -21,7 +38,7 @@ export function NwcConnect() {
     return (
       <div className="field-row" style={{ alignItems: 'center' }}>
         <p className="field-hint" style={{ flex: 1 }}>
-          Wallet connected (NWC)
+          {describeConnection(savedUri)}
         </p>
         <button
           type="button"

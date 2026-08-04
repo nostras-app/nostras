@@ -1195,6 +1195,34 @@ the UI stays clean with no console errors and no broken layout once
 the request times out, rather than assuming the `.catch()` would work
 without checking.
 
+## Wallet identity shown in Settings (2026-08-04)
+
+User-reported real bug, caught while actually using the app: `Settings
+> Wallet` just said "Wallet connected (NWC)" once connected — no way to
+tell *which* wallet, if you'd ever connected more than one. Fixed by
+parsing the saved URI (`parseNwcUri`, already existed) and showing a
+truncated npub of the wallet's pubkey plus the relay host it connects
+through — real, always-present identifying info from every valid NWC
+URI, not something a wallet has to separately opt into exposing.
+Reproduced and verified directly: set a fake NWC URI in localStorage,
+confirmed the old code showed the generic string, confirmed the fix
+shows `npub1qqqqqqq… via localhost:7777` (correctly matching the fake
+all-zero test pubkey and relay) after the change.
+
+**Second reported issue — wallet not surviving "re-login" — not yet
+reproduced.** Tested directly: connected a wallet, disconnected just
+the signer (Settings > Signer > Disconnect), reconnected via NIP-07,
+and the wallet stayed connected throughout — `clearNwcUri()` has
+exactly one caller in the whole codebase (the explicit "Disconnect
+wallet" button), so nothing in the signer connect/disconnect path
+should be able to touch it. Also confirmed a plain page reload doesn't
+lose it. **Needs the user's exact repro steps before this can be
+fixed for real** — "re-login" could mean several different things
+(reconnecting the same signer, switching to a different identity,
+clearing browser data, a session that expired on its own) and each has
+a different likely cause; don't guess at a fix without reproducing it
+first.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
