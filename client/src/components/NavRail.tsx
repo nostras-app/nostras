@@ -10,7 +10,7 @@ import {
   PencilIcon,
 } from './icons'
 
-export type View = 'home' | 'compose' | 'ask-claude' | 'settings'
+export type View = 'home' | 'compose' | 'ask-claude' | 'settings' | 'search'
 
 export function NavRail({
   activeView,
@@ -39,7 +39,12 @@ export function NavRail({
       <button type="button" className="nav-rail-btn" disabled title="Messages (coming soon)">
         <MessageSquareIcon />
       </button>
-      <button type="button" className="nav-rail-btn" disabled title="Search (coming soon)">
+      <button
+        type="button"
+        className={`nav-rail-btn${activeClass('search')}`}
+        onClick={() => onSelect('search')}
+        title="Search"
+      >
         <SearchIcon />
       </button>
       <button type="button" className="nav-rail-btn" disabled title="Profile (coming soon)">

@@ -1,0 +1,95 @@
+import { useState, type KeyboardEvent } from 'react'
+import { NDKSubscriptionCacheUsage, type NDKEvent } from '@nostr-dev-kit/ndk'
+import { ndk, localRelaySet } from '../lib/ndk'
+import { FeedItem } from './Feed'
+import { SearchIcon } from './icons'
+
+type State = 'idle' | 'loading' | 'results' | 'empty' | 'error'
+
+export function SearchView() {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<NDKEvent[]>([])
+  const [state, setState] = useState<State>('idle')
+
+  async function handleSearch() {
+    const trimmed = query.trim()
+    if (!trimmed || state === 'loading') return
+    setState('loading')
+    try {
+      // ONLY_RELAY: NDK's cache doesn't implement full-text search, so a
+      // default/cache-aware fetch would silently blend in cached kind:1
+      // events that match on structural fields (kind) but not the actual
+      // search term — bypass it entirely so results only reflect the
+      // relay's real NIP-50 match.
+      const found = await ndk.fetchEvents(
+        { kinds: [1], search: trimmed, limit: 50 },
+        { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY, closeOnEose: true },
+        localRelaySet,
+      )
+      const sorted = Array.from(found).sort(
+        (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0),
+      )
+      setResults(sorted)
+      setState(sorted.length > 0 ? 'results' : 'empty')
+    } catch {
+      setState('error')
+    }
+  }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Enter') handleSearch()
+  }
+
+  return (
+    <div className="search-view">
+      <div className="field-row">
+        <input
+          className="input"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search notes…"
+        />
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={handleSearch}
+          disabled={!query.trim() || state === 'loading'}
+        >
+          {state === 'loading' ? 'Searching…' : 'Search'}
+        </button>
+      </div>
+      <p className="field-hint">
+        Searches notes published to the local relay (NIP-50) — public-relay
+        content only shows up here once it's touched the local relay some
+        other way.
+      </p>
+
+      {state === 'idle' && (
+        <div className="feed-empty">
+          <SearchIcon className="feed-empty-icon" />
+          <p>Search notes</p>
+          <p className="feed-empty-hint">Type something and hit Enter.</p>
+        </div>
+      )}
+
+      {state === 'empty' && (
+        <div className="feed-empty">
+          <p>No results for "{query.trim()}".</p>
+        </div>
+      )}
+
+      {state === 'error' && (
+        <p className="alert-error">Search failed — is the local relay running?</p>
+      )}
+
+      {state === 'results' && (
+        <ul className="feed">
+          {results.map((event) => (
+            <FeedItem key={event.id} event={event} />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}

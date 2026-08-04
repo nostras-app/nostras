@@ -415,6 +415,40 @@ check ever seems to silently not apply, verify with
 `window.innerWidth` via JS rather than trusting the resize call's
 success message alone.
 
+**Search UI landed, filling in the rail's last disabled-until-now icon
+(2026-08-04)**: `client/src/components/SearchView.tsx` — a text input +
+"Search" button (submit on Enter or click), reusing NIP-50 search
+(`server/search.go`) which was already implemented server-side but never
+had a client. Queries via `ndk.fetchEvents({kinds:[1], search: query},
+opts, localRelaySet)`, scoped to the local relay only via a renamed/
+reused export (`localRelaySet` in `lib/ndk.ts` — same relay set
+`devPublishRelaySet` already pointed at, now exported under both names
+since it's used for reads here too) because NIP-50 isn't guaranteed on
+the public bootstrap relays and is only actually indexed locally anyway.
+Results reuse `FeedItem` from `Feed.tsx` (now exported) so search results
+look identical to feed notes — same avatar/content/engagement bar, no
+separate rendering path to maintain. States: idle (prompt), loading,
+results, empty ("no results for ..."), error. An honest caption under
+the input says search only covers notes that touched the local relay,
+matching the documented gap (outbox-aggregated/public-relay-only content
+isn't indexed).
+
+**Real bug caught during verification, not shipped**: the first version
+returned an extra, wrong result alongside the correct match — searching
+"zorblatt" (a word planted in exactly one test note) also returned an
+unrelated bot join-spam note. Direct `nak req --search zorblatt` against
+the relay confirmed the *server* only ever returns the one correct
+match — the bug was client-side: NDK's default fetch is cache-aware, and
+its cache doesn't implement full-text search, so it was matching cached
+kind:1 events on structural fields alone (kind) and blending them into
+the results regardless of the `search` term. Fixed by passing
+`{ cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY, closeOnEose: true }`
+to force the query to skip the cache entirely. **Takeaway for any future
+`fetchEvents`/`subscribe` call using a filter field NDK's cache can't
+interpret (like `search`) — always pass `ONLY_RELAY`**, or verify
+against the relay directly (`nak req`) rather than trusting that a
+client-rendered result list reflects real relay behavior.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 
@@ -481,7 +515,10 @@ exists.
   show up in NIP-11 without setting it by hand. Verified locally (fully
   testable in-sandbox, no outbound relay connections needed): published
   three notes with distinct content, confirmed each search term matched
-  only its note and an unmatched term returned nothing.
+  only its note and an unmatched term returned nothing. **Client UI added
+  2026-08-04** (`client/src/components/SearchView.tsx`, reachable from
+  the nav rail's search icon) — see the dated entry above for the
+  cache-bypass bug that surfaced (and was fixed) while wiring it up.
 - **Phase 3 has started: a NIP-90 DVM (Data Vending Machine) is implemented**
   at `server/cmd/dvm/main.go` — a second binary in the same Go module as the
   relay (`go run ./cmd/dvm` from `server/`), not a separate module, since it

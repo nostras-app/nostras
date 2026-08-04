@@ -6,7 +6,7 @@ import { formatRelativeTime } from '../lib/time'
 import { NoteContent } from './NoteContent'
 import { EngagementBar } from './EngagementBar'
 
-function FeedItem({ event }: { event: NDKEvent }) {
+export function FeedItem({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
   const label = profile?.name || profile?.displayName || `${event.author.npub.slice(0, 12)}…`
 

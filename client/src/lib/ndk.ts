@@ -15,10 +15,11 @@ export const ndk = new NDK({
   signer: getDevSigner(),
 })
 
-// Publishing during development should only hit our own relay — the public
-// relays above are read-only feed sources here, not somewhere dev/test
-// notes should get broadcast to the real network.
-export const devPublishRelaySet = NDKRelaySet.fromRelayUrls(
-  [localRelayUrl],
-  ndk,
-)
+// Scoped to the local relay only. Reused for two purposes: dev-safe
+// publishing (public relays above are read-only feed sources here, not
+// somewhere dev/test notes should get broadcast to the real network),
+// and NIP-50 search reads — search is only indexed on our own relay
+// (server/search.go), not guaranteed to be supported by the public
+// bootstrap relays, so search queries are deliberately scoped here too.
+export const localRelaySet = NDKRelaySet.fromRelayUrls([localRelayUrl], ndk)
+export const devPublishRelaySet = localRelaySet
