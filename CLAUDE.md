@@ -66,11 +66,16 @@ connected wallet" once a `nostr+walletconnect://` URI is saved via
 `NwcConnect.tsx`. **`payInvoiceWithNwc` executes a real payment against
 whatever wallet the connection string points to — it must only ever run
 from an explicit user click, never automatically or as part of any
-scripted/agent flow.** It was verified against a disposable mock wallet
-(fake keys, fake response, no real Lightning involved) to prove the
-request/response protocol wiring is correct; it has not been exercised
-against a real wallet, since that would mean an AI agent authorizing a
-real financial transaction.
+scripted/agent flow.** It was first verified against a disposable mock
+wallet (fake keys, fake response, no real Lightning involved) to prove
+the request/response protocol wiring is correct. **Real-wallet zap
+confirmed working by the user on `app.nostras.app` (2026-08-04)**: a
+real NWC wallet connected in Settings, a real ~10-sat invoice fetched
+from a note author's real Lightning address, paid by the user
+themselves via "Pay with connected wallet," UI correctly updated to
+"Paid ✓" — the first real zap payment through this app's production
+deployment. As always, Claude only ever built/showed the invoice;
+the user initiated and completed the payment entirely themselves.
 
 The client also got a real design pass (previously plain unstyled HTML).
 `client/src/index.css` holds the design tokens (CSS custom properties:
