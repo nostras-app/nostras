@@ -987,6 +987,41 @@ required for a real person to actually use NOSTRAS end-to-end is
 outstanding at the infra level anymore — remaining work from here is
 product features/polish, not deployment plumbing.
 
+## Source repo + CI/CD (2026-08-04)
+
+The actual NOSTRAS source (this repo) lives at
+**`github.com/nostras-app/nostras-source`, private** — kept deliberately
+separate from `github.com/nostras-app/nostras` (the public docs/support
+repo, source-free by design, see the support-site-plan memory). Before
+the first push, the full git history was scanned for accidentally
+committed secrets (real API keys, nsecs, NWC URIs) — clean, only
+placeholder strings and prefix-matching code turned up.
+
+**GitHub Actions now auto-deploys on push** — two path-filtered
+workflows in `.github/workflows/`, monorepo-aware so each side only
+redeploys when its own files change:
+- `deploy-relay.yml` — triggers on `server/**`, runs `flyctl deploy` in
+  `server/` using the `FLY_API_TOKEN_SERVER` secret.
+- `deploy-client.yml` — triggers on `client/**`, runs `flyctl deploy` in
+  `client/` using the `FLY_API_TOKEN_CLIENT` secret.
+
+Both secrets are **app-scoped deploy tokens** (`flyctl tokens create
+deploy -a <app>`, not a full-account token — least privilege, a leaked
+client-deploy token can't touch the relay or vice versa), generated and
+piped directly into `gh secret set` in one shell command so the raw
+token values never appeared in any visible output, matching how the
+DVM's own credentials are handled (though a Fly deploy token isn't
+subject to the same "never even Claude" rule as the user's financial/AI
+credentials — it's infrastructure access Claude already had directly
+via the authenticated `flyctl` session used throughout this whole
+deploy, not the user's personal financial material).
+
+**Verified for real, not just "the YAML looks right"**: both workflow
+files also match their own path filter, so pushing them immediately
+triggered a real run of each — both completed with
+`conclusion: success`, and a fresh `curl` against both live apps
+afterward confirmed nothing broke from the CI-triggered redeploy.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
