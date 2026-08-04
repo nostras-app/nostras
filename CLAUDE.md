@@ -599,6 +599,33 @@ existing library behavior, not something this fix tried to speed up.
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 
+**Relay management in Settings — status view landed, first of four planned
+pieces (2026-08-04)**: user asked for relay management in Settings; scoped
+into four pieces (status view, add/remove custom relays, per-relay publish
+toggle, NIP-65 list editor), built one at a time per the usual workflow.
+This entry covers the first. `client/src/lib/relayList.ts` is a new
+module-level reactive store (same `useSyncExternalStore` pattern as
+`useProfile`/`relayStatus.ts`) that snapshots `ndk.pool.relays` — the
+*entire* live pool, not just the three explicitly configured relays —
+recomputed on the pool's `relay:connecting`/`relay:connect`/`relay:ready`/
+`relay:disconnect`/`relay:auth`/`relay:authed` events.
+`client/src/components/RelaySettings.tsx` renders it as a status-dot +
+URL + status-label list in the Settings panel, with the local relay
+badged. **Verified live that the pool is genuinely dynamic**: NDK's
+`useTemporaryRelay`/outbox-lookup machinery adds and later evicts relays
+on its own as different authors' NIP-65 write relays get fetched during
+normal feed use — watched the actual relay list in a live browser change
+composition between two page loads without any user action, confirmed
+this is expected NDK behavior (not a bug) via `NDKPool.useTemporaryRelay`
+in the SDK's own type defs, and added an honest caption in the UI saying
+so rather than presenting the list as a fixed configured set. Also added
+`max-height` + scroll on the list since it can otherwise grow long.
+Verified on desktop and a narrow (~500px, this environment's practical
+resize floor — see the workflow-preference memory) viewport: no overflow,
+ellipsis truncation on long URLs, scroll container works, live status
+transitions (connected/connecting/disconnected) render correctly for both
+the local relay and dynamically-discovered ones.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

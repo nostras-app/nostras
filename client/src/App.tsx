@@ -10,6 +10,7 @@ import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
 import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
+import { RelaySettings } from './components/RelaySettings'
 import { NavRail, type View } from './components/NavRail'
 import { useRelayStatus } from './hooks/useRelayStatus'
 import './App.css'
@@ -117,6 +118,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Profile</span>
                 <ProfileEditor />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Relays</span>
+                <RelaySettings />
               </div>
             </section>
           </main>
