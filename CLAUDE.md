@@ -837,15 +837,18 @@ modes:
    `listening on ws://web.process.nostras.internal:7777` with no
    connection error, immediately followed by a successful real job
    round-trip (see below). No fallback needed.
-4. **`NOSTRAS_DVM_NWC_URI` was set to something invalid** — the DVM logs
-   `warning: NOSTRAS_DVM_NWC_URI set but could not connect, running
-   free: invalid nostr+walletconnect:// URI` and degrades to free mode
-   exactly as designed (no crash) rather than blocking the DVM entirely.
-   Likely the literal example placeholder text got submitted instead of
-   a real wallet string. **Production DVM is currently running
-   payment-gating OFF** — not yet fixed, needs the user to re-run
-   `flyctl secrets set NOSTRAS_DVM_NWC_URI=...` with a real value if
-   payment gating in production is wanted.
+4. **`NOSTRAS_DVM_NWC_URI` was initially set to something invalid** — the
+   DVM logged `warning: NOSTRAS_DVM_NWC_URI set but could not connect,
+   running free: invalid nostr+walletconnect:// URI` and degraded to free
+   mode exactly as designed (no crash) rather than blocking the DVM
+   entirely — likely the literal example placeholder text got submitted
+   instead of a real wallet string the first time. **Fixed the same day**:
+   user re-ran `flyctl secrets set` with the real value (confirmed via a
+   changed secret digest, not just trusting the command's own success
+   message), the `dvm` machine picked it up cleanly with no manual
+   restart needed this time (unlike the API-key fix — this one didn't
+   crash-loop, since an invalid NWC URI degrades gracefully rather than
+   exiting).
 5. The dashboard's "Proxy not finding machines to route requests" banner
    right after deploy was **stale/transient**, not a real problem — the
    relay was independently confirmed reachable via `curl -H "Accept:
@@ -865,10 +868,30 @@ Also confirmed the standby `dvm†` machine stayed `stopped` throughout (no
 duplicate job processing risk from Fly's automatic failover-standby
 machine).
 
-**Still open**: the DVM's NWC wallet connection (item 4 above); the
-client (`client/`) still needs its own static hosting decision executed
-(Cloudflare Pages/Netlify/Fly static — decided but not implemented) with
-`VITE_RELAY_URL` set at its build time to `wss://nostras.app`; `fly certs
+**Payment gating fully verified live in production, including a real
+settled payment (2026-08-04)**: after fixing the NWC secret (item 4
+above), triggered a fresh job and got a real `payment-required` (20
+sats, a genuine bolt11 from the operator's actual wallet) instead of
+skipping straight to processing — confirming the fix took. First attempt
+at actually paying it timed out (`kind:7000` `error: "payment not
+received in time"` at exactly the 2-minute `paymentWaitWindow` mark) —
+the user's payment likely landed after the DVM had already given up
+waiting, not a bug; same operator wallet on both ends so nothing was
+actually lost, just a timing miss. **Second attempt, paid within ~30s,
+succeeded completely**: `payment-required` → `kind:7000` `processing`
+(detected real settlement via `lookup_invoice` polling) → real `kind:6050`
+result (`content: "Europa"`, a correct answer to "name one moon of
+Jupiter") — the full payment-gated NIP-90 loop confirmed working
+end-to-end against real infrastructure, not a mock wallet, for the first
+time in production. As throughout this project, **Claude only ever
+published the job request and read back results — never touched
+`payInvoiceWithNwc` or any payment-sending step**; the user paid both
+invoices themselves.
+
+**Still open**: the client (`client/`) still needs its own static
+hosting decision executed (Cloudflare Pages/Netlify/Fly static —
+decided but not implemented) with `VITE_RELAY_URL` set at its build
+time to `wss://nostras.app`; `fly certs
 add nostras.app` + pointing EuroDNS at Fly hasn't been done yet (still on
 the free `nostras.fly.dev` hostname for now).
 
