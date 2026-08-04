@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/anthropics/anthropic-sdk-go/packages/param"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -22,7 +25,9 @@ import (
 // proof-of-concept DVM from the roadmap's Phase 3, listening on the local
 // relay only. Payment-gated (kind 7000 "payment-required" + a real
 // NWC-minted invoice) when NOSTRAS_DVM_NWC_URI is configured; free
-// otherwise — see loadPaymentConfig.
+// otherwise — see loadPaymentConfig. The price itself is computed per job
+// from its actual expected API cost (see estimateJobCostSats) rather than
+// charged flat.
 const (
 	relayURL = "ws://localhost:7777"
 
@@ -34,11 +39,30 @@ const (
 	kindJobResultGenerate   = 6050
 	kindJobFeedback         = 7000
 
-	dvmModel = "claude-opus-5"
+	dvmModel     = "claude-opus-5"
+	dvmMaxTokens = 2048
 
 	defaultPriceSats  = 21
 	paymentPollEvery  = 3 * time.Second
 	paymentWaitWindow = 2 * time.Minute
+
+	// claude-opus-5 pricing (per shared/models.md — keep in sync if the
+	// model ever changes). Job pricing is computed from these rather than
+	// charged flat, so cost is at least roughly proportional to what the
+	// job actually costs to run.
+	inputPricePerMillionUSD  = 5.00
+	outputPricePerMillionUSD = 25.00
+	// Real output length is unknowable before generation runs — this is a
+	// typical-case assumption (not the dvmMaxTokens worst case) so pricing
+	// stays proportional to the question asked rather than pinned near the
+	// cap for every job. A job that happens to generate an unusually long
+	// answer costs the operator a little more than it charged; acceptable
+	// at these price levels.
+	estimatedOutputTokens = 500
+	minJobPriceSats       = 1
+
+	btcUsdRateURL     = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+	rateLookupTimeout = 5 * time.Second
 )
 
 // languageNames maps the ISO 639-1 codes the client sends (in a NIP-90
@@ -56,8 +80,20 @@ var languageNames = map[string]string{
 	"zh": "Chinese",
 }
 
+const (
+	summarizeSystemPrompt = "You summarize text concisely and accurately in 2-3 sentences. Respond with only the summary, no preamble or labels."
+	generateSystemPrompt  = "You are a helpful, concise assistant answering a question asked through a Nostr client. Answer directly."
+)
+
+func translateSystemPrompt(targetLanguage string) string {
+	return "You are a translation engine. Translate the user's text into " + targetLanguage + ". Respond with only the translated text — no preamble, no explanation, no quotation marks."
+}
+
 type paymentConfig struct {
-	nwc       *nwcClient
+	nwc *nwcClient
+	// priceSats is a flat fallback only — used when the per-job cost
+	// estimate can't be computed (token counting or the BTC/USD lookup
+	// failed), not the primary price. See estimateJobCostSats.
 	priceSats int64
 }
 
@@ -89,7 +125,7 @@ func main() {
 	if payment == nil {
 		fmt.Println("payment gating: OFF (set NOSTRAS_DVM_NWC_URI to enable)")
 	} else {
-		fmt.Printf("payment gating: ON — %d sats per job\n", payment.priceSats)
+		fmt.Printf("payment gating: ON — priced per job from real token cost (fallback %d sats if pricing lookup fails)\n", payment.priceSats)
 	}
 
 	since := nostr.Now()
@@ -116,6 +152,7 @@ func loadPaymentConfig(ctx context.Context) *paymentConfig {
 		return nil
 	}
 
+	// Flat fallback price, only used if per-job cost estimation fails.
 	price := int64(defaultPriceSats)
 	if v := os.Getenv("NOSTRAS_DVM_PRICE_SATS"); v != "" {
 		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil && parsed > 0 {
@@ -134,12 +171,12 @@ func loadPaymentConfig(ctx context.Context) *paymentConfig {
 
 func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client, sk string, payment *paymentConfig, req *nostr.Event) {
 	var resultKind int
-	var runJob func(text string) (string, error)
+	var systemPrompt string
 
 	switch req.Kind {
 	case kindJobRequestSummarize:
 		resultKind = kindJobResultSummarize
-		runJob = func(text string) (string, error) { return summarize(ctx, claude, text) }
+		systemPrompt = summarizeSystemPrompt
 	case kindJobRequestTranslate:
 		resultKind = kindJobResultTranslate
 		langTag := req.Tags.Find("param")
@@ -152,10 +189,10 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 			publishFeedback(ctx, relay, sk, req, "error", "unsupported language code "+langTag[2])
 			return
 		}
-		runJob = func(text string) (string, error) { return translateText(ctx, claude, text, langName) }
+		systemPrompt = translateSystemPrompt(langName)
 	case kindJobRequestGenerate:
 		resultKind = kindJobResultGenerate
-		runJob = func(text string) (string, error) { return generateText(ctx, claude, text) }
+		systemPrompt = generateSystemPrompt
 	default:
 		publishFeedback(ctx, relay, sk, req, "error", "unsupported job kind")
 		return
@@ -188,7 +225,8 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 	}
 
 	if payment != nil {
-		paid, err := requirePayment(ctx, relay, sk, payment, req)
+		amountSats := estimateJobCostSats(ctx, claude, systemPrompt, text, payment.priceSats)
+		paid, err := requirePayment(ctx, relay, sk, payment, req, amountSats)
 		if err != nil {
 			publishFeedback(ctx, relay, sk, req, "error", err.Error())
 			return
@@ -202,7 +240,7 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 
 	publishFeedback(ctx, relay, sk, req, "processing", "")
 
-	result, err := runJob(text)
+	result, err := callClaude(ctx, claude, systemPrompt, text)
 	if err != nil {
 		publishFeedback(ctx, relay, sk, req, "error", "job failed: "+err.Error())
 		return
@@ -211,11 +249,79 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 	publishResult(ctx, relay, sk, req, resultKind, result)
 }
 
+// estimateJobCostSats prices a job proportionally to its actual expected
+// API cost: exact input tokens via the real count_tokens endpoint (free to
+// call, runs no inference), plus a typical-case assumption for the
+// un-knowable output length. Falls back to the operator's flat default
+// price if token counting or the live BTC/USD rate lookup fails, rather
+// than blocking the job — same degrade-gracefully philosophy as
+// loadPaymentConfig.
+func estimateJobCostSats(ctx context.Context, claude anthropic.Client, systemPrompt, userText string, fallbackSats int64) int64 {
+	count, err := claude.Messages.CountTokens(ctx, anthropic.MessageCountTokensParams{
+		Model:  dvmModel,
+		System: anthropic.MessageCountTokensParamsSystemUnion{OfString: param.NewOpt(systemPrompt)},
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(userText)),
+		},
+	})
+	if err != nil {
+		fmt.Println("token count failed, falling back to flat price:", err)
+		return fallbackSats
+	}
+
+	usd := float64(count.InputTokens)/1_000_000*inputPricePerMillionUSD +
+		float64(estimatedOutputTokens)/1_000_000*outputPricePerMillionUSD
+
+	btcUsd, err := fetchBTCUSDRate(ctx)
+	if err != nil {
+		fmt.Println("BTC/USD rate lookup failed, falling back to flat price:", err)
+		return fallbackSats
+	}
+
+	sats := int64(math.Ceil(usd / btcUsd * 100_000_000))
+	if sats < minJobPriceSats {
+		sats = minJobPriceSats
+	}
+	return sats
+}
+
+func fetchBTCUSDRate(ctx context.Context) (float64, error) {
+	ctx, cancel := context.WithTimeout(ctx, rateLookupTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, btcUsdRateURL, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("rate lookup returned status %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Bitcoin struct {
+			USD float64 `json:"usd"`
+		} `json:"bitcoin"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return 0, err
+	}
+	if body.Bitcoin.USD <= 0 {
+		return 0, fmt.Errorf("rate lookup returned an invalid rate")
+	}
+	return body.Bitcoin.USD, nil
+}
+
 // requirePayment mints a real invoice via the operator's NWC wallet,
 // publishes it as a NIP-90 "payment-required" feedback event, and polls the
 // wallet until the invoice is settled or the wait window expires.
-func requirePayment(ctx context.Context, relay *nostr.Relay, sk string, payment *paymentConfig, req *nostr.Event) (bool, error) {
-	amountMsat := payment.priceSats * 1000
+func requirePayment(ctx context.Context, relay *nostr.Relay, sk string, payment *paymentConfig, req *nostr.Event, amountSats int64) (bool, error) {
+	amountMsat := amountSats * 1000
 	inv, err := payment.nwc.MakeInvoice(ctx, amountMsat, "NOSTRAS DVM job "+req.ID[:8])
 	if err != nil {
 		return false, fmt.Errorf("could not create invoice: %w", err)
@@ -239,59 +345,18 @@ func requirePayment(ctx context.Context, relay *nostr.Relay, sk string, payment 
 	return false, nil
 }
 
-func summarize(ctx context.Context, claude anthropic.Client, text string) (string, error) {
+// callClaude is the single place every job kind calls the Claude API —
+// summarization, translation, and text generation only differ by which
+// system prompt they pass in.
+func callClaude(ctx context.Context, claude anthropic.Client, systemPrompt, userText string) (string, error) {
 	resp, err := claude.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     dvmModel,
-		MaxTokens: 2048,
+		MaxTokens: dvmMaxTokens,
 		System: []anthropic.TextBlockParam{
-			{Text: "You summarize text concisely and accurately in 2-3 sentences. Respond with only the summary, no preamble or labels."},
+			{Text: systemPrompt},
 		},
 		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(text)),
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	for _, block := range resp.Content {
-		if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
-			return tb.Text, nil
-		}
-	}
-	return "", fmt.Errorf("no text content in response")
-}
-
-func translateText(ctx context.Context, claude anthropic.Client, text, targetLanguage string) (string, error) {
-	resp, err := claude.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     dvmModel,
-		MaxTokens: 2048,
-		System: []anthropic.TextBlockParam{
-			{Text: "You are a translation engine. Translate the user's text into " + targetLanguage + ". Respond with only the translated text — no preamble, no explanation, no quotation marks."},
-		},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(text)),
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	for _, block := range resp.Content {
-		if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
-			return tb.Text, nil
-		}
-	}
-	return "", fmt.Errorf("no text content in response")
-}
-
-func generateText(ctx context.Context, claude anthropic.Client, prompt string) (string, error) {
-	resp, err := claude.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     dvmModel,
-		MaxTokens: 2048,
-		System: []anthropic.TextBlockParam{
-			{Text: "You are a helpful, concise assistant answering a question asked through a Nostr client. Answer directly."},
-		},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
+			anthropic.NewUserMessage(anthropic.NewTextBlock(userText)),
 		},
 	})
 	if err != nil {

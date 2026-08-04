@@ -18,6 +18,7 @@ export function AskClaudeCard() {
   const [answer, setAnswer] = useState('')
   const [error, setError] = useState('')
   const [invoice, setInvoice] = useState('')
+  const [amountSats, setAmountSats] = useState(0)
   const [paying, setPaying] = useState(false)
   const cancelRef = useRef<(() => void) | null>(null)
 
@@ -37,6 +38,7 @@ export function AskClaudeCard() {
           setState('requesting')
         } else if (update.status === 'payment-required') {
           setInvoice(update.invoice)
+          setAmountSats(Math.round(update.amountMsat / 1000))
           setState('payment-required')
         } else if (update.status === 'done') {
           setAnswer(update.result)
@@ -100,14 +102,17 @@ export function AskClaudeCard() {
               onClick={handleAsk}
               disabled={!prompt.trim() || state === 'requesting'}
             >
-              {state === 'requesting' ? 'Asking…' : 'Ask ANTHROP\\C'}
+              {state === 'requesting' ? 'Asking…' : 'Ask Claude'}
             </button>
           </div>
         )}
 
         {state === 'payment-required' && (
           <div className="stack">
-            <p className="field-hint">Payment required to run this job.</p>
+            <p className="field-hint">
+              Payment required to run this job — you are paying{' '}
+              <strong>{amountSats} sats</strong>.
+            </p>
             <textarea className="textarea" readOnly value={invoice} rows={3} />
             <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
               <button

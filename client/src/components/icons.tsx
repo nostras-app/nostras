@@ -99,11 +99,16 @@ export function MoreIcon({ className }: IconProps) {
 }
 
 // Generic AI-sparkle glyph — not a reproduction of any trademarked logo,
-// just a four-point starburst evoking the "ask the model" affordance.
+// just an eight-point starburst (two overlaid four-point stars, 45°
+// apart) evoking the "ask the model" affordance.
 export function SparkleIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
       <path d="M12 2 14 10 22 12 14 14 12 22 10 14 2 12 10 10Z" />
+      <path
+        d="M12 2 14 10 22 12 14 14 12 22 10 14 2 12 10 10Z"
+        transform="rotate(45 12 12)"
+      />
     </svg>
   )
 }

@@ -296,6 +296,69 @@ a bypass), then the real `kind:6050` result 5s later. This is the first
 time any part of this project has moved real money end-to-end, and it
 worked correctly on the first real attempt.
 
+**DVM job pricing is now proportional to real API cost, not flat
+(2026-08-04)**: previously every job cost a flat `NOSTRAS_DVM_PRICE_SATS`
+(21) regardless of how long the question/text was. `handleJob` now calls
+`estimateJobCostSats` before minting the invoice, which uses Anthropic's
+real `count_tokens` endpoint (`claude.Messages.CountTokens` — free to
+call, runs no inference) to get the *exact* input token count, adds a
+typical-case assumption for the un-knowable output length
+(`estimatedOutputTokens = 500`, a user-confirmed design choice — see
+below), prices both sides against Opus 5's real per-token rates
+(`inputPricePerMillionUSD`/`outputPricePerMillionUSD`), and converts
+USD→sats via a live BTC/USD rate (`fetchBTCUSDRate`, CoinGecko's public
+`simple/price` endpoint, no API key, 5s timeout). Falls back to the flat
+`NOSTRAS_DVM_PRICE_SATS` if either the token count or the rate lookup
+fails — same degrade-gracefully philosophy as `loadPaymentConfig` itself.
+**Output length can't be known before generation runs — that's inherent
+to how LLMs work**, so this is deliberately an *estimate*, not an exact
+price; the three options considered (worst-case using the 2048 `MaxTokens`
+cap, a typical-case ~500-token assumption, or input-only ignoring output
+entirely) were presented to the user, who picked typical-case as the best
+balance of "actually proportional" vs. "not stuck near the cap for every
+job." One side effect worth remembering: because the fixed output
+assumption dominates cost for short questions, most short prompts price
+within a narrow band regardless of exact length — the input-token
+contribution to price only becomes visible for genuinely long inputs
+(a full paragraph or more). This was verified as real behavior, not a
+bug: a 2-word prompt priced at 21 sats and a ~1400-word prompt priced at
+39 sats in the same test run, via `nak` directly against the running DVM
+with the real wallet temporarily re-enabled (then restored to the free
+mode the user had it in) — confirmed via the actual `amount` tag on the
+`payment-required` event, not just trusting the log. This refactor also
+consolidated the three near-identical `summarize`/`translateText`/
+`generateText` functions into one `callClaude(ctx, claude, systemPrompt,
+userText)` helper, since the per-job system prompt now needs to be a
+reusable value (used for both the cost estimate and the actual
+completion call) rather than being hardcoded inside three separate
+functions.
+
+**Unrelated but noteworthy from this same session**: the local relay
+process died on its own between tool calls (not from anything that
+explicitly targeted it — every kill in this session was verified by PID
+against `ps`/`lsof` immediately beforehand, and the relay was confirmed
+still listening after each one, until it simply wasn't). Restarted
+cleanly with `go run .` from `server/` — badger reopened its existing
+tables with no data loss. Worth knowing if a "connection refused" shows
+up unexpectedly in this local dev environment: check `lsof -i :7777
+-sTCP:LISTEN` first, it may just need a restart, not deeper debugging.
+
+**Ask Claude card cosmetic follow-up (2026-08-04)**: three small fixes to
+the card described above, all user-requested after seeing it live. The
+button label changed from the stylized "Ask ANTHROP\C" to plain "Ask
+Claude". `SparkleIcon` in `icons.tsx` is now an eight-point burst (two
+copies of the original four-point path, one rotated 45° via SVG
+`transform`) instead of four, matching a reference image more closely —
+still deliberately generic artwork, not a reproduction of Anthropic's
+actual logo. Both `TranslateButton.tsx` and `AskClaudeCard.tsx` now show
+"you are paying **N sats**" next to the invoice in the payment-required
+state (parsed from the same `amountMsat` the DVM already sends, just not
+displayed before) — the invoice text alone doesn't make the amount
+legible to a user. All three verified in-browser, including the sats
+display (temporarily re-enabled the real wallet from the entry above
+to see a real `payment-required` state, confirmed "21 sats" matched the
+invoice's actual `lnbc210n...` amount, then restored free mode).
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 
@@ -395,7 +458,9 @@ exists.
   `nostr+walletconnect://` string for a wallet *you* control that can mint
   invoices) **in `nostras.env` to enable gating** — unset, or unreachable
   at startup, and the DVM degrades to free mode with a warning rather than
-  refusing to start. Optional `NOSTRAS_DVM_PRICE_SATS` (default 21).
+  refusing to start. `NOSTRAS_DVM_PRICE_SATS` (default 21) is now a
+  **fallback only** — see the dynamic-pricing entry below — used solely if
+  the real cost estimate can't be computed.
   Verified end-to-end against a disposable mock wallet (fake keys, fake
   invoice, auto-"settles" 5s after `make_invoice` to simulate a real
   payment): confirmed `payment-required` fires immediately with the
