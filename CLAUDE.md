@@ -1108,6 +1108,42 @@ call reported success). Not re-fought given `AuthGate` only uses
 verified responsive elsewhere in this app — worth a real narrow-viewport
 check next time the tooling cooperates, not assumed forever.
 
+## Profile banner + follower/following counts (2026-08-04)
+
+User request, referencing a Yakihonne screenshot as the visual target.
+`profile.banner` was already available from NDK's `fetchProfile()` (a
+standard `NDKUserProfile` field) — no fetch changes needed, just
+rendering: `ProfileView.tsx`'s `.profile-header` became a flex column
+(banner image on top, the existing avatar+info row below), with the
+avatar pulled up to overlap the banner's bottom edge via a `has-banner`
+modifier class applied only when a banner actually exists — profiles
+without one keep the original flat layout instead of an odd empty gap
+where the overlap would pull the avatar into nothing.
+
+`client/src/hooks/useFollowCounts.ts` is new: **following** is a single
+`fetchEvent({kinds:[3], authors:[pubkey]})` counting `p` tags on that
+user's own contact list; **followers** subscribes `{kinds:[3],
+'#p':[pubkey]}` across the full pool, deduplicated by *author* pubkey
+(not event id) since kind:3 is replaceable — an author's list showing
+up from two different relays shouldn't double-count. **Deliberately
+scoped, not a bug**: this only reflects what's visible across relays
+currently in the pool, not a true whole-network count — no single
+relay indexes "everyone who follows this pubkey" without a dedicated
+aggregator, same category of limitation as NIP-50 search's local-only
+scope or the "seen on N relays" count elsewhere in this app. Surfaced
+honestly via a `title` tooltip on the stats row rather than presented
+as more precise than it actually is.
+
+**Verified with real data, not a mock profile**: connected via a real
+NIP-07 (Alby) session to the user's actual `llmops.pro` identity in a
+live browser — the real banner image rendered correctly with the
+avatar overlapping it as designed, and real counts appeared (467
+Following, 2 Followers) in the same ballpark as the reference
+Yakihonne client's numbers for the same identity (432/1) — expected to
+differ, not match exactly, since each client queries a different relay
+set; consistent with the honestly-scoped design, not a discrepancy to
+chase down.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
