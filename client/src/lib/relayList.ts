@@ -45,6 +45,16 @@ export function subscribeRelayList(listener: () => void) {
   return () => listeners.delete(listener)
 }
 
+// Exposed for callers that mutate the pool directly (adding/removing a
+// custom relay) and want the snapshot to reflect it immediately, rather
+// than waiting on a pool event whose ordering relative to the mutation
+// isn't guaranteed (e.g. NDKPool.removeRelay deletes its map entry in the
+// same tick it emits 'relay:disconnect', so a listener reacting to that
+// event could still observe the stale entry depending on emit order).
+export function refreshRelayList() {
+  refresh()
+}
+
 export function getRelayListSnapshot(): RelayInfo[] {
   return snapshot
 }

@@ -1,5 +1,6 @@
 import NDK, { NDKRelaySet } from '@nostr-dev-kit/ndk'
 import { getDevSigner } from './signer'
+import { getCustomRelays } from './customRelays'
 
 // Bootstrap relay set for local development. ws://localhost:7777 is the
 // self-hosted khatru node (server/); the public relays are just so the feed
@@ -8,7 +9,10 @@ export const localRelayUrl = 'ws://localhost:7777'
 
 export const publicRelayUrls = ['wss://relay.damus.io', 'wss://relay.primal.net']
 
-export const explicitRelayUrls = [localRelayUrl, ...publicRelayUrls]
+// User-added relays (Settings > Relays), persisted in localStorage —
+// included at startup so a reload reconnects to them without the user
+// having to re-add anything.
+export const explicitRelayUrls = [localRelayUrl, ...publicRelayUrls, ...getCustomRelays()]
 
 export const ndk = new NDK({
   explicitRelayUrls,

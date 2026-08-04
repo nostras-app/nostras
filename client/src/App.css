@@ -335,6 +335,37 @@
   color: var(--success);
 }
 
+.relay-remove-btn {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.relay-remove-btn:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.relay-add-row {
+  display: flex;
+  gap: 8px;
+}
+
+.relay-add-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---------- Forms ---------- */
 
 .field-row {

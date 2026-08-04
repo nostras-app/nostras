@@ -626,6 +626,43 @@ ellipsis truncation on long URLs, scroll container works, live status
 transitions (connected/connecting/disconnected) render correctly for both
 the local relay and dynamically-discovered ones.
 
+**Relay management, piece 2 — add/remove custom relays (2026-08-04)**:
+`client/src/lib/customRelays.ts` is pure localStorage CRUD
+(`nostras:custom-relays`, a JSON array of normalized relay URLs) with
+deliberately no import of `ndk.ts` — `ndk.ts` imports `getCustomRelays()`
+to seed `explicitRelayUrls` at construction time (so a reload reconnects
+to previously-added relays automatically), and a one-directional import
+would become circular if `customRelays.ts` imported back. Applying a
+change to the *live* pool (`ndk.pool.getRelay(url, true)` /
+`ndk.pool.removeRelay(url)`) happens in `RelaySettings.tsx` itself, which
+imports both modules — no cycle since the component isn't imported by
+either. **Protocol detail that mattered**: `NDKPool.removeRelay(relayUrl)`
+does a direct (non-normalizing) map lookup, unlike `getRelay`/
+`isRelayConnected` which normalize internally — so the URL passed to
+`removeRelay` must already be normalized (`NDKRelay`'s own constructor
+always normalizes `relay.url`, which is what's stored as the map key).
+`customRelays.ts` normalizes on add and stores the normalized form, so
+what's persisted always matches what `removeRelay` needs. `relayList.ts`
+gained an exported `refreshRelayList()` for the same reason `markConnected`
+doesn't fully trust events in the relay-hardening work: `removeRelay`
+deletes its map entry and emits `relay:disconnect` in the same tick, and
+relying solely on that event risked a stale snapshot depending on
+listener-registration order — calling `refreshRelayList()` right after
+the pool mutation sidesteps the ordering question entirely. Custom relays
+get a "custom" badge (alongside the existing "local" one) and a remove
+(×) button in `RelaySettings.tsx`; built-in and outbox-discovered relays
+have neither. Verified end-to-end in a live browser: added a relay not
+previously in the pool, confirmed it persisted to localStorage, connected
+live, and was correctly badged; removed it and confirmed it disappeared
+from both localStorage and the live pool (not just the "custom" badge);
+reloaded the page after re-adding one and confirmed it reconnected
+automatically from persisted state with zero re-entry; and confirmed the
+invalid-URL and duplicate-add validation errors render via the existing
+`.alert-error` convention. Custom relays are read-only additions to the
+general pool, same as the two built-in public relays — publishing is
+untouched by this piece, still hardcoded local-only (see the publish-target
+toggle, planned as its own separate piece).
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
