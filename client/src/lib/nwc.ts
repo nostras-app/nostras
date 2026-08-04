@@ -33,15 +33,17 @@ export function clearNwcUri() {
   localStorage.removeItem(NWC_URI_KEY)
 }
 
-// Sends a NIP-47 pay_invoice request to the connected wallet and waits for
-// its response. This executes a real payment against whatever wallet the
-// connection string points to — must only ever be called from an explicit
-// user action (e.g. clicking "Pay"), never automatically.
-export async function payInvoiceWithNwc(
+// Shared NIP-47 request/response transport — used for both the mutating
+// pay_invoice call and read-only queries like get_balance. The safety rule
+// (must only run from an explicit user click) applies to *which* method a
+// caller sends, not to this transport itself: get_balance moves no funds
+// and is safe to call automatically (e.g. on profile load).
+async function sendNwcRequest(
   uri: string,
-  invoice: string,
-  timeoutMs = 30000,
-): Promise<{ preimage: string }> {
+  method: string,
+  params: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<unknown> {
   const conn = parseNwcUri(uri)
   const clientSigner = new NDKPrivateKeySigner(conn.secret)
   const walletUser = ndk.getUser({ pubkey: conn.walletPubkey })
@@ -49,7 +51,7 @@ export async function payInvoiceWithNwc(
 
   const encryptedContent = await clientSigner.encrypt(
     walletUser,
-    JSON.stringify({ method: 'pay_invoice', params: { invoice } }),
+    JSON.stringify({ method, params }),
     'nip04',
   )
 
@@ -93,4 +95,29 @@ export async function payInvoiceWithNwc(
       }
     })
   })
+}
+
+// Executes a real payment against whatever wallet the connection string
+// points to — must only ever be called from an explicit user action (e.g.
+// clicking "Pay"), never automatically or as part of any scripted flow.
+export async function payInvoiceWithNwc(
+  uri: string,
+  invoice: string,
+  timeoutMs = 30000,
+): Promise<{ preimage: string }> {
+  return sendNwcRequest(uri, 'pay_invoice', { invoice }, timeoutMs) as Promise<{
+    preimage: string
+  }>
+}
+
+// Read-only balance check — moves no funds, safe to call automatically.
+// Some wallets scope their NWC connection string to exclude get_balance
+// (the DVM's own operator connection is a real example of a narrower
+// scope elsewhere in this project) — callers should treat a rejection as
+// "balance unavailable," not a hard error.
+export async function getWalletBalanceMsat(uri: string, timeoutMs = 15000): Promise<number> {
+  const result = (await sendNwcRequest(uri, 'get_balance', {}, timeoutMs)) as {
+    balance: number
+  }
+  return result.balance
 }

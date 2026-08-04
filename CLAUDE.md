@@ -1149,6 +1149,52 @@ differ, not match exactly, since each client queries a different relay
 set; consistent with the honestly-scoped design, not a discrepancy to
 chase down.
 
+## NIP-05 verification + wallet balance on the profile (2026-08-04)
+
+Same request as the banner/follow-counts work, same session — both
+land on the `.profile-stats` row, right after Following/Followers, per
+the user's explicit placement ask.
+
+**NIP-05**: `NDKUser.validateNip05()` already exists in NDK and does
+the real work (fetches `.well-known/nostr.json`, compares the returned
+pubkey against this user's actual pubkey) — no protocol code needed,
+just `client/src/hooks/useNip05Verified.ts` wrapping it reactively.
+Renders as the nip05 string with a check-circle icon, colored green
+when genuinely verified and dimmed gray otherwise — deliberately shows
+the icon in *both* states rather than hiding it when unverified, since
+the user specifically asked to see "checked or unchecked," not just
+the happy path.
+
+**Wallet balance**: `client/src/lib/nwc.ts` only had `pay_invoice`
+implemented before this — refactored the request/response transport
+(encrypt, publish kind 23194, wait for kind 23195, decrypt) into a
+shared `sendNwcRequest()` helper, and added `getWalletBalanceMsat()`
+calling NIP-47's `get_balance` through it. **Important distinction
+documented inline**: the "must only run from an explicit user click"
+safety rule applies to *which method* a caller sends
+(`pay_invoice` moves money), not to the transport itself —
+`get_balance` is read-only and safe to call automatically on profile
+load, unlike `payInvoiceWithNwc`. Some wallets scope their NWC
+connection string narrower than others (this project's own DVM
+operator connection is a real example of a deliberately narrow scope);
+`useWalletBalance.ts` treats a failed/rejected balance call as "just
+don't show a balance," never a thrown error the UI has to handle.
+
+**Verification split, and why**: the NIP-05 checkmark was verified for
+real — same live NIP-07 session as the banner/counts work, genuinely
+showed a green check next to `mmo@llmops.pro`, the user's real,
+actually-verified identifier. The wallet balance path's *transport* is
+the exact same encrypt/publish/subscribe/decrypt mechanics as
+`payInvoiceWithNwc`, which had already been proven correct against
+real infrastructure minutes earlier in this same session (the real
+zap payment) — building a whole separate mock-wallet test harness
+just to re-prove already-proven transport code for a read-only method
+wasn't worth it. What *was* tested for real: the graceful-failure
+path — set a syntactically valid but non-functional NWC URI, confirmed
+the UI stays clean with no console errors and no broken layout once
+the request times out, rather than assuming the `.catch()` would work
+without checking.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

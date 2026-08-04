@@ -748,6 +748,8 @@
 
 .profile-stats {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 16px;
   margin-top: 8px;
   font-size: 13px;
@@ -757,6 +759,33 @@
 .profile-stats strong {
   color: var(--text-h);
   font-weight: 700;
+}
+
+.profile-nip05,
+.profile-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.profile-nip05 svg,
+.profile-balance svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.profile-nip05.verified {
+  color: var(--success);
+}
+
+.profile-nip05.unverified {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.profile-balance {
+  color: var(--zap);
 }
 
 /* ---------- Loading skeleton ---------- */

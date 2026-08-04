@@ -98,6 +98,24 @@ export function UploadIcon({ className }: IconProps) {
   )
 }
 
+export function CheckCircleIcon({ className }: IconProps) {
+  return (
+    <svg {...shared} fill="none" stroke="currentColor" className={className}>
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <polyline points="22 4 12 14.01 9 11.01" />
+    </svg>
+  )
+}
+
+export function ZapCircleIcon({ className }: IconProps) {
+  return (
+    <svg {...shared} fill="none" stroke="currentColor" className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="13 7 8 13 11.5 13 11 17 16 11 12.5 11 13 7" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
 export function MoreIcon({ className }: IconProps) {
   return (
     <svg {...shared} fill="currentColor" stroke="none" className={className}>
