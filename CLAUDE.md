@@ -1209,19 +1209,14 @@ confirmed the old code showed the generic string, confirmed the fix
 shows `npub1qqqqqqq… via localhost:7777` (correctly matching the fake
 all-zero test pubkey and relay) after the change.
 
-**Second reported issue — wallet not surviving "re-login" — not yet
-reproduced.** Tested directly: connected a wallet, disconnected just
-the signer (Settings > Signer > Disconnect), reconnected via NIP-07,
-and the wallet stayed connected throughout — `clearNwcUri()` has
-exactly one caller in the whole codebase (the explicit "Disconnect
-wallet" button), so nothing in the signer connect/disconnect path
-should be able to touch it. Also confirmed a plain page reload doesn't
-lose it. **Needs the user's exact repro steps before this can be
-fixed for real** — "re-login" could mean several different things
-(reconnecting the same signer, switching to a different identity,
-clearing browser data, a session that expired on its own) and each has
-a different likely cause; don't guess at a fix without reproducing it
-first.
+**Second reported issue — resolved, not a bug.** User confirmed the
+actual sequence: they'd cleared browser cache/cookies (which wipes
+*all* localStorage, both the signer session and the wallet connection
+together — nothing short of a server-side account system could survive
+that, and this app deliberately has none), then a plain log-off/log-in
+afterward correctly kept the wallet connected — matching exactly what
+was already verified above. No fix needed; this was a false alarm from
+attributing a cache-clear side effect to the login flow itself.
 
 ## Architecture
 
