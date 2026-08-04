@@ -1,0 +1,23 @@
+# NOSTRAS client — a separate Fly app from the relay/DVM (server/fly.toml)
+# since this is just static files with no shared build context, state, or
+# persistent connections. Unlike the relay, this can freely scale to zero
+# when idle (auto_stop_machines) since there's nothing to keep warm.
+app = "nostras-client"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[build.args]
+  VITE_RELAY_URL = "wss://nostras.app"
+
+[http_service]
+  internal_port        = 80
+  force_https          = true
+  auto_stop_machines   = true
+  auto_start_machines  = true
+  min_machines_running = 0
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "256mb"
