@@ -273,6 +273,29 @@ than trusting the process list), and once through the real UI asking
 "what is the Nostr protocol?", which returned a genuine, accurate Claude
 answer.
 
+**DVM payment gating verified against a real wallet (2026-08-04)**: the
+payment-gated path had only ever been exercised against a disposable mock
+wallet before now. The user connected a real NWC-capable wallet, scoped
+to exactly the two permissions the DVM code actually uses — `Create
+invoices` and `Lookup status of invoices`, nothing else (no balance read,
+no send) — set `NOSTRAS_DVM_NWC_URI` in `nostras.env` themselves (never
+typed into chat or read by Claude directly), and the DVM was restarted to
+pick it up (startup log now reads `payment gating: ON — 21 sats per
+job`, confirming the wallet connection succeeded). A real job was
+triggered through the Ask Claude card, producing a real invoice
+(`lnbc210n...` — 210 nano-BTC = 21 sats, matching the configured price
+exactly); the user paid it themselves via their own wallet action —
+**Claude never touches `payInvoiceWithNwc` or any payment-sending step,
+only the job-request and invoice-display side**, consistent with the
+project's standing financial-safety rule. Verified correct by querying
+the relay directly for the full event sequence rather than trusting the
+UI alone: `payment-required` at t+0, `processing` at t+118s (the DVM's
+3s poll loop only flips to processing once `lookup_invoice` reports
+`settled_at`, and 118s is genuinely how long the human took to pay — not
+a bypass), then the real `kind:6050` result 5s later. This is the first
+time any part of this project has moved real money end-to-end, and it
+worked correctly on the first real attempt.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 
@@ -382,6 +405,10 @@ exists.
   never arrives -> `error` after the 2-minute window) was not live-timed
   given the wait, but is the same simple deadline-loop code already
   exercised on the success path — verified by review, not by a live run.
+  **Later verified against a real wallet too (2026-08-04)** — see the
+  entry near the top of this file. Real 21-sat invoice, paid by the user
+  themselves (never by Claude), correct settlement detection confirmed
+  via the actual relay event timestamps, not just the UI.
   **Evaluated and declined for now**: a related external project
   (`github.com/llmops-pro/search-service`) offers paid web search, but
   over L402/HTTP rather than NIP-90/Nostr, and is explicitly a "v0
