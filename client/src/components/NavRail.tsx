@@ -12,7 +12,14 @@ import {
   PencilIcon,
 } from './icons'
 
-export type View = 'home' | 'compose' | 'ask-claude' | 'settings' | 'search' | 'profile'
+export type View =
+  | 'home'
+  | 'compose'
+  | 'ask-claude'
+  | 'settings'
+  | 'search'
+  | 'profile'
+  | 'bookmarks'
 
 export function NavRail({
   activeView,
@@ -68,7 +75,12 @@ export function NavRail({
       >
         <SearchIcon />
       </button>
-      <button type="button" className="nav-rail-btn" disabled title="Bookmarks (coming soon)">
+      <button
+        type="button"
+        className={`nav-rail-btn${activeClass('bookmarks')}`}
+        onClick={() => onSelect('bookmarks')}
+        title="Bookmarks"
+      >
         <BookmarkIcon />
       </button>
       <button

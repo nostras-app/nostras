@@ -467,6 +467,26 @@ end-to-end: the profile feed genuinely only shows this identity's own
 past notes (confirmed against real notes published earlier in this same
 session, not a mock), npub copy works, no overflow on mobile.
 
+**Bookmarks view, the nav rail's 7th real icon (2026-08-04)**:
+`client/src/components/BookmarksView.tsx` — fetches the active user's
+kind:10003 list, reads the `e`-tag ids (**reversed**, since toggling
+appends new bookmarks to the end of the tag array — showing
+most-recently-bookmarked first is more useful here than sorting by each
+note's own publish date), fetches those specific events across the
+*full* relay pool (unlike search, no relay-set restriction — a
+bookmarked note can be anywhere, not just the local relay), and renders
+them with the same `FeedItem` every other view reuses. **Deliberately
+refetches every time the tab becomes active**
+(`<BookmarksView active={activeView === 'bookmarks'} />`), not just once
+on mount — every view in this app stays mounted permanently (see the nav
+rail entry above), so a one-shot fetch would go stale the moment a note
+gets bookmarked or unbookmarked elsewhere while this tab sits in the
+background. Verified end-to-end: bookmarked a note from Home, confirmed
+it appeared first in Bookmarks; unbookmarked it, switched away and back,
+confirmed it was gone — the refetch-on-activate behavior actually works,
+not just the initial fetch. No new CSS needed, entirely reuses
+`.feed`/`.feed-empty` from the existing feed views.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 
