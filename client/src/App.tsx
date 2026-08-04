@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { ndk } from './lib/ndk'
+import { getDevSigner, hasStoredDevSigner } from './lib/signer'
+import { restoreSignerSession } from './lib/remoteSigner'
+import { AuthGate } from './components/AuthGate'
 import { Composer } from './components/Composer'
 import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
@@ -17,9 +20,11 @@ import { useRelayStatus } from './hooks/useRelayStatus'
 import './App.css'
 
 type ConnectionState = 'connecting' | 'connected' | 'error'
+type AuthState = 'checking' | 'needs-choice' | 'ready'
 
 function App() {
   const [state, setState] = useState<ConnectionState>('connecting')
+  const [authState, setAuthState] = useState<AuthState>('checking')
   const [activeView, setActiveView] = useState<View>('home')
   const { status: relayStatus } = useRelayStatus()
 
@@ -54,13 +59,45 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    // Resolution order: a previously-connected NIP-46/NIP-07 signer wins
+    // (returning user with a real identity); else a previously-created
+    // local key restores silently (returning "anonymous"/"created
+    // account" user — same underlying mechanism, see signer.ts); else
+    // this is a genuinely first-time visitor, so AuthGate renders instead
+    // of assuming a signer the way this app used to.
+    restoreSignerSession()
+      .then((restored) => {
+        if (cancelled) return
+        if (restored) {
+          setAuthState('ready')
+        } else if (hasStoredDevSigner()) {
+          ndk.signer = getDevSigner()
+          setAuthState('ready')
+        } else {
+          setAuthState('needs-choice')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAuthState('needs-choice')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   function panelClass(view: View) {
     return `view-panel${activeView === view ? ' view-panel-active' : ''}`
   }
 
   return (
     <div className="app">
-      {state === 'connected' && <NavRail activeView={activeView} onSelect={setActiveView} />}
+      {state === 'connected' && authState === 'ready' && (
+        <NavRail activeView={activeView} onSelect={setActiveView} />
+      )}
 
       <div className="app-content">
         <header className="app-header">
@@ -77,7 +114,11 @@ function App() {
           </div>
         </header>
 
-        {state === 'connected' && (
+        {authState === 'needs-choice' && (
+          <AuthGate onReady={() => setAuthState('ready')} />
+        )}
+
+        {state === 'connected' && authState === 'ready' && (
           <main className="app-main">
             <div className={panelClass('home')}>
               <Feed />

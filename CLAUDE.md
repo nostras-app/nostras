@@ -1022,6 +1022,92 @@ triggered a real run of each — both completed with
 `conclusion: success`, and a fresh `curl` against both live apps
 afterward confirmed nothing broke from the CI-triggered redeploy.
 
+## Real identity choice replaces silent anonymous signer (2026-08-04)
+
+Prompted directly by the user noticing, on the live `app.nostras.app`
+deploy, that visiting the site silently handed them an "Anonymous"
+identity with **no way to see, export, or back up the key anywhere in
+the UI** — confirmed by grepping the whole `components/` tree for
+`nsec`/`export`/`backup` and finding nothing. For a brand built on "Own
+Your Keys," a stranger's first real interaction with the product was an
+unrecoverable identity they didn't know was unrecoverable — a real
+pre-launch gap, not a cosmetic one, and worth fixing before actively
+driving traffic to the org page.
+
+**Scoped with the user first** (two real tradeoffs, not a default
+either way): keep "Continue anonymously" as a third option rather than
+removing it (people should still be able to just try the app with zero
+commitment), and show the nsec directly with a copy button + strong
+warning rather than adding a mandatory confirm-you-saved-it step (less
+friction, matches how NIP-46/NIP-07 signers already expect users to
+handle key material).
+
+**`client/src/lib/ndk.ts` no longer assigns a signer at module load
+time** — previously `signer: getDevSigner()` ran automatically the
+instant the module was imported, before the user had any say. NDK
+supports assigning `.signer` after construction (this is exactly how
+signer *switching* already worked via `remoteSigner.ts`), so removing
+the default was a small, safe change: construct `ndk` with no signer,
+decide what to assign afterward.
+
+**`client/src/components/AuthGate.tsx`** is the new first-load choice
+screen — three paths:
+- **Log in** — NIP-46 bunker / NIP-07 extension, reusing
+  `connectBunker`/`connectExtension` from `remoteSigner.ts` unchanged.
+- **Create new account** — calls the same `getDevSigner()` that
+  "anonymous" already used (this was always just a locally-generated
+  key; the only actual difference between "created" and "anonymous" is
+  whether the resulting nsec gets shown), then displays it with a copy
+  button and an explicit "gone for good if you lose this" warning.
+- **Continue anonymously** — exactly the old silent behavior, now
+  reached by an explicit choice instead of being the automatic default.
+
+`client/src/lib/signer.ts` gained `hasStoredDevSigner()` — checks for
+an existing local-key identity *without* generating one, so
+`App.tsx`'s boot sequence can tell a genuinely first-time visitor
+(show `AuthGate`) apart from a returning anonymous/created-account user
+(restore silently, no gate — same as before this change for anyone who
+already has a key). Resolution order on mount: try `restoreSignerSession()`
+(NIP-46/NIP-07) first, then `hasStoredDevSigner()`, then fall through to
+`AuthGate` only if neither matches.
+
+**Bug caught and fixed during this change, not shipped**:
+`SignerConnect.tsx` (the Settings-panel signer panel) had its own
+`useEffect` that also called `restoreSignerSession()` on mount — this
+predates `AuthGate` and made sense when it was the *only* place
+restoration happened, but now `App.tsx`'s own boot-time resolution
+already restores any saved session *before* `SignerConnect` ever
+mounts (it's nested inside content gated on `authState === 'ready'`).
+Left as-is, this would have meant every app load with a saved NIP-46
+bunker session redundantly re-ran `blockUntilReady()` a second time.
+Fixed by having `SignerConnect` just reflect the already-resolved state
+(`getSavedSignerMode()` synchronously, no async restore) instead of
+restoring again.
+
+**Verified end-to-end in a real browser, all three paths**, clearing
+`localStorage` between each to simulate a genuine first-time visitor:
+"Continue anonymously" proceeds straight into the app as before;
+"Create new account" shows a real generated nsec, the copy button's UI
+state actually changes to confirm the clipboard write succeeded, and
+continuing proceeds into the app; "Log in" renders the extension/bunker
+UI correctly (this test browser already had a real NIP-07 extension
+installed from earlier verification work, correctly detected) and the
+back button returns to the choice screen. Reload-persistence confirmed
+separately: after any of the three choices, a subsequent reload skips
+`AuthGate` entirely and restores silently, matching the pre-existing
+behavior anonymous users already had. Settings > Signer confirmed still
+correctly shows the "not connected, here's how to connect a real
+signer" state after choosing anonymous, verifying the `SignerConnect`
+fix didn't break its normal display.
+
+**Not independently re-verified at a narrow viewport** — `resize_window`
+didn't actually apply in this session (known sandbox flakiness,
+confirmed via `window.innerWidth` still reading 1920 after a resize
+call reported success). Not re-fought given `AuthGate` only uses
+`max-width: 380px` plus classes (`.btn`, `.input`, `.stack`) already
+verified responsive elsewhere in this app — worth a real narrow-viewport
+check next time the tooling cooperates, not assumed forever.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

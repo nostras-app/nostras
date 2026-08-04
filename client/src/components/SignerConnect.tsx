@@ -1,32 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   connectBunker,
   connectExtension,
   disconnectSigner,
   getSavedSignerMode,
   hasNip07Extension,
-  restoreSignerSession,
 } from '../lib/remoteSigner'
 import { useActiveUser } from '../hooks/useActiveUser'
 
 type Status = 'dev' | 'connecting' | 'connected' | 'error'
 
+// Restoration itself already happened in App.tsx before this component
+// ever mounts (AuthGate/the auth-resolution effect run first) — this
+// just reflects that already-resolved state, rather than restoring
+// again, which would mean redundantly reconnecting a NIP-46 bunker
+// session a second time.
 export function SignerConnect() {
   const activeUser = useActiveUser()
-  const [status, setStatus] = useState<Status>('dev')
+  const [status, setStatus] = useState<Status>(getSavedSignerMode() ? 'connected' : 'dev')
   const [uri, setUri] = useState('')
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!getSavedSignerMode()) return
-    setStatus('connecting')
-    restoreSignerSession()
-      .then((result) => setStatus(result ? 'connected' : 'dev'))
-      .catch((e) => {
-        setStatus('error')
-        setError(e instanceof Error ? e.message : 'Failed to reconnect')
-      })
-  }, [])
 
   async function handleConnectBunker() {
     if (!uri.trim()) return

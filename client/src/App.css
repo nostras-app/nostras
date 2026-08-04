@@ -1168,6 +1168,39 @@
   max-width: 100px;
 }
 
+/* ---------- Auth gate ---------- */
+
+.auth-gate {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.auth-gate-card {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.auth-gate-brand {
+  justify-content: center;
+}
+
+.auth-gate-nsec {
+  font-family: monospace;
+  font-size: 13px;
+  word-break: break-all;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
 /* ---------- View switching ----------
    Kept last in the file so these always win any equal-specificity tie
    against a component's own `display` rule (e.g. .settings-panel sets

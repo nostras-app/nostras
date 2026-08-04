@@ -1,5 +1,4 @@
 import NDK, { NDKRelaySet } from '@nostr-dev-kit/ndk'
-import { getDevSigner } from './signer'
 import { getCustomRelays } from './customRelays'
 
 // The self-hosted khatru node (server/). Defaults to localhost for local
@@ -18,9 +17,13 @@ export const publicRelayUrls = ['wss://relay.damus.io', 'wss://relay.primal.net'
 // having to re-add anything.
 export const explicitRelayUrls = [localRelayUrl, ...publicRelayUrls, ...getCustomRelays()]
 
+// No default signer here — which of a local key, NIP-46 bunker, or NIP-07
+// extension to use is decided by AuthGate.tsx on first load (or restored
+// from a previous choice), not assumed at module-load time. Assigning
+// ndk.signer later works fine; NDK is built for the signer to be set
+// after construction (this is how signer *switching* already works).
 export const ndk = new NDK({
   explicitRelayUrls,
-  signer: getDevSigner(),
 })
 
 // Scoped to the local relay only, and never mutated — used for NIP-50

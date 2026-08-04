@@ -18,3 +18,11 @@ export function getDevSigner(): NDKPrivateKeySigner {
   localStorage.setItem(STORAGE_KEY, signer.nsec)
   return signer
 }
+
+// True if a local-key identity already exists from a previous visit —
+// checked without generating one, so the auth gate (AuthGate.tsx) can tell
+// a returning "continue anonymously"/"create account" user apart from a
+// genuinely first-time visitor who hasn't made a choice yet.
+export function hasStoredDevSigner(): boolean {
+  return localStorage.getItem(STORAGE_KEY) !== null
+}
