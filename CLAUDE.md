@@ -219,6 +219,60 @@ reported state isn't pre-loaded against the existing list on first
 render, only updated locally once the user actually interacts with a
 given note's controls.
 
+**Zap icon unification + single-row engagement controls (2026-08-04)**:
+zap was the only engagement control still a filled pill with a text label
+("Zap"), inconsistent with the ghost-icon-button treatment everywhere
+else. `ZapButton.tsx`'s idle state now uses the same `engage-btn` class as
+the others (icon + sats count only, no "Zap" text — matches how like/
+repost/reply show their counts). The two-row engagement layout (primary
+row + a bordered secondary row) was also collapsed into a single row per
+user request — all 8 controls (reply, repost, like, zap, bookmark,
+seen-on-relays, translate, menu) now sit on one line
+(`.engagement-row` — `flex-wrap: wrap`, `position: relative` so the
+translate/note-menu panels still anchor correctly, reduced `gap`). The
+now-unused `.zap-pill`/`.engagement-row-secondary`/`.engagement-group`
+CSS was removed.
+
+**Header brand centering (2026-08-04)**: the header used
+`justify-content: space-between` (wordmark left, status/gear right); per
+user request it's now a 3-column grid (`minmax(0,1fr) auto
+minmax(0,1fr)`) with an empty spacer div as the first column, so the
+brand block (`.brand` — the existing `/favicon.svg` lightning-bolt icon
+next to the "NOSTRAS" wordmark) stays exactly centered regardless of how
+wide the status-pill+gear group on the right is. `minmax(0, …)` on the
+flanking columns (not bare `1fr`) is what makes this work — plain `1fr`
+tracks still respect each column's content-based minimum width, which
+would pull the center off-true since the right column has real content
+and the left one doesn't.
+
+**Ask Claude — NIP-90 text generation (2026-08-04)**: a third DVM service
+alongside summarization and translation, this time a free-form "ask
+anything" box. Per the NIP-90 kind registry this is job kind 5050 →
+result kind 6050 ("Text Generation"), added to `server/cmd/dvm/main.go`
+the same way translation was — a `generateText` Claude call with a
+minimal system prompt, dispatched from the same `handleJob` switch, so
+it automatically inherits the shared payment-gating path. No new
+protocol code was needed client-side either: `client/src/lib/dvm.ts`'s
+`requestDvmJob` was already generic enough to reuse as-is.
+`client/src/components/AskClaudeCard.tsx` is a new always-visible card
+(not an icon-triggered popover like translate) rendered in `App.tsx`
+directly below the composer — a circular avatar with a hand-drawn
+four-point sparkle glyph (`SparkleIcon` in `icons.tsx`; deliberately
+generic, not a reproduction of Anthropic's actual trademarked logo) in
+Anthropic's brand orange (`--anthropic` token in `index.css`), a
+textarea, a "Model: claude-opus-5" caption directly under it (that
+string just mirrors the server's `dvmModel` constant — it's a display
+label, not something the client actually negotiates), and an "Ask
+ANTHROP\C" button in the same orange, styled per the user's own
+reference. Same processing/payment-required/done/error states as
+`TranslateButton`. Verified end-to-end twice: once directly via `nak`
+against kind 5050/6050 (confirmed the DVM's subscription filter and job
+dispatch actually picked up the new kind — an earlier restart attempt
+left a stale build running, caught by testing the actual behavior rather
+than trusting the process list), and once through the real UI asking
+"what is the Nostr protocol?", which returned a genuine, accurate Claude
+answer.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 

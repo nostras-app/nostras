@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ndk } from './lib/ndk'
 import { Composer } from './components/Composer'
+import { AskClaudeCard } from './components/AskClaudeCard'
 import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
 import { SignerConnect } from './components/SignerConnect'
@@ -82,6 +83,10 @@ function App() {
 
           <section className="card">
             <Composer />
+          </section>
+
+          <section className="card">
+            <AskClaudeCard />
           </section>
 
           <Feed />

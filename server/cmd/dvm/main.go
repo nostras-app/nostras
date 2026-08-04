@@ -16,8 +16,9 @@ import (
 )
 
 // NOSTRAS DVM: a NIP-90 Data Vending Machine offering text summarization
-// (job kind 5001 -> result kind 6001) and translation (job kind 5002 ->
-// result kind 6002), per the NIP-90 kind registry. This is the
+// (job kind 5001 -> result kind 6001), translation (job kind 5002 ->
+// result kind 6002), and general text generation / Q&A (job kind 5050 ->
+// result kind 6050), per the NIP-90 kind registry. This is the
 // proof-of-concept DVM from the roadmap's Phase 3, listening on the local
 // relay only. Payment-gated (kind 7000 "payment-required" + a real
 // NWC-minted invoice) when NOSTRAS_DVM_NWC_URI is configured; free
@@ -29,7 +30,11 @@ const (
 	kindJobResultSummarize  = 6001
 	kindJobRequestTranslate = 5002
 	kindJobResultTranslate  = 6002
+	kindJobRequestGenerate  = 5050
+	kindJobResultGenerate   = 6050
 	kindJobFeedback         = 7000
+
+	dvmModel = "claude-opus-5"
 
 	defaultPriceSats  = 21
 	paymentPollEvery  = 3 * time.Second
@@ -79,7 +84,7 @@ func main() {
 	// feedback/results with.
 	sk := nostr.GeneratePrivateKey()
 	pk, _ := nostr.GetPublicKey(sk)
-	fmt.Println("NOSTRAS DVM (NIP-90 summarization 5001->6001, translation 5002->6002) running as", pk)
+	fmt.Println("NOSTRAS DVM (NIP-90 summarization 5001->6001, translation 5002->6002, text generation 5050->6050) running as", pk)
 	fmt.Println("listening on", relayURL)
 	if payment == nil {
 		fmt.Println("payment gating: OFF (set NOSTRAS_DVM_NWC_URI to enable)")
@@ -89,7 +94,7 @@ func main() {
 
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{
-		Kinds: []int{kindJobRequestSummarize, kindJobRequestTranslate},
+		Kinds: []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate},
 		Since: &since,
 	}})
 	if err != nil {
@@ -148,6 +153,9 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 			return
 		}
 		runJob = func(text string) (string, error) { return translateText(ctx, claude, text, langName) }
+	case kindJobRequestGenerate:
+		resultKind = kindJobResultGenerate
+		runJob = func(text string) (string, error) { return generateText(ctx, claude, text) }
 	default:
 		publishFeedback(ctx, relay, sk, req, "error", "unsupported job kind")
 		return
@@ -233,7 +241,7 @@ func requirePayment(ctx context.Context, relay *nostr.Relay, sk string, payment 
 
 func summarize(ctx context.Context, claude anthropic.Client, text string) (string, error) {
 	resp, err := claude.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     "claude-opus-5",
+		Model:     dvmModel,
 		MaxTokens: 2048,
 		System: []anthropic.TextBlockParam{
 			{Text: "You summarize text concisely and accurately in 2-3 sentences. Respond with only the summary, no preamble or labels."},
@@ -255,13 +263,35 @@ func summarize(ctx context.Context, claude anthropic.Client, text string) (strin
 
 func translateText(ctx context.Context, claude anthropic.Client, text, targetLanguage string) (string, error) {
 	resp, err := claude.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     "claude-opus-5",
+		Model:     dvmModel,
 		MaxTokens: 2048,
 		System: []anthropic.TextBlockParam{
 			{Text: "You are a translation engine. Translate the user's text into " + targetLanguage + ". Respond with only the translated text — no preamble, no explanation, no quotation marks."},
 		},
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(text)),
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	for _, block := range resp.Content {
+		if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
+			return tb.Text, nil
+		}
+	}
+	return "", fmt.Errorf("no text content in response")
+}
+
+func generateText(ctx context.Context, claude anthropic.Client, prompt string) (string, error) {
+	resp, err := claude.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     dvmModel,
+		MaxTokens: 2048,
+		System: []anthropic.TextBlockParam{
+			{Text: "You are a helpful, concise assistant answering a question asked through a Nostr client. Answer directly."},
+		},
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 		},
 	})
 	if err != nil {
