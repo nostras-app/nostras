@@ -1,0 +1,21 @@
+name: Deploy client
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "client/**"
+      - ".github/workflows/deploy-client.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency: deploy-client-group
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only --config fly.toml
+        working-directory: client
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_CLIENT }}
