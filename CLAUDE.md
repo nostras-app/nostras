@@ -926,10 +926,66 @@ meaningful without also checking curl's own exit code / that the
 transfer actually completed**, since `000` is indistinguishable from a
 real 3-digit HTTP status by pattern alone.
 
-**Still open**: the client (`client/`) still needs its own static
-hosting decision executed (Cloudflare Pages/Netlify/Fly static —
-decided but not implemented) with `VITE_RELAY_URL` set at its build
-time to `wss://nostras.app`.
+## Client deployed — `app.nostras.app` live (2026-08-04)
+
+The client chose **Fly static hosting** (not Cloudflare Pages/Netlify as
+the plan had tentatively suggested) — a separate Fly app,
+`nostras-client`, from the relay/DVM app (`nostras`), since it's just
+static files with no shared build context or runtime state.
+`client/Dockerfile` is a two-stage build: `node:24-alpine` runs
+`npm ci && npm run build` with `VITE_RELAY_URL` passed as a build
+arg (defaults to `wss://nostras.app`, baked into the bundle at build
+time since Vite inlines `import.meta.env.VITE_*` — **not** a
+runtime-configurable value), then `nginx:1.27-alpine` serves the output.
+`client/nginx.conf` long-caches only the content-hashed `/assets/` files
+and explicitly no-caches everything else (`index.html`, `sw.js`,
+`registerSW.js`, `workbox-*.js`, `manifest.webmanifest`) — otherwise a
+PWA service worker update would never reach an already-installed client.
+Verified locally before containerizing: `VITE_RELAY_URL=wss://nostras.app
+npm run build` then `grep` the output bundle for the literal string,
+confirming Vite actually inlined it, before trusting the Docker build to
+do the same. **Built and deployed clean on the first attempt** (like the
+server's Dockerfile before it).
+
+**Important architectural point, easy to get backwards**: `nostras.app`
+(the apex domain) is the *relay's* address (`VITE_RELAY_URL` points the
+client *at* it as a backend) — it is not where the client itself lives.
+The client needed its own hostname: `app.nostras.app`, a real subdomain,
+not the same address.
+
+**Same shared-IP cert propagation issue hit again, twice** — first for
+`app.nostras.app` initially set up via CNAME (`app.nostras.app` →
+`<hash>.nostras-client.fly.dev`, Fly's recommended pattern for
+subdomains, expected to sidestep the apex's shared-IP problem since it
+resolves through Fly's already-working `.fly.dev` hostname) — but the
+CNAME target itself still ultimately pointed at the app's *shared*
+IPv4, so the exact same `SSL routines::unexpected eof while reading` /
+stuck-on-"Not verified" symptom from the relay's domain setup recurred.
+**Confirmed this before waiting it out again** by resolving the CNAME
+target's IP directly and testing TLS against it — same shared-IP
+signature, so went straight to the known fix (`fly ips allocate-v4
+--app nostras-client --yes`, another $2/mo, asked first) and swapped
+the CNAME for direct A/AAAA records pointing at the new dedicated IP —
+**resolved in under a minute this time**, versus the 20+ minutes the
+first shared-IP incident took, confirming the dedicated-IP fix is the
+right one to reach for immediately rather than waiting out a shared-IP
+propagation issue a second time.
+
+**Verified end-to-end for real, not just "the container serves files"**:
+loaded `https://app.nostras.app/` in an actual browser — real "connected"
+status, a real live feed of public Nostr content rendering, confirming
+the deployed client is genuinely talking to `wss://nostras.app` (the
+production relay) rather than falling back to localhost or failing
+silently. Cross-checked independently via `curl`ing the deployed JS
+bundle directly and confirming the literal string `wss://nostras.app`
+is present in the built output, consistent with the browser behavior.
+
+**All four original post-roadmap infra items are now done**: docs/
+support GitHub org, `nostras.app` domain + relay, DVM payment gating
+verified live, and now the client itself deployed and reachable. Nothing
+required for a real person to actually use NOSTRAS end-to-end is
+outstanding at the infra level anymore — remaining work from here is
+product features/polish, not deployment plumbing.
 
 ## Architecture
 
