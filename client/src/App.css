@@ -663,6 +663,33 @@
   color: var(--text-muted);
 }
 
+.notification-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.notification-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.notification-icon-repost {
+  color: var(--success);
+}
+
+.notification-icon-like {
+  color: #f43f5e;
+}
+
+.notification-icon-zap {
+  color: var(--zap);
+}
+
+.notification-action {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
 .feed-item-content {
   font-size: 15px;
   line-height: 150%;

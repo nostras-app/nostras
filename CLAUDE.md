@@ -487,6 +487,43 @@ confirmed it was gone — the refetch-on-activate behavior actually works,
 not just the initial fetch. No new CSS needed, entirely reuses
 `.feed`/`.feed-empty` from the existing feed views.
 
+**Notifications view, the nav rail's 8th real icon — only Messages
+remains "coming soon" (2026-08-04)**: user explicitly chose the simpler
+scope (activity list only, no unread badge/count) over badge tracking
+when asked, since a badge needs a persisted "last seen" timestamp and a
+background-live subscription for real payoff.
+`client/src/hooks/useNotifications.ts` subscribes to
+`{kinds:[1,6,7,9735], '#p':[myPubkey]}` (replies/mentions, reposts,
+likes, zap receipts — every kind this app's own engagement features
+already produce), filtering out self-notifications client-side (Nostr
+filters have no "NOT author" clause).
+`client/src/components/NotificationsView.tsx` renders each kind with a
+color-coded icon reusing the exact icons/colors `EngagementBar` already
+established (pink heart, green repost, accent reply bubble, orange
+zap bolt) so the visual language matches. **Zap amount parsing uses
+NDK's own `zapInvoiceFromEvent`** (decodes the real bolt11 in the
+receipt's `bolt11` tag) — real library code, not hand-rolled, and it
+correctly returns `null` for anything it can't decode, which the
+renderer falls back on gracefully (shows "zapped you" without an amount
+rather than crashing). Verified with real published test events (a
+throwaway key's real kind 1/6/7 events tagging a dev-identity note, via
+`nak` — not mocked in memory) for the first three types; the zap type
+specifically was verified via its *fallback* path (a real kind:9735
+event with a deliberately garbage `bolt11` tag, since fabricating a
+genuinely valid bolt11 to also test the happy path wasn't worth the
+effort — NDK's own bolt11 decoder is well-established, not code this
+project owns). No overflow on mobile confirmed via `scrollWidth`.
+
+**Unrelated observation from this same verification pass**: a real,
+long-preexisting minor issue — some notes with very long unbroken raw
+JSON content (bot/automation notes that dump structured data as note
+content instead of human text — common on the public relays this app
+reads from) cause horizontal overflow on narrow viewports despite
+`.feed-item-content` already having `overflow-wrap: anywhere` and the
+flex chain already having `min-width: 0` at every level checked. Root
+cause not yet isolated — flagged for a future pass, not fixed here since
+it predates and is unrelated to today's notifications work.
+
 Check `client/package.json` / `server/go.mod` before assuming a command
 exists.
 

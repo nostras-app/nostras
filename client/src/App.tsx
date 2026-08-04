@@ -5,6 +5,7 @@ import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
 import { ProfileView } from './components/ProfileView'
 import { BookmarksView } from './components/BookmarksView'
+import { NotificationsView } from './components/NotificationsView'
 import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
 import { SignerConnect } from './components/SignerConnect'
@@ -85,6 +86,10 @@ function App() {
 
             <div className={panelClass('bookmarks')}>
               <BookmarksView active={activeView === 'bookmarks'} />
+            </div>
+
+            <div className={panelClass('notifications')}>
+              <NotificationsView />
             </div>
 
             <section className={`card settings-panel ${panelClass('settings')}`}>
