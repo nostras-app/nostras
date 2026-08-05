@@ -1996,8 +1996,13 @@ cleanly, no data loss) — confirmed all three routing cases directly via
 curl/`nak` rather than assumed from reading the code: landing page on
 plain `GET /`, unaffected NIP-11 response, unaffected WebSocket
 relay function, unaffected `/push/subscribe` auth gating, and a genuinely
-unmatched path still 404ing. **Not yet verified in an actual browser or
-on the live production domain** — pending the deploy this same session.
+unmatched path still 404ing. **Confirmed live on the real production
+domain in an actual browser after deploying**: `https://nostras.app`
+renders the full page correctly — hero with the network animation,
+feature grid, audit section with the live-pulse event panel, footer —
+and the "Open NOSTRAS" CTA correctly navigates to `app.nostras.app`.
+`web`/`dvm` both came back `started` on their own this deploy, no manual
+`flyctl machine start` needed this time.
 
 ## Architecture
 
