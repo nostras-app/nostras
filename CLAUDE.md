@@ -1493,6 +1493,28 @@ code rather than a fresh isolated live test; worth a real check next
 time this path is exercised organically (a live DM to a recipient who
 only has a NIP-65 list, no kind:10050) rather than assumed indefinitely.
 
+**DVM caught down by the uptime-check workflow, a new variant of the
+recurring "process group never auto-starts" bug (2026-08-05)**: user got
+a GitHub failure-notification email; turned out to be the `Uptime check`
+scheduled workflow (not a deploy) catching the DVM's primary machine in
+`stopped` state (`flyctl status --app nostras`). Event log showed
+`exit_code=0, requested_stop=false` at `07:08:26 UTC` — a clean,
+self-initiated exit, **not following any deploy** (confirmed via
+`gh run list --workflow=deploy-relay.yml`, last relay deploy was the
+day before). Every prior instance of this exact "process group with no
+`[http_service]` doesn't auto-restart" bug was triggered by a deploy or
+secrets change; this is the first known case of it happening with zero
+triggering event, which matters for how much this can be trusted to
+"only happen right after I touch the relay app" going forward — it
+apparently can also just happen on its own. Fixed the same way as every
+prior instance: `flyctl machine start`, then verified for real with a
+fresh `kind:5050` job that got a genuine `payment-required` response
+(not just trusting the status table), and re-ran the uptime-check
+workflow manually to confirm green. This is exactly the failure mode
+the uptime-check workflow was built to catch, and it worked correctly —
+three failed scheduled runs today were all this one incident, not three
+separate problems.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
