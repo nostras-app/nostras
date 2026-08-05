@@ -1,0 +1,60 @@
+name: Uptime check
+
+# Runs on a schedule and actually exercises both apps, not just pings them.
+# The relay's HTTP endpoint alone isn't enough: it kept returning 200 for
+# ~2 hours while the DVM machine was silently stopped, because khatru
+# (the relay) and the DVM are separate processes on separate Fly machines
+# - see CLAUDE.md's "Real gap caught" entry. So this also publishes a
+# real NIP-90 job and confirms the DVM actually responds, which is the
+# only way to catch that specific failure mode.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Cache nak
+        id: cache-nak
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/nak
+          key: nak-v0.20.2
+
+      - name: Install nak
+        if: steps.cache-nak.outputs.cache-hit != 'true'
+        run: go install github.com/fiatjaf/nak@v0.20.2
+
+      - name: Check relay HTTP endpoint
+        run: |
+          curl -fsS -H "Accept: application/nostr+json" https://nostras.app/ \
+            | grep -q '"name":"NOSTRAS Relay"'
+
+      - name: Check client HTTP endpoint
+        run: curl -fsS -o /dev/null https://app.nostras.app/
+
+      - name: Check DVM responsiveness (real job round-trip)
+        run: |
+          set -e
+          NAK=~/go/bin/nak
+          SEC=$(openssl rand -hex 32)
+          EVENT_JSON=$("$NAK" event -k 5050 -c "" \
+            -t i="Uptime probe: reply with the word OK.;text" \
+            --sec "$SEC" wss://nostras.app | head -1)
+          EVENT_ID=$(echo "$EVENT_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          echo "Published probe job $EVENT_ID"
+
+          timeout 30 "$NAK" req -k 7000 -k 6050 -e "$EVENT_ID" --stream wss://nostras.app \
+            > response.log || true
+
+          if ! grep -q "\"$EVENT_ID\"" response.log; then
+            echo "::error::No DVM response within 30s for probe job $EVENT_ID - DVM may be down"
+            exit 1
+          fi
+          echo "DVM responded correctly"

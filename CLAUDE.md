@@ -1256,6 +1256,32 @@ relay's HTTP endpoint responds** — the two process groups can silently
 diverge in health, and only checking `web` misses exactly this class
 of bug.
 
+## Automated uptime check, directly motivated by the DVM downtime gap (2026-08-04)
+
+`flyctl` was checked directly (`flyctl help`, `checks --help`,
+`synthetics --help`) before building anything — it only exposes
+`checks list` (read-only) and a `synthetics agent` (something you run
+*inside* your own infra); there's no CLI command to create an alert or
+notification rule. Real alerting on Fly's platform is dashboard-only,
+not something scriptable/configurable on the user's behalf here.
+
+**Deliberately not just an HTTP ping** — a generic uptime check against
+`https://nostras.app/` would have shown green the entire ~2 hours the
+DVM was actually down, since that's the relay's endpoint, a completely
+separate Fly machine from the DVM. `.github/workflows/uptime-check.yml`
+runs every 30 minutes and does three real checks: the relay's HTTP/NIP-11
+endpoint, the client's HTTP endpoint, and — the one that actually matters
+for this failure mode — publishes a genuine `kind:5050` NIP-90 job via
+`nak` (cached as a pinned-version Go install, `v0.20.2`, to keep runs
+fast) and confirms *any* `kind:7000`/`6050` response comes back within
+30s. Accepts any response, not specifically a paid result — with payment
+gating on, a `payment-required` event alone is sufficient proof the DVM
+is alive and subscribed; the check isn't trying to verify payment flow,
+just liveness. On failure, the workflow step exits non-zero, and
+GitHub's own default behavior emails on a failed scheduled workflow run
+— zero additional notification setup, no webhook/Slack credentials
+needed, matching the option the user picked when asked.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
