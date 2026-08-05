@@ -69,6 +69,29 @@ func main() {
 	relay.Router().HandleFunc("POST /push/subscribe", handlePushSubscribe(pushSubs))
 	relay.Router().HandleFunc("POST /push/unsubscribe", handlePushUnsubscribe(pushSubs))
 
+	// Connection analytics + dashboard — see analytics.go/dashboard.go/
+	// dashboard.html. Counts unique relay connections per day/country (IP
+	// used only transiently for the country lookup, never stored) so the
+	// operator can see rough usage volume and geography for marketing
+	// purposes. Dashboard is Basic-Auth gated behind
+	// NOSTRAS_DASHBOARD_PASSWORD; unset means the dashboard route refuses
+	// every request rather than serving unprotected.
+	analyticsPath := envOr("NOSTRAS_ANALYTICS_PATH", "./analytics.json")
+	analytics, err := newAnalyticsStore(analyticsPath)
+	if err != nil {
+		panic(err)
+	}
+	relay.OnConnect = append(relay.OnConnect, newAnalyticsConnectHook(analytics))
+
+	dashboardPassword := os.Getenv("NOSTRAS_DASHBOARD_PASSWORD")
+	if dashboardPassword == "" {
+		fmt.Println("dashboard: OFF (NOSTRAS_DASHBOARD_PASSWORD not set)")
+	} else {
+		fmt.Println("dashboard: ON")
+	}
+	relay.Router().HandleFunc("GET /dashboard", requireDashboardAuth(dashboardPassword, handleDashboard))
+	relay.Router().HandleFunc("GET /dashboard/data", requireDashboardAuth(dashboardPassword, handleDashboardData(analytics)))
+
 	// Landing page — see landing.go/landing.html. "/{$}" (not just "/")
 	// matches the exact root only, per Go 1.22+ ServeMux pattern syntax —
 	// a bare "/" would act as a catch-all subtree match and start

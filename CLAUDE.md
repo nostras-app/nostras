@@ -1338,6 +1338,78 @@ correctly post-fix (feed loads, Settings still shows
 the fix could very easily have broken local dev if the "always allow
 our own relay" exception had a bug, so this wasn't skipped.
 
+**Correction: the 2026-08-04 fix above was incomplete — the real fix is
+a WebSocket-level guard, not just relayConnectionFilter (2026-08-05)**:
+user reported "Not Secure" recurring on `app.nostras.app`, live, across
+multiple different Chrome profiles/identities on two separate computers
+— clearly not a one-off, and concerning enough to treat as urgent. First
+ruled out "the earlier fix never actually deployed" (it had, successfully,
+on 2026-08-05 at 05:28 UTC, confirmed via `gh run list`), which meant the
+fix itself had a real gap, not a deploy problem.
+
+**Root cause, found by reading NDK 3.0.3's own installed source directly,
+not assumed**: `relayConnectionFilter` only gates whether a relay gets
+registered into `ndk.pool.relays` — `NDKPool.addRelay()` checks it and
+correctly refuses. But `NDKPool.getRelay(url, true, true)` — the exact
+call NDK's own internal outbox-relay-resolution logic uses when it
+discovers relays from *other users'* NIP-65/NIP-51 lists during **any**
+normal `subscribe`/`fetchEvents` call with an authors filter, not just
+the narrower DM-relay-discovery path fixed on 2026-08-05 earlier the same
+day — constructs and **returns** the `NDKRelay` object unconditionally,
+even when `useTemporaryRelay()` → `addRelay()` refuses to register it.
+The calling code still holds a live, connectable `NDKRelay` object and
+uses it directly in a subscription's own relay set, completely bypassing
+the filter. In other words: **the filter was real and correctly wired,
+but it only closes the front door — NDK has a side door
+(`getRelay(url, true, true)`) that was never covered**, and that side
+door is the actual mechanism the outbox model uses by default for
+ordinary browsing, which is why this kept recurring for every fresh
+profile rather than being a one-time fluke.
+
+**Fixed at the actual network boundary this time**: `client/src/lib/
+wsGuard.ts` wraps the global `WebSocket` constructor itself — installed
+as the *very first import* in `main.tsx`, before `lib/ndk.ts` or any
+other app code runs — and throws for any private/loopback/link-local
+hostname except the app's own explicitly configured relay. This closes
+the gap regardless of which internal NDK code path constructs the relay,
+current or future, rather than depending on correctly identifying and
+patching every call site that might leak past `relayConnectionFilter`
+(the same narrower approach already used once for the DM path and now
+shown to not generalize). Confirmed safe by reading NDK's own
+connectivity code: `new WebSocket(url)` is already wrapped in NDK's own
+try/catch, which treats a thrown error exactly like a normal failed
+connection (logs via its own debug channel, marks the relay
+`DISCONNECTED`, the pool's `.catch()` absorbs the rejection) — so
+throwing here is the library's own intended way to refuse a connection,
+not a crash risk.
+
+**Verified for real, including catching a second, unrelated issue along
+the way**: local dev build confirmed the guard blocks `127.0.0.1` and
+`192.168.x.x` while still allowing the local relay, with the feed
+loading normally and no other console errors. First live-production
+check after deploying appeared to still allow the blocked connection —
+**turned out to be a stale service worker in the test tab** (it had
+visited `app.nostras.app` earlier in the same debugging session, before
+this fix deployed, and `injectManifest`'s precache was still serving the
+old bundle) — a real instance of the exact "stale SW tab" quirk already
+documented elsewhere in this file, caught by explicitly
+`unregister()`-ing the service worker and clearing caches via
+`navigator.serviceWorker.getRegistrations()`/`caches.keys()` before
+retesting, not just assumed away. After that, the live production bundle
+correctly blocked a synthetic private-address `WebSocket` construction
+and still connected normally to `wss://nostras.app`.
+
+**Known follow-up, not yet done**: Chrome's Local Network Access
+permission state is per-origin and sticky — once an origin has been
+flagged, the "Not Secure" label and the stored permission entry can
+persist in a given browser profile even after the underlying cause is
+fixed, until the user manually hits "Reset permissions" (visible in
+their own screenshot) for `app.nostras.app` once. The code fix stops
+this from happening to **new** visitors and fresh profiles going
+forward; it does not retroactively clear the flag already stored in the
+profiles that hit the original bug. Worth the user confirming a reset
+actually clears it on one already-affected profile, to close the loop.
+
 **Header connection-status pill removed (2026-08-05)**: user-requested —
 the pill was redundant with Settings > Relays (which already shows live
 per-relay status), and on narrow/mobile viewports it visually overlapped
@@ -2003,6 +2075,88 @@ feature grid, audit section with the live-pulse event panel, footer —
 and the "Open NOSTRAS" CTA correctly navigates to `app.nostras.app`.
 `web`/`dvm` both came back `started` on their own this deploy, no manual
 `flyctl machine start` needed this time.
+
+## Connection analytics + operator dashboard (2026-08-05)
+
+User-requested — wants visibility into "how many instances of NOSTRAS are
+running and from where" to inform marketing strategy. Scoped via explicit
+choices before building: the metric is unique relay WebSocket connections
+(not app-install pings or published pubkeys — simplest, zero new client
+code, at the cost of reconnects/multi-device inflating counts, a known
+tradeoff); geography is country-level only, derived from the connecting
+IP at connection time with the **IP itself never stored**, only the
+resulting country code; the dashboard lives on the relay itself
+(`/dashboard`), gated behind a single shared-secret Basic Auth password
+(`NOSTRAS_DASHBOARD_PASSWORD`) rather than a full account system, since
+none exists in this app and this is operator-only tooling.
+
+`server/analytics.go`: `analyticsStore` is a mutex-guarded, JSON-file-
+persisted `{total, by_day: {date: {country: count}}}` structure —
+aggregated buckets, not a raw per-connection event log, which keeps
+storage bounded regardless of traffic volume and is itself a small
+privacy improvement (no per-connection timestamp granularity to
+correlate). Wired into khatru's `relay.OnConnect` hook via
+`khatru.GetIP(ctx)` (khatru's own helper, already correctly handles
+`X-Forwarded-For` for relays running behind a proxy like Fly's, no need
+to hand-roll IP extraction). **Applying the PQ-009 lock-contention lesson
+directly this time, not rediscovering it**: the geo lookup (an outbound
+HTTPS call to `ipapi.co`, free, no API key, returns just a two-letter
+country code) and the store write both happen inside a `go func()`
+dispatched from the connect hook — never blocking the handshake, exactly
+the fix that had to be reactively applied to the push-notification hook
+after it caused a real outage. Failures (rate limit, timeout, malformed
+response) degrade to an "unknown" bucket rather than blocking or
+erroring, consistent with this project's established degrade-gracefully
+pattern (DVM pricing, NWC connection, etc.).
+
+`server/dashboard.go` + `dashboard.html`: `/dashboard` (embedded HTML,
+`//go:embed`, same pattern as the landing page) and `/dashboard/data`
+(JSON snapshot), both behind `requireDashboardAuth` — HTTP Basic Auth
+against a single password from `NOSTRAS_DASHBOARD_PASSWORD`, compared via
+`crypto/subtle.ConstantTimeCompare` rather than `==` (cheap timing-attack
+defense-in-depth). Unset password means the route refuses every request
+with 503 rather than serving unprotected — safe-by-default, matching the
+same "degrades to off, not to unprotected" posture used for push
+notifications and DVM payment gating elsewhere in this project. The page
+itself reuses the exact color tokens from `landing.html`
+(`--accent`/`--data` purple→cyan gradient, same light/dark
+`prefers-color-scheme` pair) for visual consistency with the rest of the
+brand: 4 summary cards (total / today / last 7 days / countries reached),
+a hand-drawn Canvas bar chart of the last 30 days (no external chart
+library, consistent with this project's no-CDN-dependency convention),
+and a top-countries table with algorithmically-derived flag emoji
+(Unicode regional-indicator arithmetic from the ISO code, no image
+assets needed) and gradient progress bars. An honest caption at the
+bottom states plainly what is and isn't being measured — same convention
+as the relay-list "this pool is dynamic" caption and the search
+local-only-scope caption elsewhere in this app.
+
+**Verified for real, not just built clean**: `go build ./...`,
+`go vet ./...`, `gofmt -l .` all clean. Auth gating confirmed via direct
+curl — no credentials (401), wrong password (401), correct password
+(200) — and `/dashboard/data` correctly refuses too. The actual
+geo-lookup integration was verified against a real public IP
+(`8.8.8.8` → `US` via a direct call to the same `ipapi.co` endpoint the
+server uses) to confirm the third-party API genuinely works, separate
+from confirming the record-on-connect pipeline itself: triggered several
+real `nak` connections against the local relay and confirmed
+`analytics.json` accumulated correctly (bucketed as `"unknown"`, which is
+the *correct* behavior for a loopback-address connection, not a bug).
+The dashboard's rendering (chart + table layout, flag emoji, gradient
+bars, responsive card grid) was visually verified in a real browser
+against synthetic multi-day/multi-country data generated for this
+purpose only in local dev (never written to the production data file,
+which is gitignored and lives solely on the Fly volume) — confirmed via
+screenshot that the chart renders correctly across 30 days and the
+country table sorts and displays correctly with real flag/name/count/bar
+rendering.
+
+**Deploy note — password must be set before the dashboard is usable**:
+the code deploys with the dashboard correctly OFF until
+`NOSTRAS_DASHBOARD_PASSWORD` is set as a Fly secret on the `nostras` app
+— this is a manual step, not something this session did, since the user
+should choose and know their own password rather than have one invented
+and set silently on their behalf.
 
 ## Architecture
 
