@@ -21,6 +21,7 @@ export type View =
   | 'profile'
   | 'bookmarks'
   | 'notifications'
+  | 'messages'
 
 export function NavRail({
   activeView,
@@ -70,7 +71,12 @@ export function NavRail({
       >
         <BellIcon />
       </button>
-      <button type="button" className="nav-rail-btn" disabled title="Messages (coming soon)">
+      <button
+        type="button"
+        className={`nav-rail-btn${activeClass('messages')}`}
+        onClick={() => onSelect('messages')}
+        title="Messages"
+      >
         <MessageSquareIcon />
       </button>
       <button

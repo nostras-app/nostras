@@ -1356,6 +1356,66 @@ worth a quick visual confirmation (especially the mobile-overlap
 scenario that motivated the change) next time the app is checked in a
 browser.
 
+**Direct messages landed — NIP-17 only, the nav rail's last remaining
+piece (2026-08-05)**: scoped via an explicit choice between NIP-04
+(legacy, weaker — leaks sender/recipient pubkeys and timing to any relay
+operator) and NIP-17 (modern — kind 14 rumor sealed then gift-wrapped as
+kind 1059, encrypted with NIP-44, wrapped under a throwaway ephemeral
+key so relays only see two random-looking pubkeys, not who's really
+talking to whom); user picked NIP-17 only, since NOSTRAS has no legacy
+users to migrate and there's no reason to also ship the weaker standard.
+**No protocol code was hand-rolled** — `@nostr-dev-kit/ndk` (v3.0.3)
+ships real `giftWrap()`/`giftUnwrap()` helpers plus NIP-44
+`encryptionEnabled()` support across all three signer types this app
+already has (dev key, NIP-46, NIP-07), so this was a case of wiring
+existing library primitives together, not implementing NIP-59/NIP-44
+from scratch. `client/src/lib/dm.ts`: `sendDirectMessage()` builds an
+unsigned kind:14 rumor and gift-wraps it **twice** — once for the
+recipient, once for the sender — since NIP-17 requires a sender's-own
+copy so a conversation still shows your own sent messages on reload
+(without it, only the recipient's copy would ever decrypt for you);
+`decryptGiftWrap()` wraps `giftUnwrap()` and fails closed (returns
+`null`, doesn't throw) for anything that doesn't decrypt/parse as a
+valid rumor, since it runs per-event inside a live subscription. Both
+publish/read through the same `devPublishRelaySet`/local-only
+conventions as every other feature — a DM only actually reaches its
+recipient once the recipient's relay is opted in via Settings > Relays,
+same dev-safety tradeoff already accepted project-wide.
+`client/src/hooks/useDirectMessages.ts` subscribes to kind:1059 events
+tagging the active user (same long-lived-subscription pattern as
+`useNotifications`), decrypts each on arrival, and groups the result
+into per-peer conversations. `client/src/components/MessagesView.tsx`
+is a conversation list + thread view + a "start new conversation by
+npub" input, wired to the nav rail's previously-disabled Messages icon
+(`NavRail.tsx`, `'messages'` added to the `View` union in both
+`NavRail.tsx` and `App.tsx`).
+**Real bug caught before it shipped, not hypothetical**: the first draft
+called `useDirectMessages()` — which opens a live relay subscription —
+separately in `MessagesView`, `ConversationList`, `ConversationRow`,
+*and* `Thread`, meaning every rendered conversation row would have
+opened its own duplicate subscription to the same filter. Fixed by
+calling the hook exactly once at the top of `MessagesView` and passing
+`conversations`/`loading` down as props — caught by re-reading the
+component tree before testing, not by observing the duplicate
+subscriptions live.
+**Verified for real, not just built clean**: `tsc -b && vite build` and
+`oxlint` both passed with no new errors/warnings. The actual NIP-17
+crypto path was verified end-to-end with a standalone script
+(two throwaway `NDKPrivateKeySigner` identities, real connect to the
+local relay) that calls the exact same `giftWrap`/`giftUnwrap` functions
+`dm.ts` uses: confirmed the wrap is genuinely kind 1059 with a random
+outer pubkey (not the real sender's), confirmed the recipient's signer
+correctly decrypts the rumor to the original plaintext with the real
+sender's pubkey recovered only through decryption, and confirmed the
+sender's own self-addressed copy decrypts correctly too. **UI-layer
+verification (clicking through the nav rail, sending a message from the
+actual composer, seeing it render in a thread) was not done this
+session** — no live Chrome extension connection was available — so the
+React wiring rests on code review + the clean typecheck/build/lint, not
+an actual rendered check; this is the same gap flagged for the
+status-pill removal above, and both are worth a live pass together next
+time the app is checked in a browser.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

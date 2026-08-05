@@ -9,6 +9,7 @@ import { SearchView } from './components/SearchView'
 import { ProfileView } from './components/ProfileView'
 import { BookmarksView } from './components/BookmarksView'
 import { NotificationsView } from './components/NotificationsView'
+import { MessagesView } from './components/MessagesView'
 import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
 import { SignerConnect } from './components/SignerConnect'
@@ -133,6 +134,10 @@ function App() {
 
             <div className={panelClass('notifications')}>
               <NotificationsView />
+            </div>
+
+            <div className={panelClass('messages')}>
+              <MessagesView />
             </div>
 
             <section className={`card settings-panel ${panelClass('settings')}`}>
