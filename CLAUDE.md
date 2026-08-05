@@ -1493,6 +1493,35 @@ code rather than a fresh isolated live test; worth a real check next
 time this path is exercised organically (a live DM to a recipient who
 only has a NIP-65 list, no kind:10050) rather than assumed indefinitely.
 
+**Recipient-relay discovery confirmed working live, closing the gap
+flagged above (2026-08-05)**: the user logged into MMO's real account
+via NIP-46 using `nak bunker` (see the entry below on that), and sent
+a fresh message from MMO to SC — this time SC (still on Yakihonne, a
+separate client) received it automatically, with no manual relay
+toggling in Settings required. This is the real, organic confirmation
+that was missing before: automatic recipient-relay lookup
+(kind:10050/kind:10002) genuinely fixes cross-client DM delivery in
+production, not just in isolated tests.
+
+**NIP-46 login via `nak bunker` walked through and verified live
+(2026-08-05)**: user asked how to log in via NIP-46 without a browser
+extension available (testing from a Chrome Guest profile, no Alby).
+`nak bunker --sec <key> <relay>` starts a NIP-46 signer daemon and
+immediately prints a ready-to-use `bunker://<pubkey>?relay=...&secret=...`
+URI — confirmed for real with a throwaway key against `wss://nostras.app`
+before explaining it, rather than guessing the command/output shape.
+User then used it for real with MMO's own key and successfully logged
+in by pasting the URI into Settings > Signer, confirming NIP-46 bunker
+login works end-to-end in production via a completely different signer
+implementation than the NIP-07 (Alby) and dev-key paths already
+verified — and that DMs correctly follow whichever identity is actually
+signed in (no stale cached state from a prior session), decrypting
+fresh via the bunker connection. Separately, a "can't paste into the
+bunker field" report turned out to be the user's own Linux-vs-Windows
+clipboard muscle memory, not an app bug — confirmed via a source grep
+that NOSTRAS has no `onPaste`/`preventDefault` handling anywhere, all
+clipboard code is write-only (copy buttons).
+
 **DVM caught down by the uptime-check workflow, a new variant of the
 recurring "process group never auto-starts" bug (2026-08-05)**: user got
 a GitHub failure-notification email; turned out to be the `Uptime check`
