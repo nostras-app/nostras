@@ -1295,6 +1295,49 @@ shows up. Re-tested after the fix: `DVM responded correctly (within
 3s)` — confirms both that the probe logic is correct and that the DVM
 is genuinely healthy right now.
 
+## "Not Secure" despite a valid cert — outbox-discovered private-IP relays (2026-08-04)
+
+User reported Chrome flagging `https://app.nostras.app` as "Not Secure"
+despite HTTPS. **Ruled out a real TLS problem first, not assumed**:
+full chain inspection via `openssl s_client` verified successfully to
+the root (Let's Encrypt, valid dates, correct CN) — matching what
+Chrome's own "Certificate is valid" panel told the user. No mixed
+HTTP content either (checked console, network requests, and
+`performance.getEntriesByType('resource')` directly — all clean).
+
+**Root cause, confirmed from Chrome's own security panel**: a "Local
+network" permission was listed — Chrome's Local Network Access
+protection flags a public HTTPS page as insecure when it attempts to
+reach a private/loopback address, exactly the pattern malicious sites
+use to probe a visitor's home network. This matched something already
+directly observed earlier in this same project: NDK's outbox-model
+aggregation (`useTemporaryRelay`) adding relays discovered from OTHER
+users' NIP-65 lists automatically, and one such discovered relay was
+`ws://127.0.0.1:4869/` — untrusted third-party data, no real public
+relay would ever legitimately be hosted at a loopback/private address
+from another visitor's perspective.
+
+**Fixed at the root, not just documented**: NDK exposes exactly the
+right hook for this —
+`relayConnectionFilter?: (relayUrl: string) => boolean` on the NDK
+constructor, checked before any relay (including outbox-discovered
+ones) is added to the pool. `client/src/lib/relayFilter.ts` blocks
+localhost/loopback/private-IPv4-range/link-local/IPv6-local hostnames,
+**except** the app's own explicitly configured local relay (critical:
+without this exception, local dev — which legitimately runs on
+`ws://localhost:7777` — would have broken entirely). Wired in via
+`ndk.ts`'s `relayConnectionFilter` option.
+
+**Verified two ways**: (1) an isolated unit test of the filter logic
+against 11 cases, including the exact failing case
+(`ws://127.0.0.1:4869` → blocked) and the local relay at various forms
+(`ws://localhost:7777`, with/without trailing slash → allowed) — all
+passed; (2) a real browser check confirming local dev still connects
+correctly post-fix (feed loads, Settings still shows
+`ws://localhost:7777/` as `LOCAL` + `connected`, no console errors) —
+the fix could very easily have broken local dev if the "always allow
+our own relay" exception had a bug, so this wasn't skipped.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

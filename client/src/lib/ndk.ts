@@ -1,5 +1,6 @@
 import NDK, { NDKRelaySet } from '@nostr-dev-kit/ndk'
 import { getCustomRelays } from './customRelays'
+import { makeRelayConnectionFilter } from './relayFilter'
 
 // The self-hosted khatru node (server/). Defaults to localhost for local
 // dev; the deployed build sets VITE_RELAY_URL (e.g. wss://nostras.app) at
@@ -24,6 +25,13 @@ export const explicitRelayUrls = [localRelayUrl, ...publicRelayUrls, ...getCusto
 // after construction (this is how signer *switching* already works).
 export const ndk = new NDK({
   explicitRelayUrls,
+  // Blocks connecting to private/local-network relay addresses discovered
+  // via outbox aggregation (untrusted third-party data) while still
+  // allowing our own explicitly configured local relay through — see
+  // relayFilter.ts for why this matters (real user-visible symptom: a
+  // discovered ws://127.0.0.1:.../ relay made Chrome flag the whole page
+  // "Not Secure" via its Local Network Access protection).
+  relayConnectionFilter: makeRelayConnectionFilter(localRelayUrl),
 })
 
 // Scoped to the local relay only, and never mutated — used for NIP-50
