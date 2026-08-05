@@ -166,47 +166,9 @@
   min-width: 0;
 }
 
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-card);
-  transition: border-color 0.15s ease;
-}
-
-.status-pill[data-state='connected'] {
-  border-color: var(--accent-border);
-  color: var(--text-h);
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  flex: none;
-}
-
-.status-pill[data-state='connected'] .status-dot {
-  background: var(--success);
-}
-
-.status-pill[data-state='error'] .status-dot {
-  background: var(--danger);
-}
-
-.status-pill[data-state='connecting'] .status-dot,
-.status-pill[data-state='reconnecting'] .status-dot {
-  background: var(--zap);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
+/* .status-dot-standalone (Settings > Relays) reuses this keyframe —
+   kept even though the header status-pill that originally used it was
+   removed (redundant with Settings, and overlapped the brand on mobile). */
 @keyframes pulse {
   0%,
   100% {

@@ -16,7 +16,6 @@ import { NwcConnect } from './components/NwcConnect'
 import { RelaySettings } from './components/RelaySettings'
 import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
 import { NavRail, type View } from './components/NavRail'
-import { useRelayStatus } from './hooks/useRelayStatus'
 import './App.css'
 
 type ConnectionState = 'connecting' | 'connected' | 'error'
@@ -26,18 +25,6 @@ function App() {
   const [state, setState] = useState<ConnectionState>('connecting')
   const [authState, setAuthState] = useState<AuthState>('checking')
   const [activeView, setActiveView] = useState<View>('home')
-  const { status: relayStatus } = useRelayStatus()
-
-  // Layered on top of `state` rather than replacing it: `state` gates
-  // whether the app shell renders at all (set once, from the initial
-  // connect) and shouldn't flip back just because the relay hiccups later
-  // — that would hide content that's still perfectly usable. This only
-  // adds an honest "reconnecting" label when a relay drop happens after
-  // we were already up, instead of the pill silently freezing on
-  // "connected" while a subscription is actually stale (see
-  // lib/relayStatus.ts).
-  const displayState =
-    state === 'connected' && relayStatus === 'disconnected' ? 'reconnecting' : state
 
   useEffect(() => {
     let cancelled = false
@@ -106,12 +93,12 @@ function App() {
             <img src="/favicon.svg" alt="" className="brand-icon" />
             <h1>NOSTRAS</h1>
           </div>
-          <div className="header-right">
-            <span className="status-pill" data-state={displayState}>
-              <span className="status-dot" />
-              {displayState}
-            </span>
-          </div>
+          {/* Empty on purpose — mirrors header-spacer on the left so the
+              brand block stays centered via the 3-column grid. The
+              connection-status pill that used to live here was removed:
+              redundant with Settings > Relays, and overlapped the brand
+              on narrow viewports. */}
+          <div className="header-right" aria-hidden="true" />
         </header>
 
         {authState === 'needs-choice' && (
