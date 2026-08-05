@@ -3,7 +3,8 @@ import { ndk } from './lib/ndk'
 import { getDevSigner, hasStoredDevSigner } from './lib/signer'
 import { restoreSignerSession } from './lib/remoteSigner'
 import { AuthGate } from './components/AuthGate'
-import { Composer } from './components/Composer'
+import { ComposeView } from './components/ComposeView'
+import { ArticleView } from './components/ArticleView'
 import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
 import { ProfileView } from './components/ProfileView'
@@ -33,7 +34,7 @@ function App() {
   // from anywhere (e.g. clicking an author's name deep inside FeedItem)
   // without prop-drilling a callback through every component that
   // renders one.
-  const { view: activeView, profilePubkey } = useNavState()
+  const { view: activeView, profilePubkey, article } = useNavState()
 
   useEffect(() => {
     let cancelled = false
@@ -121,8 +122,12 @@ function App() {
             </div>
 
             <section className={`card ${panelClass('compose')}`}>
-              <Composer />
+              <ComposeView />
             </section>
+
+            <div className={panelClass('article')}>
+              {article && <ArticleView event={article} />}
+            </div>
 
             <section className={`card ${panelClass('ask-claude')}`}>
               <AskClaudeCard />

@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react'
+import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import type { View } from '../components/NavRail'
 
-type NavState = { view: View; profilePubkey: string | null }
+type NavState = { view: View; profilePubkey: string | null; article: NDKEvent | null }
 
-let state: NavState = { view: 'home', profilePubkey: null }
+let state: NavState = { view: 'home', profilePubkey: null, article: null }
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -15,13 +16,13 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener)
 }
 
-// Switching tabs via the nav rail always resets the profile panel back to
-// "my own profile" — distinct from viewProfile(), the only way a specific
-// other pubkey gets shown there. Without this reset, clicking Home then
-// back to the profile tab could leave a previously-viewed stranger's
-// profile showing instead of your own.
+// Switching tabs via the nav rail always resets the profile/article panels
+// back to their defaults — distinct from viewProfile()/viewArticle(), the
+// only ways a specific pubkey/article get shown there. Without this reset,
+// clicking Home then back could leave a previously-viewed stranger's
+// profile or an old article still showing.
 export function setActiveView(view: View) {
-  state = { view, profilePubkey: null }
+  state = { view, profilePubkey: null, article: null }
   notify()
 }
 
@@ -30,7 +31,15 @@ export function setActiveView(view: View) {
 // every component that renders a FeedItem (Feed, SearchView,
 // BookmarksView, ProfileView's own notes list all share it).
 export function viewProfile(pubkey: string) {
-  state = { view: 'profile', profilePubkey: pubkey }
+  state = { view: 'profile', profilePubkey: pubkey, article: null }
+  notify()
+}
+
+// Opens a NIP-23 article's full reading view — takes the already-fetched
+// NDKEvent directly (from whatever feed/card the user clicked) rather than
+// an naddr + a fresh relay lookup, since the event is already in hand.
+export function viewArticle(event: NDKEvent) {
+  state = { view: 'article', profilePubkey: null, article: event }
   notify()
 }
 

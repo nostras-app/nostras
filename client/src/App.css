@@ -520,6 +520,45 @@
   gap: 10px;
 }
 
+.composer-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.composer-attachment-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.composer-attachment-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex: none;
+  padding: 2px;
+}
+
+.composer-attachment-remove:hover {
+  color: var(--danger);
+}
+
+.composer-attach-btn {
+  margin-right: auto;
+}
+
 /* ---------- Ask Claude (NIP-90 text-generation DVM job) ---------- */
 
 .ask-claude {
@@ -1424,6 +1463,146 @@
 .feed-tab-active {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+
+/* ---------- Articles (NIP-23) ---------- */
+
+.article-card-btn {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+
+.article-card-image {
+  width: 96px;
+  height: 96px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex: none;
+  background: var(--accent-bg);
+}
+
+.article-card-image-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.article-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.article-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.article-card-summary {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.article-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.article-view-image {
+  width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+  border-radius: 14px;
+}
+
+.article-view-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-h);
+  line-height: 1.2;
+}
+
+.article-view-author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  align-self: flex-start;
+  color: inherit;
+}
+
+.article-view-content {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.article-view-content :first-child {
+  margin-top: 0;
+}
+
+.article-view-content img {
+  max-width: 100%;
+  border-radius: 10px;
+}
+
+.article-view-content pre {
+  overflow-x: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.article-view-content blockquote {
+  margin: 0;
+  padding-left: 14px;
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+}
+
+.article-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.article-composer-body {
+  font-family: var(--mono);
+  min-height: 260px;
+}
+
+.article-cover-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: none;
 }
 
 /* ---------- View switching ----------

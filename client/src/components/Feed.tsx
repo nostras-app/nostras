@@ -7,10 +7,19 @@ import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
 import { NoteContent } from './NoteContent'
 import { EngagementBar } from './EngagementBar'
+import { ArticleCard } from './ArticleCard'
 
+// Branches on event.kind here (not at each call site) so every place
+// that already renders FeedItem — the global/following feed, search
+// results, bookmarks, a profile's own notes — automatically gets article
+// cards mixed in for kind:30023 events too, no separate call needed.
 export function FeedItem({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
   const label = profile?.name || profile?.displayName || `${event.author.npub.slice(0, 12)}…`
+
+  if (event.kind === 30023) {
+    return <ArticleCard event={event} />
+  }
 
   return (
     <li className="feed-item">

@@ -3,9 +3,11 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk } from '../lib/ndk'
 import { useRelayStatus } from './useRelayStatus'
 
-// Subscribes to kind:1 notes — either the global feed (authors omitted) or
-// a single author's notes (profile view). Shared here so both call sites
-// get the same dedup/sort/eose/event:dup handling instead of two copies.
+// Subscribes to kind:1 notes and kind:30023 long-form articles — either
+// the global feed (authors omitted) or a single author's notes (profile
+// view). Shared here so both call sites get the same dedup/sort/eose/
+// event:dup handling instead of two copies. FeedItem (Feed.tsx) branches
+// on event.kind to render either a normal note or an article card.
 export function useNoteFeed(authors?: string[]) {
   const [events, setEvents] = useState<NDKEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,7 +27,9 @@ export function useNoteFeed(authors?: string[]) {
     setLoading(true)
 
     const sub = ndk.subscribe(
-      authors ? { kinds: [1], authors, limit: 50 } : { kinds: [1], limit: 50 },
+      authors
+        ? { kinds: [1, 30023], authors, limit: 50 }
+        : { kinds: [1, 30023], limit: 50 },
     )
 
     sub.on('event', (event: NDKEvent) => {

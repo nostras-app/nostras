@@ -1813,6 +1813,78 @@ reinstalled the PWA on Android and separately checked iOS — both show
 the correct gradient bolt, matching the brand. The original bug (flat
 black with color fringing) is gone on both platforms.
 
+**Rich media (images/GIFs/video/audio) and NIP-23 articles landed
+(2026-08-05)**: previously the composer only published plain text, and
+long-form articles were explicitly out of scope. Scoped via two
+explicit choices: media uploads go to an existing public Blossom
+server rather than self-hosting one (no new storage/bandwidth
+infrastructure, matching the project's general non-custodial/bring-
+your-own philosophy), and articles get a real compose *and* reading
+view in NOSTRAS, not just publish-and-hope-another-client-renders-it.
+
+**Media upload** (`client/src/lib/blossom.ts`): uploads to
+`blossom.primal.net`, confirmed via a real test upload (`nak blossom
+upload`) to accept open uploads with zero allowlisting before writing
+any client code. Blossom's own auth event (kind 24242 per BUD-11,
+distinct from NIP-98's 27235 already used for push-subscription
+endpoints) is signed via the active signer, scoped to the specific
+file's SHA-256 (computed client-side via `crypto.subtle.digest`) with a
+5-minute expiry. **Real spec-vs-implementation mismatch caught before
+shipping**: BUD-11 specifies base64url-*without*-padding for the
+`Authorization` header, but a real test against this app's actual
+server (blossom.primal.net) rejected that with `"invalid base64 for
+auth event"` and only accepted standard base64 (with padding, same
+encoding NIP-98 uses) — shipped code matches what the real server
+actually accepts, documented inline so a future reader doesn't
+"correct" it back to the spec text and break it again.
+`Composer.tsx` gained a file-attach button (multi-select,
+`image/*,video/*,audio/*`), each file uploads independently with its
+own chip showing progress/done/error state, and successfully-uploaded
+URLs get appended to the note's content on publish (plain URLs in
+content, not NIP-92 `imeta` tags — matches the read-side rendering
+choice already made in `parseContent.ts`, "simple and broad-
+compatibility over precise," kept consistent rather than introducing a
+new asymmetric convention).
+
+**Articles** (kind 30023): `client/src/lib/article.ts` parses the
+standard NIP-23 tags (`title`/`summary`/`image`/`published_at`) shared
+by the card and detail views. `useNoteFeed.ts` now fetches `[1,
+30023]` instead of just `[1]`, and `Feed.tsx`'s `FeedItem` branches on
+`event.kind` to render `ArticleCard.tsx` instead of a normal note —
+done at that one shared call site rather than per feed, so search
+results/bookmarks/a profile's own notes all pick up article cards
+automatically too. Clicking a card calls the new `viewArticle(event)`
+(`lib/navigation.ts`, same shared-state pattern as `viewProfile()`,
+extended to also hold the clicked `NDKEvent` directly rather than
+re-fetching by `naddr` since the event's already in hand) to open
+`ArticleView.tsx`. **Markdown is rendered via `react-markdown`, not
+`marked`+`dangerouslySetInnerHTML`** — a deliberate security choice:
+article content comes from arbitrary Nostr authors (untrusted input),
+and `react-markdown` renders directly to React elements rather than
+raw HTML strings, so there's no injection surface to sanitize in the
+first place, unlike an `innerHTML`-based approach. `Compose` (nav rail)
+now shows a Note/Article tab (`ComposeView.tsx`) — `ArticleComposer.tsx`
+publishes with a fresh `crypto.randomUUID()` `d` tag (editing/
+republishing the same article under a stable `d` is a real NIP-23
+capability but out of scope this pass) and can also attach a cover
+image via the same Blossom upload path as regular note attachments.
+
+**Verified**: `tsc -b && vite build` and `oxlint` clean. The Blossom
+upload path was verified with the *exact* shipped encoding logic (not
+just the spec) via a standalone script using real `NDKEvent` signing
+against the real server — confirmed a real file upload, hash match, and
+retrieval (following the server's redirect to its CDN). The NIP-23
+publish shape was verified by publishing a real article to the local
+relay via `nak` with the exact tag names `article.ts` expects
+(`d`/`title`/`summary`/`published_at`) and confirming it's queryable by
+`kind:30023`, matching what `useNoteFeed`'s updated filter now requests.
+**UI-layer verification (actually attaching a file and publishing from
+the real composer, seeing an article card render in the feed, opening
+it, seeing markdown render correctly) was pending live browser
+verification after this deploy** — same category of gap as other
+recent features, expected to be closed out shortly after this entry
+given a Chrome connection was available this session.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

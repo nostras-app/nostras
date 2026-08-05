@@ -22,6 +22,7 @@ export type View =
   | 'bookmarks'
   | 'notifications'
   | 'messages'
+  | 'article'
 
 export function NavRail({
   activeView,
