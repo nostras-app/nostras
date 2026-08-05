@@ -1282,6 +1282,19 @@ GitHub's own default behavior emails on a failed scheduled workflow run
 — zero additional notification setup, no webhook/Slack credentials
 needed, matching the option the user picked when asked.
 
+**Verified for real, twice, not left as "the YAML looks right"**:
+triggered manually via `workflow_dispatch` after pushing. First run
+succeeded but exposed a real inefficiency — `nak req --stream` doesn't
+exit on its own match, so wrapping it in `timeout 30` always burned
+the full 30 seconds even though the DVM actually responded almost
+immediately; the log showed the step taking exactly 30.0s, which
+would waste Action minutes on every single scheduled run forever.
+Fixed by switching to a poll loop (`nak req` without `--stream`, which
+closes on EOSE, checked every 3s) that exits the moment a response
+shows up. Re-tested after the fix: `DVM responded correctly (within
+3s)` — confirms both that the probe logic is correct and that the DVM
+is genuinely healthy right now.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
