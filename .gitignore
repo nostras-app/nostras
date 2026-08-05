@@ -2,6 +2,7 @@
 nostras.env
 *.env
 *.env.*
+.nostr
 
 # Editor swap files
 *.swp

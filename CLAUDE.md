@@ -1938,6 +1938,67 @@ loaded feed list client-side (same precedent as like/mute/report
 elsewhere in this app, which don't retroactively hide their targets
 either) — just marks the button "Deleted" once the request is sent.
 
+**Landing page live at the `nostras.app` apex domain (2026-08-05)**: a
+real, previously-unfilled gap — visiting `https://nostras.app/` in a
+browser used to 404 (the relay only ever answered NIP-11/WebSocket
+requests), so there was no public-facing story anywhere, just the app
+itself at `app.nostras.app` for people who already knew to go there.
+Scoped via two explicit choices: primary CTA is "open the app directly"
+(the app is live and working, so the page's job is mostly building
+trust before someone jumps in) rather than a longer explain-first
+narrative; and it's served from the apex domain itself rather than a
+separate `www.`/`home.` subdomain, so the fix is to the actual reported
+gap instead of leaving `nostras.app` still 404ing for a plain visitor.
+
+**Implementation**: `server/landing.html` (a full static page,
+`//go:embed`ded into the binary — no separate static-file deploy step,
+consistent with this relay having no other asset dependencies) is
+served by `landing.go`'s `handleLanding`, registered in `main.go` as
+`relay.Router().HandleFunc("GET /{$}", handleLanding)`. **The `/{$}`
+matters**: Go 1.22+'s enhanced `ServeMux` treats a bare `"/"` pattern as
+a subtree/catch-all match, which would have started swallowing every
+other unmatched path (including genuine 404s); `/{$}` matches the exact
+root only. khatru's own `ServeHTTP` already routes WebSocket upgrades
+and NIP-11 (`Accept: application/nostr+json`) requests to the relay
+itself before anything reaches this router, so only a plain browser
+visit ever lands on the landing page — verified directly (not assumed):
+a plain `GET /` returns the landing HTML, a NIP-11-header request still
+returns the correct relay info JSON, and a genuinely unmatched path
+(`/some-random-path`) still correctly 404s rather than falling through
+to the landing page.
+
+**Design**: drafted first as a Claude-published Artifact and shown to
+the user for approval before touching the real codebase — same
+precedent as the GitHub README/org profile content earlier in this
+project, since this is public-facing brand content, not just scaffolding.
+Colors are sampled directly from the real `favicon.svg` gradient
+(`#863bff` → `#47bfff`), not invented; the cyan is used as a distinct
+"protocol data" accent (NIP badges, the sample-event panel) separate
+from the purple brand accent, so protocol details read as information
+rather than another call-to-action. Both light and dark themes are
+fully styled (dark is the default via `prefers-color-scheme`, matching
+the live app's own default). The hero's background is a small canvas
+network animation (drifting connected nodes) evoking the actual relay/
+mesh model rather than a generic gradient blob, respects
+`prefers-reduced-motion`. The feature grid tags each card with its real,
+already-shipped NIP number (NIP-46/07 signer, NIP-57/47 zaps, NIP-17
+DMs, NIP-90 DVMs, NIP-50/65 search, Web Push) — matching this project's
+own convention of using NIP numbers as the shared vocabulary rather than
+inventing internal feature names. The "why closed source, still
+auditable" section (the original narrative brief from when the docs-only
+GitHub org was set up) is illustrated with a real-shaped Nostr event
+rather than an abstract claim, reinforcing "the protocol is the audit
+surface" concretely instead of just asserting it.
+
+**Verified**: `go build ./...`, `go vet ./...`, and `gofmt -l .` all
+clean. Live-tested against a real local relay restart (badger reopened
+cleanly, no data loss) — confirmed all three routing cases directly via
+curl/`nak` rather than assumed from reading the code: landing page on
+plain `GET /`, unaffected NIP-11 response, unaffected WebSocket
+relay function, unaffected `/push/subscribe` auth gating, and a genuinely
+unmatched path still 404ing. **Not yet verified in an actual browser or
+on the live production domain** — pending the deploy this same session.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

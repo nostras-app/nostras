@@ -69,6 +69,15 @@ func main() {
 	relay.Router().HandleFunc("POST /push/subscribe", handlePushSubscribe(pushSubs))
 	relay.Router().HandleFunc("POST /push/unsubscribe", handlePushUnsubscribe(pushSubs))
 
+	// Landing page — see landing.go/landing.html. "/{$}" (not just "/")
+	// matches the exact root only, per Go 1.22+ ServeMux pattern syntax —
+	// a bare "/" would act as a catch-all subtree match and start
+	// swallowing any other unmatched path. khatru's own ServeHTTP already
+	// routes WS upgrades and NIP-11 (Accept: application/nostr+json)
+	// requests to the relay itself before anything reaches this router,
+	// so a plain browser visit is the only thing that lands here.
+	relay.Router().HandleFunc("GET /{$}", handleLanding)
+
 	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent, searchIndex.SaveEvent,
 		newPushNotifyHook(pushSubs, vapidPublicKey, vapidPrivateKey, vapidSubscriber))
 	relay.DeleteEvent = append(relay.DeleteEvent, db.DeleteEvent, searchIndex.DeleteEvent)
