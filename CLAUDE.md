@@ -1729,6 +1729,31 @@ on the outer crash-restart mechanism to recover. **Explicitly deferred
 by the user — not a priority, logged here to fix sometime in the
 future**, not forgotten.
 
+**Push notifications confirmed working live, end to end, on a real
+device (2026-08-05)**: clicked Enable in Settings > Notifications on
+the real `MMO` account (`nip07` signer mode, confirmed via
+`localStorage`) — permission granted, `PushManager.subscribe()`
+succeeded against a genuine Google FCM endpoint, NIP-98 auth accepted by
+the server (204). Then, from this same session, looked up MMO's real
+pubkey via their actual NIP-05 (`mmo@llmops.pro` →
+`0da1a169a4e684d0b0ac1a370871575e4b8f3c56c8a7411b9ff7f27aea6c90e7`) and
+published a real throwaway-signed kind:1 note mentioning that pubkey
+directly to `wss://nostras.app` via `nak` — **the user confirmed
+receiving a real OS-level notification seconds later.** First time this
+feature has been proven end-to-end on real infrastructure with a real
+device, not just the server-side pipeline tests from earlier today.
+**Real bug caught along the way, not shipped**: a browser tab that had
+been open since before this exact deploy went out got stuck showing
+nothing but the header (`ndk.connect()`/auth resolution never
+completed) after the new service worker (`clientsClaim()`) took control
+mid-session — reproducible once, did not recur in a fresh tab, and the
+"missing" Notifications section from that same stuck tab was a symptom
+of this, not a separate bug (confirmed by loading a brand-new tab, which
+rendered the full app and the Notifications section correctly on the
+very first try). Worth knowing about: a tab left open across a service-
+worker-changing deploy can end up in a bad state and may need a manual
+close-and-reopen, not just a reload, to recover.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
