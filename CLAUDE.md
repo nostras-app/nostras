@@ -1896,14 +1896,31 @@ query — so retrying (reasonably, given the UI showed no success)
 created 3 duplicate real posts on the user's actual account, plus one
 unexplained 4th post with a `.mp4` attached that was never intentionally
 selected (likely stale composer state from the repeated retries, root
-cause not yet isolated). **This is a real NDK publish-acknowledgment
-reliability gap surfacing under relay load — a pre-existing risk in how
-this app has always called `.publish()`, not something introduced by
-today's media/article work** — worth a dedicated look (e.g. checking
-relay-side storage before treating a publish as failed, or a client-side
-duplicate-content guard on retry) next time, but out of scope for this
-entry; the duplicate posts prompted the delete-own-note feature below
-instead of being silently ignored.
+cause not yet isolated). **Correction to the paragraph above, found
+minutes later**: this was *not* a pre-existing, unrelated NDK
+reliability gap — it was a real regression in this session's own new
+push-notification code. `store.subscriptionsFor()` (`server/push.go`)
+took `pushStore`'s mutex *synchronously* inside `relay.StoreEvent`
+(`push_notify.go`), which runs on every single incoming WS event — and
+that same mutex was held during a blocking disk write
+(`add()`/`remove()`/`removeEndpoint()`'s `saveLocked()`). Under real
+concurrent production traffic this was enough lock contention to make
+WS event handling appear to hang entirely relay-wide (HTTP kept
+responding fine throughout, since NIP-11 never touches this code path —
+which is exactly why `flyctl status`/HTTP checks looked healthy while
+publishes silently died). Confirmed by watching it degrade live, then
+fixing it: dispatching the *entire* hook body in a goroutine (not just
+the actual push send, which was already async) immediately restored
+both HTTP and WS to normal — `nak` reads/writes that had been timing
+out with `context deadline exceeded` started working again within
+seconds of the fix deploying. **Real lesson, worth remembering
+generally**: a `StoreEvent`/`AddEvent` hook on a live relay runs on the
+hot path for *every* event, not just the ones it cares about — any lock
+taken synchronously inside one, even briefly, is a shared bottleneck for
+the whole relay's write throughput, not scoped to just that feature.
+The duplicate posts this caused prompted the delete-own-note feature
+below, which stayed — a real, independently useful feature regardless
+of the root cause.
 
 **Delete own notes — NIP-09, prompted directly by the duplicate-post
 incident above (2026-08-05)**: `NoteMenu.tsx` gained a Delete option,
