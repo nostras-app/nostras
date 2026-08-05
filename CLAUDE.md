@@ -1780,6 +1780,41 @@ a clean build rather than an observed real install; worth confirming
 live next time, ideally on Android Chrome or desktop Chrome/Edge where
 the prompt is most reliably offered.
 
+**Real installed-app icon quality bug, caught and fixed (2026-08-05)**:
+user installed the PWA (confirming the install button above genuinely
+works end-to-end) and reported the home-screen icon looked ugly —
+screenshot showed a flat black bolt with visible magenta/pink fringing
+at the edges, nothing like the actual purple→blue gradient brand mark.
+Root cause: `public/pwa-192x192.png`/`pwa-512x512.png` were pre-existing
+placeholder files (not even square — 192×184 and 512×491) that had
+never actually matched `favicon.svg`, the real brand asset used
+everywhere else in the app. **Confirmed the low-quality issue was in the
+conversion tooling, not the source SVG**: ImageMagick's fallback SVG
+delegate (`rsvg-convert` isn't installed in this sandbox and couldn't be
+via `apt` without a sudo password) produces exactly this kind of broken
+output — flattened the gradient to solid black and mangled the
+blur-filtered glow layers into stray white/magenta fringing when tested
+directly, i.e. reproduced the exact bug being fixed. Used Python's
+`gi.repository.Rsvg` + `pycairo` bindings instead (the real librsvg
+engine, already present as a system library even without the
+`rsvg-convert` CLI wrapper) to render clean PNGs directly from
+`favicon.svg` at 192×192 and 512×512, transparent background, ~8%
+padding. Also added a **dedicated** maskable icon
+(`pwa-maskable-512x512.png`, 15% padding safe zone, opaque black
+background matching the manifest's `background_color`/`theme_color`)
+instead of the previous config reusing the plain 512×512 file for both
+`any` and `maskable` purposes — a maskable icon needs its own safe-zone
+padding and an opaque background, since OS mask shapes (circle,
+squircle, etc.) crop the *entire* square including any transparency.
+Verified: manifest.webmanifest correctly references all three files
+with proper sizes/purpose, `tsc -b && vite build` and `oxlint` clean.
+**Not yet re-verified on a real device after this fix** — confirmed via
+direct visual inspection of the rendered PNGs (clean gradient, no
+artifacts, matches the brand exactly) and the build output, but the
+original bug report came from an actual installed home-screen icon, so
+worth a real reinstall-and-check next time to see the fix as the user
+would.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

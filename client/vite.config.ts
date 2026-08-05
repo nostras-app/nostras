@@ -39,8 +39,13 @@ export default defineConfig({
             sizes: '512x512',
             type: 'image/png',
           },
+          // A dedicated maskable icon, not a reuse of the 512x512 "any"
+          // one — maskable icons get cropped into a circle/squircle/etc.
+          // by the OS, so this one has extra padding (safe zone) and an
+          // opaque background (transparent areas would show through to
+          // whatever's behind the icon on the home screen otherwise).
           {
-            src: 'pwa-512x512.png',
+            src: 'pwa-maskable-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',
