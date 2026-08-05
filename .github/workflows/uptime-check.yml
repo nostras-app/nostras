@@ -50,11 +50,19 @@ jobs:
           EVENT_ID=$(echo "$EVENT_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
           echo "Published probe job $EVENT_ID"
 
-          timeout 30 "$NAK" req -k 7000 -k 6050 -e "$EVENT_ID" --stream wss://nostras.app \
-            > response.log || true
+          # Poll instead of one long --stream wait: nak req --stream never
+          # exits early on its own match, so a single 30s timeout call
+          # always burns the full 30s even when the DVM responds in ~1s
+          # (as it normally does) - this exits as soon as a response
+          # actually shows up, same ~30s outer deadline as a safety margin.
+          for i in $(seq 1 10); do
+            sleep 3
+            if "$NAK" req -k 7000 -k 6050 -e "$EVENT_ID" wss://nostras.app 2>/dev/null \
+                | grep -q "\"$EVENT_ID\""; then
+              echo "DVM responded correctly (within $((i * 3))s)"
+              exit 0
+            fi
+          done
 
-          if ! grep -q "\"$EVENT_ID\"" response.log; then
-            echo "::error::No DVM response within 30s for probe job $EVENT_ID - DVM may be down"
-            exit 1
-          fi
-          echo "DVM responded correctly"
+          echo "::error::No DVM response within 30s for probe job $EVENT_ID - DVM may be down"
+          exit 1
