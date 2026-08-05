@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
 import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
+import { useActiveUser } from '../hooks/useActiveUser'
 import { MoreIcon } from './icons'
 
 const REPORT_TYPES: { value: string; label: string }[] = [
@@ -14,13 +15,16 @@ const REPORT_TYPES: { value: string; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-type Panel = 'menu' | 'raw' | 'report'
+type Panel = 'menu' | 'raw' | 'report' | 'delete-confirm'
 
 export function NoteMenu({ event }: { event: NDKEventType }) {
+  const activeUser = useActiveUser()
+  const isOwn = !!activeUser && event.pubkey === activeUser.pubkey
   const [panel, setPanel] = useState<Panel | null>(null)
   const [copied, setCopied] = useState('')
   const [reported, setReported] = useState(false)
   const [muted, setMuted] = useState(false)
+  const [deleted, setDeleted] = useState(false)
   const [busy, setBusy] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -88,6 +92,30 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     }
   }
 
+  async function handleDelete() {
+    if (busy || deleted) return
+    setBusy(true)
+    try {
+      // NIP-09: a deletion REQUEST, not a guarantee — relays may honor it
+      // or not, and the event could already be mirrored elsewhere. The
+      // `k` tag (the deleted event's own kind) is the newer recommended
+      // addition to the spec, alongside the required `e` tag.
+      const deletion = new NDKEvent(ndk, {
+        kind: 5,
+        content: '',
+        tags: [
+          ['e', event.id],
+          ['k', String(event.kind)],
+        ],
+      })
+      await deletion.publish(devPublishRelaySet)
+      setDeleted(true)
+      setPanel(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="note-menu" ref={rootRef}>
       <button
@@ -127,6 +155,16 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
           <button type="button" onClick={handleMute} disabled={muted || busy}>
             {muted ? 'Muted' : 'Mute user'}
           </button>
+          {isOwn && (
+            <button
+              type="button"
+              className="note-menu-danger"
+              onClick={() => setPanel('delete-confirm')}
+              disabled={deleted}
+            >
+              {deleted ? 'Deleted' : 'Delete'}
+            </button>
+          )}
         </div>
       )}
 
@@ -173,6 +211,34 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
               onClick={() => setPanel(null)}
             >
               Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {panel === 'delete-confirm' && (
+        <div className="note-menu-panel">
+          <span className="translate-panel-label">
+            Delete this note? This publishes a deletion request (NIP-09) —
+            most relays honor it, but it isn't a guarantee the note is gone
+            everywhere.
+          </span>
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPanel(null)}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={handleDelete}
+              disabled={busy}
+            >
+              {busy ? 'Deleting…' : 'Delete'}
             </button>
           </div>
         </div>

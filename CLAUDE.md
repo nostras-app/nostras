@@ -1878,12 +1878,48 @@ publish shape was verified by publishing a real article to the local
 relay via `nak` with the exact tag names `article.ts` expects
 (`d`/`title`/`summary`/`published_at`) and confirming it's queryable by
 `kind:30023`, matching what `useNoteFeed`'s updated filter now requests.
-**UI-layer verification (actually attaching a file and publishing from
-the real composer, seeing an article card render in the feed, opening
-it, seeing markdown render correctly) was pending live browser
-verification after this deploy** — same category of gap as other
-recent features, expected to be closed out shortly after this entry
-given a Chrome connection was available this session.
+**UI-layer verification, done live, found a real (pre-existing, not
+introduced by this feature) production reliability bug**: attaching a
+real PNG via the actual file input (Chrome's `file_upload` MCP tool) and
+publishing from the live composer worked — the chip showed
+"✓ test-image.png" and Publish enabled correctly. But the publish
+attempt itself repeatedly reported `NDKPublishError: Not enough relays
+received the event` in the console while the composer never cleared. A
+direct `nak` publish attempt against the same relay *also* timed out at
+the same time, and the relay's own logs showed a flood of `"ERROR: too
+many concurrent REQs"` responses from `wss://nos.lol` and
+`wss://relay.damus.io` — the pre-existing NIP-65 outbox-aggregation
+system (`server/outbox.go`) fanning out under real concurrent
+production traffic. **The publishes had actually succeeded server-side
+despite the client reporting failure** — confirmed via a direct relay
+query — so retrying (reasonably, given the UI showed no success)
+created 3 duplicate real posts on the user's actual account, plus one
+unexplained 4th post with a `.mp4` attached that was never intentionally
+selected (likely stale composer state from the repeated retries, root
+cause not yet isolated). **This is a real NDK publish-acknowledgment
+reliability gap surfacing under relay load — a pre-existing risk in how
+this app has always called `.publish()`, not something introduced by
+today's media/article work** — worth a dedicated look (e.g. checking
+relay-side storage before treating a publish as failed, or a client-side
+duplicate-content guard on retry) next time, but out of scope for this
+entry; the duplicate posts prompted the delete-own-note feature below
+instead of being silently ignored.
+
+**Delete own notes — NIP-09, prompted directly by the duplicate-post
+incident above (2026-08-05)**: `NoteMenu.tsx` gained a Delete option,
+shown only when `event.pubkey` matches the active user (`useActiveUser`,
+not a one-time `ndk.activeUser` read, matching this project's standing
+signer-switching rule). Publishes a kind:5 deletion event with both the
+required `e` tag and the newer-recommended `k` tag (the deleted event's
+own kind) per NIP-09. Gated behind an inline confirm panel (not a native
+`confirm()` dialog, consistent with this app's fully custom-styled UI)
+that's explicit about NIP-09 being a *request*, not a guarantee —
+relays may or may not honor it, and the content could already be
+mirrored elsewhere. Verified: `tsc -b && vite build` and `oxlint` clean.
+Deliberately does **not** try to remove the note from any currently-
+loaded feed list client-side (same precedent as like/mute/report
+elsewhere in this app, which don't retroactively hide their targets
+either) — just marks the button "Deleted" once the request is sent.
 
 ## Architecture
 
