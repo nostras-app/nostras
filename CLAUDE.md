@@ -1544,6 +1544,72 @@ the uptime-check workflow was built to catch, and it worked correctly —
 three failed scheduled runs today were all this one incident, not three
 separate problems.
 
+**Follow/unfollow + a personalized "Following" feed (2026-08-05)**: the
+last conspicuous gap flagged in a roadmap-status review — `ProfileView`
+showed follower/following *counts* (`useFollowCounts.ts`) but had no
+actual follow action, and the home feed was always global (everyone),
+never "people I follow." Scoped via two explicit choices: the feed-type
+switch is tabs on the Home view itself, not buried in Settings (matches
+Twitter/Bluesky convention, more discoverable); the Follow button lives
+on the profile view only for this first pass, not also inline in the
+feed.
+
+**Real prerequisite discovered while scoping, not scope creep**:
+`ProfileView` only ever showed the *active user's own* profile — there
+was no way to view anyone else's at all, which meant "Follow button on
+profile view" was impossible without first adding real navigation to
+other users' profiles. `client/src/lib/navigation.ts` is a new
+module-level `useSyncExternalStore` store (same pattern as
+`useProfile`/`relayStatus.ts`) holding `{view, profilePubkey}` —
+`setActiveView(view)` (used by the nav rail) always resets
+`profilePubkey` to `null` (meaning "my own"), while the new
+`viewProfile(pubkey)` sets both atomically. This replaced `App.tsx`'s
+local `activeView` useState entirely, specifically so `viewProfile()`
+can be called from deep inside `FeedItem` (nested under Feed/SearchView/
+BookmarksView/ProfileView's own notes list) without prop-drilling a
+callback through all of them. `ProfileView` now takes an optional
+`pubkey` prop (omitted = own profile, matching prior behavior); clicking
+an author's avatar or name anywhere in the app opens their profile
+read-only, with a Follow/Unfollow button shown only when it isn't your
+own.
+
+`client/src/hooks/useFollowing.ts` is the kind:3 contact-list
+fetch-then-republish hook, same shape as `useBookmark`/the mute list —
+`toggle(pubkey)` only ever adds/removes the one `p` tag it's touching,
+preserving every other tag and the event's `content` field untouched
+(some older clients still store legacy relay-list JSON there). Serves
+both the Follow button (`isFollowing`/`toggle` against a specific
+pubkey) and the Following feed (`pubkeys`, the full list) from one
+fetch. `client/src/components/Feed.tsx` gained the Following/Global tabs
+(persisted to `localStorage`, not a Nostr event — this is a pure UI
+preference, not data other clients need to see) and reuses
+`useNoteFeed`'s existing optional `authors` parameter — no feed-fetching
+changes needed, that hook already supported this shape for
+`ProfileView`'s own-notes list. A "Following" feed with zero follows
+gets a distinct empty state pointing at how to follow someone, rather
+than the generic "no notes yet."
+
+**Verified for real, not just built clean**: `tsc -b && vite build` and
+`oxlint` both passed. The core `toggle()` tag logic was verified
+end-to-end against the local relay with a throwaway identity: seeded a
+kind:3 with one existing follow, a legacy relay-list JSON `content`
+field, and an unrelated tag; followed a second pubkey, then unfollowed
+the first; fetched the final event directly via `nak` and confirmed
+exactly the right pubkey was removed, the new one was added, the
+unrelated tag survived, and the legacy content field was untouched byte
+-for-byte. (NDK's own `fetchEvent()` for replaceable-kind events was
+flaky in this session's standalone test scripts after a long run of
+rapid successive local-relay connections — same pattern hit earlier
+testing the DM relay-discovery fallback path — so the multi-step part of
+this test chained local state between publishes rather than re-fetching,
+with `nak` as the independent, always-reliable verification of the
+relay's actual final stored state.) **UI-layer verification (clicking an
+author in the feed, following/unfollowing from a live profile page,
+switching feed tabs) was not done this session** — no live Chrome
+extension connection was available — consistent with the same gap
+already flagged for the header-pill removal and the DM feature; worth a
+real browser pass together next time the app is checked live.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

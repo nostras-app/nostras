@@ -1,27 +1,43 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { ndk } from '../lib/ndk'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useProfile } from '../hooks/useProfile'
 import { useNoteFeed } from '../hooks/useNoteFeed'
 import { useFollowCounts } from '../hooks/useFollowCounts'
+import { useFollowing } from '../hooks/useFollowing'
 import { useNip05Verified } from '../hooks/useNip05Verified'
 import { useWalletBalance } from '../hooks/useWalletBalance'
 import { FeedItem, FeedSkeleton } from './Feed'
 import { UserIcon, CheckCircleIcon, ZapCircleIcon } from './icons'
 
-export function ProfileView() {
+// pubkey omitted = "my own profile" (the nav rail avatar), matching the
+// original behavior; passed explicitly = viewing someone else's, reached
+// via viewProfile() (lib/navigation.ts) from clicking an author elsewhere.
+export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
   const activeUser = useActiveUser()
-  const profile = useProfile(activeUser?.pubkey)
-  const { events, loading } = useNoteFeed(activeUser ? [activeUser.pubkey] : undefined)
-  const { following, followers } = useFollowCounts(activeUser?.pubkey)
-  const nip05Verified = useNip05Verified(activeUser, profile?.nip05)
+  const viewedPubkey = pubkey ?? activeUser?.pubkey
+  const isOwnProfile = !pubkey || pubkey === activeUser?.pubkey
+  const viewedUser = useMemo(
+    () => (viewedPubkey ? ndk.getUser({ pubkey: viewedPubkey }) : undefined),
+    [viewedPubkey],
+  )
+  const profile = useProfile(viewedPubkey)
+  const { events, loading } = useNoteFeed(viewedPubkey ? [viewedPubkey] : undefined)
+  const { following, followers } = useFollowCounts(viewedPubkey)
+  const { isFollowing, toggle, busy: followBusy } = useFollowing()
+  const nip05Verified = useNip05Verified(viewedUser, profile?.nip05)
+  // Wallet balance is always the ACTIVE user's own connected NWC wallet —
+  // showing it while viewing someone else's profile would misleadingly
+  // suggest it's theirs.
   const balanceSats = useWalletBalance()
   const [copied, setCopied] = useState(false)
 
   const label = profile?.name || profile?.displayName || 'Anonymous'
+  const npub = viewedUser?.npub ?? null
 
   function handleCopyNpub() {
-    if (!activeUser) return
-    navigator.clipboard.writeText(activeUser.npub)
+    if (!npub) return
+    navigator.clipboard.writeText(npub)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -41,10 +57,22 @@ export function ProfileView() {
             </span>
           )}
           <div className="profile-info">
-            <span className="profile-name">{label}</span>
-            {activeUser && (
+            <div className="profile-name-row">
+              <span className="profile-name">{label}</span>
+              {!isOwnProfile && viewedPubkey && (
+                <button
+                  type="button"
+                  className={`btn btn-sm ${isFollowing(viewedPubkey) ? 'btn-secondary' : 'btn-primary'}`}
+                  onClick={() => toggle(viewedPubkey)}
+                  disabled={followBusy === viewedPubkey}
+                >
+                  {isFollowing(viewedPubkey) ? 'Unfollow' : 'Follow'}
+                </button>
+              )}
+            </div>
+            {npub && (
               <button type="button" className="profile-npub" onClick={handleCopyNpub}>
-                {copied ? 'Copied!' : `${activeUser.npub.slice(0, 16)}…`}
+                {copied ? 'Copied!' : `${npub.slice(0, 16)}…`}
               </button>
             )}
             {profile?.about && <p className="profile-about">{profile.about}</p>}
@@ -67,7 +95,7 @@ export function ProfileView() {
                   <CheckCircleIcon /> {profile.nip05}
                 </span>
               )}
-              {balanceSats !== null && (
+              {isOwnProfile && balanceSats !== null && (
                 <span className="profile-balance" title="Connected wallet balance">
                   <ZapCircleIcon /> {balanceSats.toLocaleString()} sats
                 </span>
@@ -83,7 +111,11 @@ export function ProfileView() {
         {!loading && events.length === 0 && (
           <div className="feed-empty">
             <p>No notes yet.</p>
-            <p className="feed-empty-hint">Anything you publish will show up here.</p>
+            <p className="feed-empty-hint">
+              {isOwnProfile
+                ? 'Anything you publish will show up here.'
+                : "This user hasn't published any notes yet."}
+            </p>
           </div>
         )}
 

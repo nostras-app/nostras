@@ -17,6 +17,7 @@ import { NwcConnect } from './components/NwcConnect'
 import { RelaySettings } from './components/RelaySettings'
 import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
 import { NavRail, type View } from './components/NavRail'
+import { setActiveView, useNavState } from './lib/navigation'
 import './App.css'
 
 type ConnectionState = 'connecting' | 'connected' | 'error'
@@ -25,7 +26,12 @@ type AuthState = 'checking' | 'needs-choice' | 'ready'
 function App() {
   const [state, setState] = useState<ConnectionState>('connecting')
   const [authState, setAuthState] = useState<AuthState>('checking')
-  const [activeView, setActiveView] = useState<View>('home')
+  // Shared module-level state (lib/navigation.ts), not local useState —
+  // lets viewProfile() switch tabs and pick a specific profile pubkey
+  // from anywhere (e.g. clicking an author's name deep inside FeedItem)
+  // without prop-drilling a callback through every component that
+  // renders one.
+  const { view: activeView, profilePubkey } = useNavState()
 
   useEffect(() => {
     let cancelled = false
@@ -125,7 +131,7 @@ function App() {
             </div>
 
             <div className={panelClass('profile')}>
-              <ProfileView />
+              <ProfileView pubkey={profilePubkey ?? undefined} />
             </div>
 
             <div className={panelClass('bookmarks')}>
