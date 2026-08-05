@@ -16,6 +16,7 @@ import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
 import { RelaySettings } from './components/RelaySettings'
 import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
+import { PushNotificationSettings } from './components/PushNotificationSettings'
 import { NavRail, type View } from './components/NavRail'
 import { setActiveView, useNavState } from './lib/navigation'
 import './App.css'
@@ -147,6 +148,10 @@ function App() {
             </div>
 
             <section className={`card settings-panel ${panelClass('settings')}`}>
+              <div className="settings-section">
+                <span className="settings-section-title">Notifications</span>
+                <PushNotificationSettings />
+              </div>
               <div className="settings-section">
                 <span className="settings-section-title">Signer</span>
                 <SignerConnect />

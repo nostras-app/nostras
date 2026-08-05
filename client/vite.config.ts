@@ -9,6 +9,17 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
+      // injectManifest (not the default generateSW) — needed for the
+      // custom push/notificationclick handlers in src/sw.ts. generateSW
+      // auto-writes a service worker with no room for custom event
+      // listeners; injectManifest still gets Workbox precaching (via
+      // self.__WB_MANIFEST in sw.ts) but lets us own the rest of the file.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+      },
       manifest: {
         name: 'NOSTRAS',
         short_name: 'NOSTRAS',
@@ -35,9 +46,6 @@ export default defineConfig({
             purpose: 'maskable',
           },
         ],
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
       },
     }),
   ],

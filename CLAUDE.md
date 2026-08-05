@@ -1610,6 +1610,102 @@ extension connection was available — consistent with the same gap
 already flagged for the header-pill removal and the DM feature; worth a
 real browser pass together next time the app is checked live.
 
+**Web Push notifications — the last item from the original roadmap
+review (2026-08-05)**: scoped via one explicit security decision before
+building — registering a push subscription requires a NIP-98-signed
+proof of pubkey ownership, not a bare claimed pubkey, since an
+unauthenticated registration would let anyone start receiving another
+user's notification metadata (who mentioned/DMed/zapped them — the DM
+*content* stays safe either way since it's separately encrypted, but
+"you got a DM from X" is itself metadata worth protecting).
+
+**Server** (`server/nip98.go`, `push.go`, `push_handlers.go`,
+`push_notify.go`): go-nostr v0.52.3 (this project's pinned version) has
+no `nip98` package, so NIP-98 verification is hand-rolled — decode the
+`Authorization: Nostr <base64 kind:27235 event>` header, check the
+signature via go-nostr's own `Event.CheckSignature()`, check the
+timestamp is within 60s (replay protection), check a `method` tag
+matches the request and a `u` tag's path matches (deliberately just the
+*path*, not scheme+host — this runs behind Fly's proxy, where the Host
+header the server sees can differ from what the client actually signed
+against; exact URL matching is NIP-98's stricter recommended mode, not
+required for what's fundamentally a device-registration endpoint with
+no destructive action). Subscriptions are stored in a plain
+mutex-guarded JSON file (`push-subscriptions.json`, gitignored, keyed by
+pubkey) — deliberately NOT a Nostr event like everything else this
+relay persists, since a subscription's endpoint/keys are real
+device-identifying data that must stay private, never broadcast.
+`relay.StoreEvent` (the same khatru hook point `search.go`'s indexing
+uses) gained a new hook: on any notification-worthy kind (1/6/7/9735/
+1059, matching `NotificationsView`'s in-app list plus DMs), look up each
+tagged `p`'s subscriptions and fire a `webpush-go` `SendNotification`
+call per device, in a goroutine so a slow/unreachable push service never
+adds latency to normal event storage. Push payloads are deliberately
+generic (`{title, body}`, no actual note/DM content) — for kind:1059 the
+server can't decrypt it anyway, and keeping public-note payloads generic
+too is a reasonable default for what travels through a third-party push
+service. A 410/404 response from the push service (subscription
+permanently gone) triggers automatic cleanup from the store.
+
+**Client**: switched `vite-plugin-pwa` from the default `generateSW`
+strategy to `injectManifest` (`client/src/sw.ts`) — `generateSW`
+auto-writes a service worker with no room for custom code, and this
+project's SW previously had zero custom logic. Hit a real TypeScript
+gotcha doing this: `tsconfig.app.json` compiles all of `src/` under the
+`DOM` lib, but service worker globals (`self`, `ServiceWorkerGlobalScope`,
+push/notificationclick event types) come from the `WebWorker` lib, and
+the two conflict if mixed in one compilation — fixed by excluding
+`src/sw.ts` from `tsconfig.app.json` and giving it its own
+`tsconfig.sw.json` (WebWorker lib only), added as a third project
+reference alongside the existing app/node configs. `client/src/lib/
+pushNotifications.ts` handles permission request, `PushManager.subscribe()`
+with the VAPID public key, and building the NIP-98 auth header via the
+active signer (`NDKEvent.sign()` — works identically for whichever
+signer is connected, dev key/NIP-46/NIP-07, same as every other signed
+action in this app) before POSTing to the relay's `/push/subscribe`.
+VAPID public key is baked in at build time the same way `VITE_RELAY_URL`
+is (`client/Dockerfile`'s `ARG VITE_VAPID_PUBLIC_KEY`, defaulted to the
+real production key so a plain `docker build` still works) — it isn't
+actually secret, only the private key (a Fly secret on the relay app,
+`NOSTRAS_VAPID_PRIVATE_KEY`) needs to stay protected.
+`PushNotificationSettings.tsx` is a new Settings section (Enable/Disable,
+matching `SignerConnect`/`NwcConnect`'s layout conventions).
+
+**Verified for real, in three layers**: (1) the full server pipeline —
+NIP-98 subscribe (valid auth accepted, no-auth and wrong-method-tag both
+correctly rejected with 401), subscription storage, and the
+`StoreEvent` push-trigger hook — verified against the local relay with
+`nak`-constructed auth events, including publishing a real kind:1 note
+tagging a subscribed pubkey and confirming a genuine `webpush.
+SendNotification()` call was attempted (it failed only because the test
+P256dh key was garbage, not a real browser-generated EC key — that
+failure is itself proof the whole chain up to the actual network call
+worked); (2) unsubscribe correctly removes the stored subscription; (3)
+the exact `NDKEvent.sign()`-built auth header `pushNotifications.ts`
+constructs (not just `nak`'s) was independently confirmed accepted by
+the server, closing the gap between "the server verifies NIP-98
+correctly" and "the client's actual auth-building code produces
+something the server accepts." **Real deploy incident hit while wiring
+this up, not hypothetical**: `flyctl secrets set` for the VAPID keys
+timed out mid-rolling-restart, and the DVM machine came back `stopped` —
+the same recurring "process group with no `[http_service]` doesn't
+reliably survive a machine restart" pattern already documented multiple
+times in this file, now confirmed to also trigger from a secrets-only
+restart, not just a full deploy. Fixed the same way as every prior
+instance (`flyctl machine start`), and confirmed via `flyctl status`
+before moving on, per the standing lesson. **The actual new `/push/*`
+routes weren't live until the real code deploy went out** (setting
+secrets alone only restarts the *existing* image with new env vars) — a
+first `curl` against `https://nostras.app/push/subscribe` correctly
+404'd before the deploy, confirming the sequencing rather than assuming
+it. **UI-layer verification (clicking Enable in Settings, actually
+receiving a push notification while the app is closed) was not done
+this session** — no live Chrome extension connection was available, and
+a full click-to-permission-to-real-device-registration flow needs an
+actual browser anyway; same gap as the other features built this
+session, worth a real pass (ideally on a phone, to see push arrive with
+NOSTRAS fully closed) next time the app is checked live.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

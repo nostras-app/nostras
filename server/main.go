@@ -47,7 +47,30 @@ func main() {
 		panic(err)
 	}
 
-	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent, searchIndex.SaveEvent)
+	// Web Push subscriptions — see push.go/push_handlers.go/push_notify.go.
+	// A plain JSON file, not a Nostr event: unlike everything else this
+	// relay persists, a push subscription's endpoint/keys must stay
+	// private, never broadcast. Degrades to a no-op if VAPID keys are
+	// unset (same "gracefully skip the feature, don't refuse to start"
+	// pattern as the DVM's payment gating).
+	pushSubsPath := envOr("NOSTRAS_PUSH_SUBSCRIPTIONS_PATH", "./push-subscriptions.json")
+	pushSubs, err := newPushStore(pushSubsPath)
+	if err != nil {
+		panic(err)
+	}
+	vapidPublicKey := os.Getenv("NOSTRAS_VAPID_PUBLIC_KEY")
+	vapidPrivateKey := os.Getenv("NOSTRAS_VAPID_PRIVATE_KEY")
+	vapidSubscriber := envOr("NOSTRAS_VAPID_SUBSCRIBER", "mailto:admin@nostras.app")
+	if vapidPrivateKey == "" {
+		fmt.Println("push notifications: OFF (NOSTRAS_VAPID_PRIVATE_KEY not set)")
+	} else {
+		fmt.Println("push notifications: ON")
+	}
+	relay.Router().HandleFunc("POST /push/subscribe", handlePushSubscribe(pushSubs))
+	relay.Router().HandleFunc("POST /push/unsubscribe", handlePushUnsubscribe(pushSubs))
+
+	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent, searchIndex.SaveEvent,
+		newPushNotifyHook(pushSubs, vapidPublicKey, vapidPrivateKey, vapidSubscriber))
 	relay.DeleteEvent = append(relay.DeleteEvent, db.DeleteEvent, searchIndex.DeleteEvent)
 	relay.CountEvents = append(relay.CountEvents, db.CountEvents)
 

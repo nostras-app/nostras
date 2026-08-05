@@ -1,5 +1,6 @@
 /data
 /search-index
+/push-subscriptions.json
 *.exe
 nostras-server
 /cmd/dvm/dvm
