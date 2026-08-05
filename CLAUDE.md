@@ -1338,6 +1338,24 @@ correctly post-fix (feed loads, Settings still shows
 the fix could very easily have broken local dev if the "always allow
 our own relay" exception had a bug, so this wasn't skipped.
 
+**Header connection-status pill removed (2026-08-05)**: user-requested —
+the pill was redundant with Settings > Relays (which already shows live
+per-relay status), and on narrow/mobile viewports it visually overlapped
+the NOSTRAS wordmark. `App.tsx`'s `header-right` div is now an empty
+grid spacer (mirrors `header-spacer` on the left, keeping the brand
+centered via the existing 3-column grid) instead of rendering
+`useRelayStatus`-driven state. `App.css`'s `.status-pill`/`.status-dot`
+rules were removed as dead code, but `@keyframes pulse` was kept since
+`.status-dot-standalone` (the per-relay dots inside `RelaySettings.tsx`)
+still animates with it. Build and lint both passed clean. **Not
+browser-verified this pass** — this session had no live Chrome
+extension connection available, so the fix rests on code review + a
+successful build/lint + a grep confirming no other component reads
+`useRelayStatus`/the removed classNames, not an actual rendered check;
+worth a quick visual confirmation (especially the mobile-overlap
+scenario that motivated the change) next time the app is checked in a
+browser.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
