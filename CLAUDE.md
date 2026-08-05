@@ -1416,6 +1416,27 @@ an actual rendered check; this is the same gap flagged for the
 status-pill removal above, and both are worth a live pass together next
 time the app is checked in a browser.
 
+**DM round trip confirmed working for real between two real accounts on
+production (2026-08-05)**: the user sent a live test message from their
+own identity ("MMO") to a second real identity ("SOVEREIGN_CITIZENS") on
+`app.nostras.app`. First report was that the recipient didn't see it —
+investigated directly against the relay (`nak req -k 1059
+wss://nostras.app`) and found the gift-wrap events were genuinely
+there: NIP-59 deliberately randomizes the *outer* wrap's `created_at`
+(to prevent timing-correlation attacks), so a naive "anything from the
+last 30 minutes" relay query looked empty even though the send had
+already landed — a real, worth-remembering gotcha for any future
+debugging here: **never filter/reason about kind:1059 events by their
+own `created_at`, only the decrypted rumor's `created_at` is real send
+time.** The actual fix was simpler than any protocol issue — the
+recipient just needed to reload to pick up the freshly deployed build.
+Confirmed conclusively once the recipient replied from their own
+account and the reply appeared correctly threaded, correctly aligned
+(their message on the left, the original sender's on the right), with
+accurate relative timestamps on both sides — the first real
+bidirectional NIP-17 conversation between two genuine identities on
+this deployment.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
