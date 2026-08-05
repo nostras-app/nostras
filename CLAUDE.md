@@ -1754,6 +1754,32 @@ very first try). Worth knowing about: a tab left open across a service-
 worker-changing deploy can end up in a bad state and may need a manual
 close-and-reopen, not just a reload, to recover.
 
+**Install-PWA button — the last item from the original roadmap review
+(2026-08-05)**: per the strategy doc's own plan, an explicit "Install
+NOSTRAS" button rather than relying on the browser's own subtle
+install affordance. `client/src/lib/pwaInstall.ts` captures
+`beforeinstallprompt` at **module scope**, not inside a component —
+Chrome can fire it before React ever mounts, and missing it would mean
+no install button for the rest of that session; `preventDefault()` is
+called so the app's own button is the only prompt shown, not both.
+Exposed reactively via the same `useSyncExternalStore` pattern as
+`useActiveUser`/`relayStatus.ts`. Detects already-installed via
+`display-mode: standalone` (desktop/Android) or the legacy
+`navigator.standalone` (iOS). **iOS Safari never fires
+`beforeinstallprompt` at all** — no install API exists there per Apple's
+own platform limits — so `InstallPwaSettings.tsx` detects iOS via user
+agent and shows "tap Share → Add to Home Screen" instructional text
+instead of a button, matching the strategy doc's documented gap rather
+than silently showing nothing. New Settings > Install App section.
+Verified: `tsc -b && vite build` and `oxlint` clean. **Not live-tested in
+a real installable context this pass** — `beforeinstallprompt` requires
+real installability heuristics (visit engagement, valid manifest, HTTPS)
+that don't necessarily fire on demand in a quick automated browser
+check, so this rests on the API contract (correct per MDN/the spec) and
+a clean build rather than an observed real install; worth confirming
+live next time, ideally on Android Chrome or desktop Chrome/Edge where
+the prompt is most reliably offered.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
