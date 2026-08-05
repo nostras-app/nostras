@@ -1437,6 +1437,62 @@ accurate relative timestamps on both sides — the first real
 bidirectional NIP-17 conversation between two genuine identities on
 this deployment.
 
+**Automatic recipient-relay discovery for DMs (2026-08-05)**, prompted
+directly by the round-trip test above surfacing a real limitation: SC's
+reply reached MMO only because both clients happened to already share a
+public relay (Yakihonne apparently publishes there) — MMO's message
+to SC never reached SC at all, because `devPublishRelaySet` is
+local-only by default and Yakihonne was never reading from
+`wss://nostras.app`. User chose to fix this properly (automatic
+relay-list lookup) over leaving it as a manual per-conversation
+workaround. `client/src/lib/dm.ts` gained
+`discoverRecipientDmRelays(pubkey)`: looks up the recipient's kind:10050
+"DM relay list" (NIP-17's purpose-specific relay list, preferred over
+their general relays specifically so gift wraps don't blend into a
+user's regular read/write traffic) and falls back to their NIP-65
+kind:10002 write relays if they haven't published one — same
+fetch-and-parse shape as `useNip65RelayList.ts`. `sendDirectMessage` now
+publishes the recipient-addressed wrap to the union of
+`devPublishRelaySet` and whatever was discovered, so a DM reaches the
+recipient's actual client (any NIP-17-capable one, not just other
+NOSTRAS users on the same relay) while still respecting the local-only
+default for the sender's own self-copy.
+
+**Real security issue caught and fixed before this shipped, not
+hypothetical**: a recipient's relay list is untrusted third-party data —
+the exact same category that caused the earlier "Not Secure" bug
+(outbox-discovered relays containing a private/loopback address). Traced
+through NDK's actual source (`NDKRelaySet.fromRelayUrls()` →
+`pool.useTemporaryRelay()` → `pool.addRelay()`) and found the existing
+`relayConnectionFilter` protection does **not** actually cover this path:
+`fromRelayUrls()` adds the `NDKRelay` object to the relay set it returns
+unconditionally, even when the pool's own `addRelay()` internally
+refuses to register a blocked URL — and `NDKRelaySet.publish()` iterates
+that local relay set directly, never rechecking the pool. So a malicious
+recipient relay list could have made this app attempt to connect out to
+(and publish toward) a private/local address, bypassing the filter that
+was specifically built to prevent exactly that. Fixed by reusing
+`relayFilter.ts`'s `makeRelayConnectionFilter` directly at the call site
+in `dm.ts`, filtering discovered relay URLs *before* they ever reach
+`NDKRelaySet.fromRelayUrls()`, rather than trusting pool-level
+protection for this path.
+**Verified for real**: a throwaway identity published a real kind:10050
+list to the local relay containing one legitimate relay URL and one
+private-IP URL (`ws://127.0.0.1:9999`); fetching and filtering it
+confirmed the private one was dropped and the legitimate one passed
+through. The kind:10050 discovery path was verified the same way. The
+kind:10002 fallback path (structurally identical code, same
+`ndk.fetchEvent` shape already proven correct in production by
+`useNip65RelayList.ts`) hit repeated connection flakiness in this
+session's standalone test scripts after many rapid successive local-relay
+connections in a short window — including the *publish* itself timing
+out on one attempt, confirmed via direct `nak` queries to be a
+test-harness/connection-churn issue and not a relay-side data problem —
+so it rests on code review and structural identity with already-proven
+code rather than a fresh isolated live test; worth a real check next
+time this path is exercised organically (a live DM to a recipient who
+only has a NIP-65 list, no kind:10050) rather than assumed indefinitely.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
