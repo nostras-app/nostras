@@ -15,7 +15,7 @@
 //    protection correctly treating an outbound connection to a private
 //    address from a public HTTPS page as suspicious) — not a TLS/cert
 //    problem, the cert was and is fully valid.
-function isPrivateOrLocalHostname(hostname: string): boolean {
+export function isPrivateOrLocalHostname(hostname: string): boolean {
   const h = hostname.toLowerCase()
   if (h === 'localhost' || h === '::1') return true
 
