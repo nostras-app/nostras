@@ -24,9 +24,20 @@ var pushNotificationMeta = map[int]struct{ title, body string }{
 }
 
 // Wired into relay.StoreEvent — fires once per event actually persisted,
-// same hook point search.go/outbox.go's storage side would use. Sends are
-// fired off in goroutines rather than awaited, so a slow or unreachable
-// push service never adds latency to normal event storage.
+// same hook point search.go/outbox.go's storage side would use.
+//
+// The ENTIRE body runs in its own goroutine, not just the actual send —
+// a real bug caught live in production: store.subscriptionsFor() takes
+// pushStore's mutex, and that mutex is also held (with a synchronous
+// disk write) by add()/remove()/removeEndpoint() elsewhere. StoreEvent
+// hooks run synchronously on the WS event-ingestion path — under real
+// concurrent traffic, this meant every single incoming event (not just
+// notification-worthy ones with subscribers) was momentarily blocked
+// behind push-subscription lock contention, and at production load that
+// pile-up was enough to make WS event handling appear to hang entirely
+// (HTTP kept responding fine, since NIP-11 never touches this code path
+// at all — only WS EVENT messages do). Dispatching the whole hook body
+// async, so relay.StoreEvent's caller never blocks on this mutex at all.
 func newPushNotifyHook(store *pushStore, vapidPublicKey, vapidPrivateKey, vapidSubscriber string) func(ctx context.Context, evt *nostr.Event) error {
 	return func(ctx context.Context, evt *nostr.Event) error {
 		if vapidPrivateKey == "" {
@@ -36,21 +47,25 @@ func newPushNotifyHook(store *pushStore, vapidPublicKey, vapidPrivateKey, vapidS
 		if !ok {
 			return nil
 		}
-		seen := map[string]bool{}
-		for _, tag := range evt.Tags {
-			if len(tag) < 2 || tag[0] != "p" {
-				continue
-			}
-			recipient := tag[1]
-			if recipient == evt.PubKey || seen[recipient] {
-				continue // no self-notifications; no duplicate sends for multi-p-tag events
-			}
-			seen[recipient] = true
-			for _, sub := range store.subscriptionsFor(recipient) {
-				go sendPushNotification(store, sub, meta.title, meta.body, vapidPublicKey, vapidPrivateKey, vapidSubscriber)
-			}
-		}
+		go dispatchPushNotifications(store, evt, meta, vapidPublicKey, vapidPrivateKey, vapidSubscriber)
 		return nil
+	}
+}
+
+func dispatchPushNotifications(store *pushStore, evt *nostr.Event, meta struct{ title, body string }, vapidPublicKey, vapidPrivateKey, vapidSubscriber string) {
+	seen := map[string]bool{}
+	for _, tag := range evt.Tags {
+		if len(tag) < 2 || tag[0] != "p" {
+			continue
+		}
+		recipient := tag[1]
+		if recipient == evt.PubKey || seen[recipient] {
+			continue // no self-notifications; no duplicate sends for multi-p-tag events
+		}
+		seen[recipient] = true
+		for _, sub := range store.subscriptionsFor(recipient) {
+			go sendPushNotification(store, sub, meta.title, meta.body, vapidPublicKey, vapidPrivateKey, vapidSubscriber)
+		}
 	}
 }
 
