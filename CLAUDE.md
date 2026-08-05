@@ -1808,12 +1808,11 @@ padding and an opaque background, since OS mask shapes (circle,
 squircle, etc.) crop the *entire* square including any transparency.
 Verified: manifest.webmanifest correctly references all three files
 with proper sizes/purpose, `tsc -b && vite build` and `oxlint` clean.
-**Not yet re-verified on a real device after this fix** — confirmed via
-direct visual inspection of the rendered PNGs (clean gradient, no
-artifacts, matches the brand exactly) and the build output, but the
-original bug report came from an actual installed home-screen icon, so
-worth a real reinstall-and-check next time to see the fix as the user
-would.
+**Confirmed fixed on a real device**: user reinstalled the PWA on
+Android and the home-screen icon now shows the correct gradient bolt,
+matching the brand — the original bug (flat black with color fringing)
+is gone. Not yet separately checked on iOS/desktop, but the same fix
+applies to all platforms via the shared manifest icons.
 
 ## Architecture
 
