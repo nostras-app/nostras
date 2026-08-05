@@ -1706,6 +1706,29 @@ actual browser anyway; same gap as the other features built this
 session, worth a real pass (ideally on a phone, to see push arrive with
 NOSTRAS fully closed) next time the app is checked live.
 
+**Known false-negative deploy failure: DVM boot-vs-DNS race during
+simultaneous web+dvm rollout (2026-08-05, deliberately left unfixed for
+now)** — the push-notification deploy above (`deploy-relay.yml`) reported
+`failure` and the user got a GitHub failure email, but the app was never
+actually broken. `flyctl deploy` rolls `web` and `dvm` out at the same
+time; the DVM connects to the relay at boot via Fly's internal DNS
+(`ws://web.process.nostras.internal:7777`), and it can start a hair
+before `web`'s new instance finishes registering in Fly's internal DNS —
+first boot attempt(s) panic with `no such host`, but Fly's normal
+crash-restart loop retries and it comes up clean within ~20s once `web`
+is reachable (confirmed in the actual boot log: three panics, then
+`NOSTRAS DVM ... running`, `payment gating: ON`). **The deploy tool's own
+smoke check gives up right after the first crash**, before the
+retry-and-recover cycle finishes, so it reports the deploy as failed even
+though the end state (verified independently via `flyctl status` and a
+live request against the new endpoints) is healthy. This can recur on
+*any* future deploy that touches `server/`, not just this one — the real
+fix would be having the DVM retry its own startup connection with
+backoff instead of panicking on the first failure, so it doesn't depend
+on the outer crash-restart mechanism to recover. **Explicitly deferred
+by the user — not a priority, logged here to fix sometime in the
+future**, not forgotten.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
