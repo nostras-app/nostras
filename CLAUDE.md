@@ -2316,6 +2316,70 @@ copy exactly the tracked files (a faithful stand-in for what Docker's
 Dockerfile now runs — both succeeded cleanly before the second deploy
 attempt went out.
 
+## khatru broadcast-path fix: deployed to production, verified for real
+(2026-08-06)
+
+Closing the loop on the entry above — user asked for a disaster-recovery
+-conscious deploy process (explicit before/after checkpoints, findings
+logged either way) before pushing the broadcast-path fix live.
+
+**Rollback point, recorded before touching anything**: commit `1b6a52b`,
+Fly release v13, image `nostras:deployment-01KZAZKHPK3W68TB8G5T82V3D2` —
+independently re-verified healthy first (a real DVM job round-trip, not
+just `flyctl status`), since the DVM had silently stopped again since
+the last check. `git revert` (or `flyctl deploy --image
+registry.fly.io/nostras@<that image's digest>` for a faster rollback
+that skips CI) against that commit/image is the rollback path if this
+fix ever needs undoing.
+
+**Two real deploy failures hit and fixed in sequence, not the same
+false-negative reused twice**:
+1. A genuine build failure (42s — notably faster than the usual false-
+   negative pattern, which was itself a useful signal something
+   different was wrong): `server/Dockerfile` ran `go mod download`
+   before `COPY . .`, but the new local `replace` directive
+   (`./internal/khatrufork`) needs that directory physically present to
+   resolve. Fixed by reordering the COPY step; verified before pushing
+   again by copying exactly the git-tracked files into a clean
+   directory (Docker's own daemon isn't reachable from this
+   environment) and running the identical build sequence — succeeded
+   cleanly.
+2. The familiar false-negative smoke-check pattern on the *next*
+   attempt ("the app appears to be crashing" against the DVM machine,
+   2m16s this time) — confirmed via `flyctl status` that both `web` and
+   `dvm` came up `started` at the new version regardless, matching the
+   already-documented boot-vs-DNS race that self-recovers via Fly's own
+   crash-restart loop.
+
+**Verified for real in production, not just trusted the status
+table**: NIP-11 healthy; a real NIP-90 job round-trip against the DVM
+got a genuine `payment-required` response; and — specifically testing
+the actual patched code path, not just general liveness — subscribed
+live via a real WebSocket connection and confirmed a freshly published
+kind:1 note was delivered through the broadcast path in real time.
+Checked the relay's own boot log directly: clean start (`NOSTRAS relay
+running on :7777`, `dashboard: ON`), no panics, no application errors —
+the only errors present were Fly's own proxy layer reporting rate-limit/
+lease contention during the machine handover itself, not anything from
+NOSTRAS's code.
+
+**One more instance of the standing DVM pattern, unrelated to this
+fix**: after the deploy settled, the DVM stopped again on its own with
+no new triggering deploy — the same PQ-014-class occurrence already
+documented as able to happen with zero triggering event. Fixed the same
+way as always (`flyctl machine start`), noted here explicitly so it
+isn't mistaken for a symptom of tonight's actual change, which lives in
+the `web` process, not `dvm`.
+
+**Status: deployed, live, and functionally verified.** The one thing
+still genuinely open is the precise magnitude of the performance
+improvement at real concurrency — this environment couldn't produce a
+trustworthy local number (see the entry above), and a live production
+load test wasn't run as part of this deploy (would mean deliberately
+stressing the real user-facing relay, a different risk tradeoff than
+local testing). The architectural defect itself remains proven by direct
+source inspection, independent of any benchmark.
+
 ## Live server health added to the operator dashboard (2026-08-06)
 
 Prompted by a real capacity question (user running ~7 concurrent
