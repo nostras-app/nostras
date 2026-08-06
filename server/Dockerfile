@@ -6,10 +6,15 @@
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 
-COPY go.mod go.sum ./
-RUN go mod download
-
+# go.mod has a local `replace` directive pointing at internal/khatrufork/
+# (see server/internal/khatrufork — a local fork of khatru with a
+# broadcast-path performance fix), which needs that directory physically
+# present before `go mod download` can resolve it. So the full source has
+# to be copied first — this gives up the usual go.mod/go.sum-only caching
+# optimization for the dependency-download layer, but this is a small
+# project with a fast CI build anyway, and correctness matters more here.
 COPY . .
+RUN go mod download
 RUN CGO_ENABLED=0 go build -o /out/relay .
 RUN CGO_ENABLED=0 go build -o /out/dvm ./cmd/dvm
 

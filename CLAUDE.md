@@ -2283,6 +2283,39 @@ contention confound) rather than keep fighting local noise — or hold and
 revisit with a cleaner local environment first. Not yet decided as of
 this entry.
 
+**Deploy disaster-recovery process, per explicit user request**: before
+touching production with a fix to the relay's hot path, established and
+recorded an explicit rollback point — the exact prior commit (`1b6a52b`)
+and the exact prior Fly release/image (v13,
+`nostras:deployment-01KZAZKHPK3W68TB8G5T82V3D2`) — and independently
+re-verified that baseline was genuinely healthy (a real DVM job
+round-trip, not just `flyctl status`) before proceeding, since the DVM
+had silently stopped again since the last check (the same recurring
+pattern, fixed the same way as always). The fix itself was committed as
+its own checkpoint (`f0e4ce4`) separate from that baseline.
+
+**Real deploy failure caught immediately, not a repeat of the known
+false-negative pattern**: the first deploy attempt failed in 42
+seconds — much faster than the usual DVM boot-race false-negative
+(1-2 minutes) — which was the first signal this was a *real* build
+failure, confirmed by reading the actual GitHub Actions build log rather
+than assuming it was the familiar pattern. Root cause: `server/
+Dockerfile` copies just `go.mod`/`go.sum` and runs `go mod download`
+*before* `COPY . .` (a standard Docker layer-caching optimization), but
+a local `replace` directive pointing at a filesystem path
+(`./internal/khatrufork`) needs that directory physically present to
+resolve — it isn't yet, at that point in the build. Fixed by moving
+`COPY . .` before `go mod download`, giving up that specific caching
+optimization for a small project where build speed isn't a real
+concern. **Verified before pushing again, not just reasoned about**:
+Docker's own daemon isn't reachable from this environment (a known,
+previously-documented limitation), so instead used `git ls-files` to
+copy exactly the tracked files (a faithful stand-in for what Docker's
+`COPY . .` pulls in) into a clean temp directory and ran the identical
+`go mod download` → `go build` (both binaries) sequence the fixed
+Dockerfile now runs — both succeeded cleanly before the second deploy
+attempt went out.
+
 ## Live server health added to the operator dashboard (2026-08-06)
 
 Prompted by a real capacity question (user running ~7 concurrent
