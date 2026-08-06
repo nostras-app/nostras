@@ -9,6 +9,29 @@ import { useNip05Verified } from '../hooks/useNip05Verified'
 import { useWalletBalance } from '../hooks/useWalletBalance'
 import { FeedItem, FeedSkeleton } from './Feed'
 import { UserIcon, CheckCircleIcon, ZapCircleIcon } from './icons'
+import { parseContentSegments, shortenUrl } from '../lib/parseContent'
+
+// Same URL-detection parseContentSegments already uses for note content —
+// reused here just for linkification (a bio doesn't get inline media
+// embeds like a note does, so every non-text segment renders as a plain
+// clickable link regardless of its sniffed type).
+function renderAbout(about: string) {
+  return parseContentSegments(about).map((seg, i) =>
+    seg.type === 'text' ? (
+      <span key={i}>{seg.value}</span>
+    ) : (
+      <a
+        key={i}
+        href={seg.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="note-link"
+      >
+        {shortenUrl(seg.url)}
+      </a>
+    ),
+  )
+}
 
 // pubkey omitted = "my own profile" (the nav rail avatar), matching the
 // original behavior; passed explicitly = viewing someone else's, reached
@@ -75,7 +98,9 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
                 {copied ? 'Copied!' : `${npub.slice(0, 16)}…`}
               </button>
             )}
-            {profile?.about && <p className="profile-about">{profile.about}</p>}
+            {profile?.about && (
+              <p className="profile-about">{renderAbout(profile.about)}</p>
+            )}
             <div className="profile-stats">
               <span title="Based on what's visible across connected relays, not the whole network">
                 <strong>{following ?? '—'}</strong> Following

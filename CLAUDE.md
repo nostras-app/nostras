@@ -2076,6 +2076,35 @@ and the "Open NOSTRAS" CTA correctly navigates to `app.nostras.app`.
 `web`/`dvm` both came back `started` on their own this deploy, no manual
 `flyctl machine start` needed this time.
 
+## Bio links weren't clickable (2026-08-06)
+
+User-reported, immediately after using the new banner/avatar upload
+feature for real: a bio containing plain URLs (`https://nostras.app`,
+`https://llmops.pro`) rendered them as inert text in `ProfileView`,
+unlike note content which already linkifies URLs. Root cause: `about` is
+rendered via `{profile.about}` directly — note bodies go through
+`parseContentSegments`/`NoteContent`, but the profile bio never did.
+Fixed by reusing the exact same `parseContentSegments` (`lib/
+parseContent.ts`) already proven correct for notes, via a small
+`renderAbout()` helper in `ProfileView.tsx` — every URL-shaped segment
+renders as a real `<a>` (shortened display text via the existing
+`shortenUrl()`, `note-link` class for consistent styling), and
+everything else renders as plain text. Deliberately **not** reusing all
+of `NoteContent` (which also embeds images/video/audio inline and
+truncates) — a bio isn't a feed post, so image/video URLs in a bio
+render as plain clickable links too, not inline media, and there's no
+truncation. `.profile-about`'s existing `white-space: pre-wrap` (already
+in place, unrelated to this bug) continues to preserve line breaks
+correctly since it applies to the whole paragraph regardless of the
+inline `<a>`/`<span>` wrapping.
+
+**Verified for real**: `tsc -b`, `vite build`, `oxlint` all clean.
+Published a real kind:0 to the local relay with the user's actual bio
+text (URLs + blank-line-separated paragraphs, matching their real
+content shape) via `nak`, logged into the local dev build as that
+identity, and confirmed in a live browser both URLs render as real
+clickable purple links and the paragraph breaks are still intact.
+
 ## Profile editor: banner/avatar upload, and a real fix for a silent
 data-loss bug (2026-08-06)
 
