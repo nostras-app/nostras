@@ -2,11 +2,27 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"github.com/fiatjaf/eventstore/badger"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/sdk"
 )
+
+// Real production incident (2026-08-06): sys.FetchFeedPage (go-nostr's
+// own SDK) processes authors sequentially, one real network round-trip at
+// a time, with no timeout of its own. A query for a user following many
+// accounts, several needing a fresh outbox lookup against a popular
+// public relay (nos.lol, in the actual incident), can run uninterrupted
+// for a very long time. Under real concurrent traffic this piled up
+// enough blocked goroutines to starve the relay's ability to even accept
+// new WebSocket connections — confirmed live: plain kind-only queries
+// worked fine, but an authors-filtered query (the only kind that reaches
+// this code path) reliably failed the handshake itself. Bounding this
+// call is the fix, same category as the earlier broadcast-path fix
+// (WriteJSONWithDeadline) — degrade to whatever's already fetched rather
+// than block indefinitely.
+const outboxFetchTimeout = 8 * time.Second
 
 // newAggregatedQuery returns a khatru QueryEvents function that implements
 // the NIP-65 outbox model: for filters scoped to specific authors, it
@@ -56,8 +72,14 @@ func newAggregatedQuery(
 				limit = 50
 			}
 
-			fetched, err := sys.FetchFeedPage(ctx, filter.Authors, filter.Kinds, until, limit)
+			fetchCtx, cancel := context.WithTimeout(ctx, outboxFetchTimeout)
+			fetched, err := sys.FetchFeedPage(fetchCtx, filter.Authors, filter.Kinds, until, limit)
+			cancel()
 			if err != nil {
+				// Includes a timeout: the client still got whatever
+				// local results were already streamed above, just not
+				// the outbox-fetched ones for this query. Better than
+				// blocking the whole request indefinitely.
 				return
 			}
 			for _, evt := range fetched {
