@@ -2448,6 +2448,32 @@ relay version fetched from the local relay's real NIP-11 endpoint,
 confirming the whole chain (build-time inlining, live NIP-11 fetch,
 UI rendering) works together, not just each piece in isolation.
 
+**Real deploy-tooling bug found and fixed the same day, deploying
+during a GitHub Actions outage (see the DVM reconnection entry below
+for the outage itself)**: with GitHub's Actions runners stuck queued
+for 8+ minutes during a confirmed platform-wide major outage, deployed
+both the version-tracking commit and the DVM reconnection fix directly
+via `flyctl deploy` from this environment instead of waiting on CI —
+the identical command the workflow itself runs, just executed locally.
+The relay side worked correctly first try (`NOSTRAS_VERSION` correctly
+appeared in NIP-11). The **client** side did not: the deployed bundle
+had no trace of the git SHA at all, defaulting to the Dockerfile's
+`"dev"` fallback despite `--build-arg VITE_GIT_SHA=...` being passed
+explicitly. Root cause: `client/fly.toml` has its own `[build.args]`
+block (previously only `VITE_RELAY_URL`) — and **`flyctl` only merges
+CLI `--build-arg` values for keys already declared there**; a
+CLI-supplied arg for a key `fly.toml` doesn't know about is silently
+dropped, not merged in. Confirmed empirically, not just from
+documentation (flyctl's own `--help` doesn't mention this interaction
+at all): added `VITE_GIT_SHA = "dev"` as a default entry to `fly.toml`'s
+`[build.args]`, redeployed with the exact same CLI flag, and the git SHA
+correctly appeared in the freshly served bundle this time. This affects
+the normal CI-driven deploy path too, not just the manual bypass used
+tonight — `deploy-client.yml` has been passing `--build-arg
+VITE_GIT_SHA=...` since the version-tracking commit went in, and would
+have silently never taken effect there either until this same-day fix,
+regardless of the GitHub outage.
+
 ## khatru broadcast-path fix: deployed to production, verified for real
 (2026-08-06)
 
