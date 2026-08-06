@@ -718,6 +718,84 @@
   height: 32px;
 }
 
+/* ---------- Profile editor (banner/avatar upload) ---------- */
+
+/* The editor always renders a banner-shaped area (the accent gradient
+   when none is set yet, via .profile-banner's own background), unlike
+   ProfileView's conditional has-banner class — so the avatar overlap
+   below is unconditional here, not gated on whether an image exists. */
+.profile-editor-banner-wrap {
+  position: relative;
+}
+
+.profile-editor-banner-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profile-editor-banner-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.profile-editor-banner-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Overlap the banner's bottom edge — applied to the wrapper (not the img
+   directly, unlike ProfileView) so the change-photo button riding along
+   with it also shifts up correctly. */
+.profile-editor-avatar-wrap {
+  position: relative;
+  flex: none;
+  margin-top: -44px;
+}
+
+.profile-editor-avatar-wrap .profile-avatar {
+  border: 3px solid var(--bg-card);
+}
+
+.profile-editor-avatar-btn {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--bg-card);
+  background: var(--accent-gradient);
+  color: #fff;
+  cursor: pointer;
+}
+
+.profile-editor-avatar-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.profile-editor-avatar-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
 .profile-info {
   display: flex;
   flex-direction: column;

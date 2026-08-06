@@ -2076,6 +2076,50 @@ and the "Open NOSTRAS" CTA correctly navigates to `app.nostras.app`.
 `web`/`dvm` both came back `started` on their own this deploy, no manual
 `flyctl machine start` needed this time.
 
+## Profile editor: banner/avatar upload, and a real fix for a silent
+data-loss bug (2026-08-06)
+
+User-reported gap, with screenshots: the profile editor only ever
+exposed name + about, no way to set a banner or avatar image despite
+`ProfileView.tsx` already rendering both when present.
+`ProfileEditor.tsx` now reuses the exact `uploadToBlossom()` path
+`Composer.tsx` already established for note attachments — a click-to-
+upload banner strip (gradient placeholder when empty, matching the
+brand rather than a blank void) with the avatar overlapping its bottom
+edge, same visual language as `ProfileView`'s own `has-banner` layout,
+plus a small circular "change photo" button anchored to the avatar's
+corner. `about` changed from a single-line `.input` to a multi-line
+`.textarea`, matching how bios actually render elsewhere in the app.
+
+**Real, silent data-loss bug found and fixed while doing this, not
+hypothetical**: the old `handleSave` published a brand-new kind:0 event
+containing *only* `{name, about}` — since kind:0 is a replaceable event,
+this meant every save **silently wiped** any other field a user had set
+through a different client (`nip05`, `lud16`, `website`, `picture`,
+`banner`) the instant they used this app's own profile editor, since
+the new event fully replaces the old one rather than merging. This
+matches a real, previously-fixed bug class in this project
+(`useBookmark`/`useFollowing`/`useNip65RelayList` all already learned
+this lesson for their own replaceable kinds) that had never actually
+been applied to the profile editor itself. Fixed the same way as those:
+`ProfileEditor` now fetches the user's raw kind:0 `content` on mount,
+keeps it in state, and `handleSave` spreads it (`{...rawProfile, name,
+about, picture, banner}`) rather than replacing wholesale — only the
+four fields this form actually edits ever change.
+
+**Verified for real, not just reviewed**: `tsc -b`, `vite build`, and
+`oxlint` all clean. In a live local browser: uploaded two distinct real
+test images through the actual file input (Chrome's `file_upload` tool)
+for both banner and avatar, confirmed both rendered correctly after a
+genuine Blossom upload (not mocked). The data-loss fix specifically was
+verified end-to-end, not assumed from code review: published a kind:0
+via `nak` with `nip05`/`lud16`/`website` set on a throwaway identity,
+reloaded the app so the editor fetched that exact raw content, changed
+only the name field through the UI, saved, and confirmed via a direct
+relay query that the republished event kept `nip05`/`lud16`/`website`
+byte-for-byte while only `name` changed — proving the fix, not just the
+absence of an error.
+
 ## Connection analytics + operator dashboard (2026-08-05)
 
 User-requested — wants visibility into "how many instances of NOSTRAS are
