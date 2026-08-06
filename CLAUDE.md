@@ -2122,6 +2122,47 @@ assumed from the absence of an error; (2) the reloaded page rendered
 correctly (screenshotted), not stuck blank. `tsc -b`, `vite build`,
 `oxlint` all clean.
 
+## Live server health added to the operator dashboard (2026-08-06)
+
+Prompted by a real capacity question (user running ~7 concurrent
+instances across 6 devices, asking whether the relay can handle 100-
+1000+ later) — before spending on infra, wanted real numbers, and asked
+for basic uptime/liveness metrics in the dashboard already built.
+
+`server/health.go`: `sync/atomic` counters only, no mutex — deliberately
+matching the lesson from the push-notification lock-contention outage,
+since `OnConnect`/`OnDisconnect` run per-connection and `OnEventSaved`
+(confirmed by reading khatru's own source, `adding.go`) runs
+**synchronously in the same hot path as every event this relay
+stores**, immediately after `StoreEvent`. Tracks: live WebSocket
+connection count (increment on connect, decrement on disconnect),
+process uptime, and a **passive** DVM-activity signal (last-seen
+timestamp + all-time count of DVM result/feedback kinds — 6001, 6002,
+6050, 7000 — observed passing through). Explicitly documented as *not*
+a real liveness check, both in code comments and in the dashboard UI
+itself: silence only means no one has submitted a job recently, it
+doesn't distinguish that from the DVM actually being down. The real
+scheduled liveness check remains `.github/workflows/uptime-check.yml`,
+unchanged.
+
+`server/dashboard.go` gained `GET /dashboard/health` (same Basic-Auth
+gate as the rest of the dashboard), returning live connection count,
+uptime, `runtime.MemStats` (alloc/sys), `runtime.NumGoroutine()`, and
+the DVM signal. `dashboard.html` gained a "Server health — live" panel
+(pulsing live-dot, matching cards styling already established) polling
+this endpoint every 3s — deliberately much faster than the existing
+daily-analytics panel's 60s interval, specifically so it's usable as a
+live observability view *during* a load test, not just a periodic
+glance.
+
+**Verified for real**: `go build`/`go vet`/`gofmt -l` clean. Live
+connection count confirmed to increment and decrement to exactly 0
+against a real `nak` WebSocket connection opened and closed against the
+local relay — not just trusted from code review. Dashboard panel
+confirmed rendering correctly and updating live in a real browser: a
+`nak` connection opened mid-observation was reflected within one 3s
+poll cycle without a manual refresh.
+
 ## Real NIP-46 interop bug found and fixed: "failed to connect" against
 Amethyst's bunker (2026-08-06)
 

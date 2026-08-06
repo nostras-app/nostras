@@ -81,7 +81,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	relay.OnConnect = append(relay.OnConnect, newAnalyticsConnectHook(analytics))
+	relay.OnConnect = append(relay.OnConnect, newAnalyticsConnectHook(analytics), newHealthConnectHook())
+	relay.OnDisconnect = append(relay.OnDisconnect, newHealthDisconnectHook())
+	relay.OnEventSaved = append(relay.OnEventSaved, newHealthEventSavedHook())
 
 	dashboardPassword := os.Getenv("NOSTRAS_DASHBOARD_PASSWORD")
 	if dashboardPassword == "" {
@@ -91,6 +93,7 @@ func main() {
 	}
 	relay.Router().HandleFunc("GET /dashboard", requireDashboardAuth(dashboardPassword, handleDashboard))
 	relay.Router().HandleFunc("GET /dashboard/data", requireDashboardAuth(dashboardPassword, handleDashboardData(analytics)))
+	relay.Router().HandleFunc("GET /dashboard/health", requireDashboardAuth(dashboardPassword, handleDashboardHealth))
 
 	// Landing page — see landing.go/landing.html. "/{$}" (not just "/")
 	// matches the exact root only, per Go 1.22+ ServeMux pattern syntax —

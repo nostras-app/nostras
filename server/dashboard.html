@@ -186,6 +186,32 @@
     padding-top: 16px;
     margin-top: 8px;
   }
+  .panel-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px;
+  }
+  .panel-title h2 { margin: 0; }
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--data);
+    box-shadow: 0 0 0 0 var(--data-soft);
+    animation: pulse 2s infinite;
+    flex: none;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 var(--data-soft); }
+    70% { box-shadow: 0 0 0 6px rgba(0, 0, 0, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+  }
+  .health-caption {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    margin: 14px 0 0;
+  }
 </style>
 </head>
 <body>
@@ -206,6 +232,17 @@
 </div>
 
 <section class="panel">
+  <div class="panel-title"><span class="live-dot"></span><h2>Server health — live</h2></div>
+  <div class="cards">
+    <div class="card"><div class="label">Live connections</div><div class="value" id="health-connections">—</div></div>
+    <div class="card"><div class="label">Uptime</div><div class="value" id="health-uptime">—</div></div>
+    <div class="card"><div class="label">Memory (alloc / sys)</div><div class="value" id="health-mem">—</div></div>
+    <div class="card"><div class="label">Goroutines</div><div class="value" id="health-goroutines">—</div></div>
+  </div>
+  <p class="health-caption" id="health-dvm-caption">DVM activity: —</p>
+</section>
+
+<section class="panel">
   <h2>Connections per day — last 30 days</h2>
   <div id="chart-wrap"><canvas id="chart" height="180"></canvas></div>
 </section>
@@ -222,6 +259,13 @@
   a volume/trend signal, not a precise headcount. Country is looked up
   from the connecting IP address at connection time only; the IP itself is
   never stored, only the resulting country code.
+  <br /><br />
+  "DVM activity" only reflects DVM-kind events (job results/feedback)
+  observed passing through this relay — it requires someone to have
+  actually submitted a job, so silence doesn't distinguish "the DVM is
+  down" from "nobody's asked it anything recently." It is not a
+  scheduled liveness check (that's what the uptime-check GitHub Action
+  does, on its own timer).
 </footer>
 
 <script>
@@ -387,8 +431,49 @@ async function load() {
   renderCountries(byDay);
 }
 
+function fmtUptime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function fmtAgo(unixSeconds) {
+  if (!unixSeconds) return "never observed since this relay started";
+  const secs = Math.max(0, Math.floor(Date.now() / 1000) - unixSeconds);
+  if (secs < 5) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  return `${Math.floor(secs / 3600)}h ago`;
+}
+
+async function loadHealth() {
+  let res;
+  try {
+    res = await fetch("/dashboard/health");
+  } catch {
+    return;
+  }
+  if (!res.ok) return;
+  const h = await res.json();
+
+  document.getElementById("health-connections").textContent = h.liveConnections.toLocaleString();
+  document.getElementById("health-uptime").textContent = fmtUptime(h.uptimeSeconds);
+  document.getElementById("health-mem").textContent =
+    `${h.memAllocMB.toFixed(0)} / ${h.memSysMB.toFixed(0)} MB`;
+  document.getElementById("health-goroutines").textContent = h.goroutines.toLocaleString();
+  document.getElementById("health-dvm-caption").textContent =
+    `DVM activity: last seen ${fmtAgo(h.lastDvmEventUnix)} — ${h.dvmEventTotal.toLocaleString()} job events observed since this relay started`;
+}
+
 load();
+loadHealth();
 setInterval(load, 60000);
+setInterval(loadHealth, 3000);
 window.addEventListener("resize", load);
 </script>
 

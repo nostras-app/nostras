@@ -43,3 +43,8 @@ func handleDashboardData(store *analyticsStore) http.HandlerFunc {
 		json.NewEncoder(w).Encode(store.snapshot())
 	}
 }
+
+func handleDashboardHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(getHealthSnapshot())
+}
