@@ -2076,6 +2076,52 @@ and the "Open NOSTRAS" CTA correctly navigates to `app.nostras.app`.
 `web`/`dvm` both came back `started` on their own this deploy, no manual
 `flyctl machine start` needed this time.
 
+## Stuck blank-page-after-update bug — real root cause found and fixed
+(2026-08-06)
+
+User-reported, recurring across many devices/browser profiles at once
+(desktop x2, laptop x2, Android, iPhone): after an update, some tabs/PWA
+instances would show nothing but the header/logo — an empty page. This
+is the same symptom already flagged as a known-but-unfixed quirk in two
+earlier entries in this file ("a tab left open across a service-worker-
+changing deploy can end up in a bad state"), now recurring often enough
+to actually fix rather than just note again.
+
+**Root cause, confirmed by reading `src/sw.ts`/`vite.config.ts`
+directly**: the service worker calls `self.skipWaiting()` +
+`clientsClaim()`, which makes a newly-deployed service worker take
+control of *already-open* tabs immediately, without waiting for them to
+close/reopen. But nothing reloaded those tabs when that happened — so
+the *old* JS bundle (React, NDK, all in-memory state) kept running,
+now served by a *new* service worker it never agreed to run under. This
+is a well-known Workbox footgun: `skipWaiting`/`clientsClaim` without a
+`controllerchange`-triggered reload is exactly the combination that
+causes "silently pull the version rug out from under an open tab" bugs.
+
+**Fixed**: `client/src/lib/swUpdate.ts`'s `installServiceWorkerReload()`
+listens for `navigator.serviceWorker`'s `controllerchange` event and
+reloads the page once (guarded against a reload loop). Called at the
+very top of `main.tsx`, right after the `wsGuard` import. This completes
+what `registerType: 'autoUpdate'` was already supposed to mean (silently
+get the latest version, no user prompt) — previously it silently got a
+new *service worker* but left stale JS running against it, which isn't
+actually "updated," just broken.
+
+**Verified for real, not just built clean — a faithful reproduction of
+the actual deploy-triggered bug, not just the listener in isolation**:
+built the app, served it via `vite preview`, loaded it in a real browser
+tab (confirmed the v1 service worker took control), set a JS marker on
+`window` to detect a reload, then made a real functional change to
+`sw.ts` (not just a comment — comments get stripped by the build and
+wouldn't produce a different `sw.js`, caught this on a first attempt)
+and rebuilt *in place* into the same served directory, exactly
+simulating what a real deploy does to an already-open tab. Triggered a
+service worker update check from the still-open tab and confirmed: (1)
+the marker was gone afterward, proving a real reload occurred, not
+assumed from the absence of an error; (2) the reloaded page rendered
+correctly (screenshotted), not stuck blank. `tsc -b`, `vite build`,
+`oxlint` all clean.
+
 ## Real NIP-46 interop bug found and fixed: "failed to connect" against
 Amethyst's bunker (2026-08-06)
 
@@ -2142,10 +2188,18 @@ explicitly declines `connect` *and* never answers `get_public_key`
 either — confirmed the flow doesn't hang (fails at the 10s fallback
 timeout) and the real decline reason ("user declined") surfaces to the
 user rather than a generic message. `tsc -b`, `vite build`, `oxlint` all
-clean. **Not yet re-tested against the user's actual real Amethyst app**
-— the standalone scripts reproduce the exact protocol exchange
-byte-for-byte (real NDK classes, real relay, real NIP-44 encryption), but
-confirming on the real device is the natural next verification step.
+clean.
+
+**Confirmed fixed on the real device (2026-08-06)**: user reconnected
+from the actual Amethyst app on Android after the deploy — bunker URI
+pasted into NOSTRAS, approved on the real push notification, connect
+succeeded this time. First real fix in this project's history where the
+standalone-script simulation (real NDK classes, real relay, real NIP-44
+encryption, but a hand-written fake bunker) was the *only* verification
+before shipping, and it correctly predicted real-device behavior —
+worth remembering as a validated technique for the next protocol-interop
+bug that can't be tested directly (no real device / third-party app
+available in this environment).
 
 ## Bio links weren't clickable (2026-08-06)
 
