@@ -25,10 +25,16 @@ func envOr(key, fallback string) string {
 func main() {
 	relay := khatru.NewRelay()
 
+	// NOSTRAS_VERSION is the deploying commit's short git SHA, baked in as a
+	// build-time Docker ARG (see Dockerfile) and passed by the CI workflow
+	// (.github/workflows/deploy-relay.yml) — "dev" for a plain local
+	// `go run .` with no ARG supplied. Public by design: NIP-11's version
+	// field exists exactly for this, and every relay explorer already
+	// knows to check it.
 	relay.Info.Name = "NOSTRAS Relay"
 	relay.Info.Description = "Self-hosted relay/node for the NOSTRAS client."
 	relay.Info.Software = "https://github.com/fiatjaf/khatru"
-	relay.Info.Version = "0.0.0"
+	relay.Info.Version = envOr("NOSTRAS_VERSION", "dev")
 	relay.Info.AddSupportedNIP(50) // search — khatru doesn't auto-detect this one
 
 	badgerPath := envOr("NOSTRAS_BADGER_PATH", "./data")

@@ -19,6 +19,7 @@ import { RelaySettings } from './components/RelaySettings'
 import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
 import { PushNotificationSettings } from './components/PushNotificationSettings'
 import { InstallPwaSettings } from './components/InstallPwaSettings'
+import { AboutSettings } from './components/AboutSettings'
 import { NavRail, type View } from './components/NavRail'
 import { setActiveView, useNavState } from './lib/navigation'
 import './App.css'
@@ -181,6 +182,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Your Relay List (NIP-65)</span>
                 <Nip65RelayListEditor />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">About</span>
+                <AboutSettings />
               </div>
             </section>
           </main>

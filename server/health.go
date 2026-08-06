@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -94,6 +95,7 @@ func newHealthEventSavedHook() func(ctx context.Context, event *nostr.Event) {
 }
 
 type healthSnapshot struct {
+	Version          string  `json:"version"`
 	UptimeSeconds    int64   `json:"uptimeSeconds"`
 	LiveConnections  int64   `json:"liveConnections"`
 	Goroutines       int     `json:"goroutines"`
@@ -106,7 +108,12 @@ type healthSnapshot struct {
 func getHealthSnapshot() healthSnapshot {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
+	version := os.Getenv("NOSTRAS_VERSION")
+	if version == "" {
+		version = "dev"
+	}
 	return healthSnapshot{
+		Version:          version,
 		UptimeSeconds:    int64(time.Since(processStartedAt).Seconds()),
 		LiveConnections:  atomic.LoadInt64(&liveConnections),
 		Goroutines:       runtime.NumGoroutine(),

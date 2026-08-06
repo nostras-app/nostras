@@ -234,6 +234,7 @@
 <section class="panel">
   <div class="panel-title"><span class="live-dot"></span><h2>Server health — live</h2></div>
   <div class="cards">
+    <div class="card"><div class="label">Version</div><div class="value" id="health-version">—</div></div>
     <div class="card"><div class="label">Live connections</div><div class="value" id="health-connections">—</div></div>
     <div class="card"><div class="label">Uptime</div><div class="value" id="health-uptime">—</div></div>
     <div class="card"><div class="label">Memory (alloc / sys)</div><div class="value" id="health-mem">—</div></div>
@@ -461,6 +462,7 @@ async function loadHealth() {
   if (!res.ok) return;
   const h = await res.json();
 
+  document.getElementById("health-version").textContent = h.version || "—";
   document.getElementById("health-connections").textContent = h.liveConnections.toLocaleString();
   document.getElementById("health-uptime").textContent = fmtUptime(h.uptimeSeconds);
   document.getElementById("health-mem").textContent =

@@ -2316,6 +2316,68 @@ copy exactly the tracked files (a faithful stand-in for what Docker's
 Dockerfile now runs — both succeeded cleanly before the second deploy
 attempt went out.
 
+## Version identification for both client and relay (2026-08-06)
+
+User question, directly prompted by having just watched several deploys
+go out this session: how do you tell which build is actually running on
+a given client instance or the server, and should that be public.
+Previously both sides just had an untouched placeholder — `"0.0.0"` in
+both `client/package.json` and `relay.Info.Version` — never bumped,
+never meaningful.
+
+**Chose the deploying commit's short git SHA over hand-maintained
+semver**, for both sides — zero maintenance overhead on a project
+deploying this many times per session, and it uniquely, unambiguously
+identifies exactly what code is live, which a manually-bumped version
+number would not reliably do here.
+
+**Server**: `relay.Info.Version` (NIP-11 — the standard, public relay-
+info mechanism, already existed for exactly this, just never
+populated) now reads `NOSTRAS_VERSION` via the existing `envOr` pattern,
+defaulting to `"dev"`. Also surfaced on the existing `/dashboard/health`
+endpoint for convenience. `server/Dockerfile` gained `ARG
+NOSTRAS_VERSION=dev` in the **final** runtime stage specifically (not
+the build stage) — it's only ever read via `os.Getenv` at process
+startup, and Docker ARGs don't cross a `FROM` boundary regardless.
+`.github/workflows/deploy-relay.yml` passes
+`--build-arg NOSTRAS_VERSION=$(git rev-parse --short HEAD)` to `flyctl
+deploy`.
+
+**Client**: `client/src/lib/version.ts` exports `CLIENT_VERSION` from
+`import.meta.env.VITE_GIT_SHA` (same baked-in-at-build-time pattern
+already established for `VITE_RELAY_URL`/`VITE_VAPID_PUBLIC_KEY` — no
+new mechanism invented). `client/src/hooks/useRelayVersion.ts` fetches
+the connected relay's own NIP-11 `version` live via NDK's
+`NDKRelay.fetchInfo()` (confirmed via NDK's source this is a plain HTTP
+fetch, not dependent on WebSocket connection state — safe to call
+regardless of live connection status). Both shown together in a new
+"About" section at the bottom of Settings (`AboutSettings.tsx`) —
+deliberately plain/unobtrusive placement, not a banner or anything
+prominent, since this is a support/debugging detail most users will
+never need, but should be easy to find when a bug report does need it.
+`.github/workflows/deploy-client.yml` passes the equivalent
+`--build-arg VITE_GIT_SHA=...`.
+
+**On "should this be public" specifically**: yes for both, without
+reservation. The relay's version is exactly what NIP-11 exists for —
+every relay explorer/directory tool already knows to check it, and
+withholding it would be unusual, not safer. The client's build SHA
+reveals nothing sensitive (this project's actual source lives in a
+*private* repo, so the SHA alone doesn't expose browsable source to
+anyone) and matches how virtually every app surfaces a build/version
+number in its own settings screen.
+
+**Verified for real, end-to-end, not just built clean**: `tsc -b`,
+`vite build`, `oxlint` clean on the client; `go build`/`go vet`/
+`gofmt -l` clean on the server. Ran the local relay with a fake
+`NOSTRAS_VERSION` and confirmed it in both the raw NIP-11 HTTP response
+and `/dashboard/health`'s JSON. Ran the local client dev server with a
+fake `VITE_GIT_SHA` and confirmed live in a real browser: Settings >
+About correctly showed both the fake client build SHA and the fake
+relay version fetched from the local relay's real NIP-11 endpoint,
+confirming the whole chain (build-time inlining, live NIP-11 fetch,
+UI rendering) works together, not just each piece in isolation.
+
 ## khatru broadcast-path fix: deployed to production, verified for real
 (2026-08-06)
 

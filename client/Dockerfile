@@ -21,6 +21,12 @@ ENV VITE_RELAY_URL=$VITE_RELAY_URL
 # to bake in as a build default the same way VITE_RELAY_URL is.
 ARG VITE_VAPID_PUBLIC_KEY=BHRo4BwtsKdfnbQlUdQdW2hoJkSVqlsmS7ea_ALUPGqBfFZ4XDZY-9TfF9cyCZbr5Sb9yL2tzPbWvQq3o1H_p3U
 ENV VITE_VAPID_PUBLIC_KEY=$VITE_VAPID_PUBLIC_KEY
+# The deploying commit's short git SHA — "dev" by default (plain local
+# `docker build`, no --build-arg). Shown in Settings so a bug report can
+# say exactly which build is running, without hand-maintaining a version
+# number that would inevitably go stale on a project deploying this often.
+ARG VITE_GIT_SHA=dev
+ENV VITE_GIT_SHA=$VITE_GIT_SHA
 RUN npm run build
 
 FROM nginx:1.27-alpine

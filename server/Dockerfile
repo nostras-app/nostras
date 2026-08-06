@@ -24,5 +24,13 @@ WORKDIR /app
 COPY --from=build /out/relay /app/relay
 COPY --from=build /out/dvm /app/dvm
 
+# Read at runtime via os.Getenv (relay.Info.Version in main.go, and the
+# /dashboard/health endpoint) — "dev" by default so a plain `docker build`
+# with no --build-arg still works. Declared here (the final runtime
+# stage), not the build stage above, since it's only ever read at
+# runtime, and Docker ARGs don't cross a FROM boundary anyway.
+ARG NOSTRAS_VERSION=dev
+ENV NOSTRAS_VERSION=$NOSTRAS_VERSION
+
 # No default CMD/ENTRYPOINT — fly.toml's [processes] supplies the actual
 # command per process group (web -> /app/relay, dvm -> /app/dvm).
