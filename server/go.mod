@@ -2,6 +2,12 @@ module nostras-server
 
 go 1.26.5
 
+// NOSTRAS PATCH: local fork with a fix for a real broadcast-performance
+// bug found via load testing — see internal/khatrufork/listener.go and
+// CLAUDE.md for the full writeup. khatru is public domain (Unlicense),
+// so vendoring and patching it directly is unrestricted.
+replace github.com/fiatjaf/khatru => ./internal/khatrufork
+
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/anthropics/anthropic-sdk-go v1.61.0

@@ -2188,6 +2188,101 @@ would give more trustworthy absolute numbers; this was good enough to
 answer "is fanout under load a real risk" with real evidence rather
 than pure speculation.
 
+## khatru broadcast-path bug found, patched via a local fork (2026-08-06)
+
+Direct follow-up to the load-test findings above — user asked to dig into
+*why* publish latency degraded so badly under concurrent subscriber
+load, rather than just accept it or throw a bigger machine at it.
+
+**Root cause, confirmed by reading khatru's actual source (v0.19.1, the
+latest release — no newer version exists)**: `listener.go`'s
+`notifyListeners` (the function that fans a newly-published event out to
+every matching live subscription) writes to each matching listener
+**sequentially, one at a time, synchronously on the same goroutine
+that's handling the publishing client's EVENT message** — confirmed by
+tracing the call site in `handlers.go`, which calls it inline, not via
+`go`. Worse: `Relay.WriteWait` (a field with the doc comment "Time
+allowed to write a message to the peer," defaulting to 10s) is **never
+actually applied anywhere** — grepped the whole package for
+`SetWriteDeadline`, zero real usages. So a single slow or stuck
+subscriber's blocking `WriteJSON` call could stall delivery to every
+other listener, and the publisher's own response, for however long the
+OS's own TCP timeout allows — far longer than the 10s the config implies
+is happening. This is a real, confirmed defect in khatru itself, not
+NOSTRAS's own code, and not something a bigger machine fixes (it's a
+blocking-call problem, not a raw-CPU problem).
+
+**Decision: fork and patch locally**, user's explicit choice over
+filing upstream-only or just documenting and waiting. khatru is public
+domain (Unlicense — verified before touching anything), so copying and
+modifying it directly is unrestricted. `server/internal/khatrufork/` is
+a full local copy of the package (test files and unused `blossom`/
+`policies` subpackages dropped — NOSTRAS doesn't import them) with its
+own minimal `go.mod` declaring the same module path
+(`github.com/fiatjaf/khatru`), wired in via `replace github.com/fiatjaf/
+khatru => ./internal/khatrufork` in `server/go.mod`. No import path
+changes needed anywhere else in the codebase — Go's replace directive
+redirects module resolution transparently.
+
+**The actual patch** (`internal/khatrufork/listener.go` +
+`websocket.go`): `WriteJSONWithDeadline` (new method) applies a real
+`SetWriteDeadline` before each write, clearing it afterward so it
+doesn't linger and affect a later unrelated write (e.g. a ping) with a
+stale expiry. `notifyListeners` dispatches each listener's write
+concurrently instead of sequentially, so one slow connection can't block
+the rest — bounded by a **relay-wide semaphore** (`Relay.broadcastSem`,
+cap 200), not unbounded per-broadcast goroutines.
+
+**Real correction made mid-implementation, not hidden**: the first
+version used fully unbounded goroutines (one per matching listener, no
+cap). Load-testing this version showed *no improvement* over the
+original — in one run, arguably worse (689 failed publishes vs 378
+originally, at the same 500-client scenario). Root-caused this
+specifically, not just re-measured and shrugged: a burst of simultaneous
+publishes (500 clients, many publishing near-concurrently) could each
+spawn hundreds of goroutines with zero global limit, adding real
+scheduling/allocation overhead on top of the original problem instead of
+just fixing it. Fixed by adding the relay-wide `broadcastSem` cap, which
+keeps the fan-out concurrent (still solves the original blocking
+problem) while bounding total in-flight broadcast writes regardless of
+how many publishes land at once.
+
+**Honest limitation, not glossed over**: could not produce a clean local
+before/after latency comparison for the *final* (bounded) version.
+Discovered mid-investigation that this "sandbox" is actually the user's
+own live desktop machine — `ps aux` showed dozens of real Chrome/
+Firefox renderer processes, VS Code, and Alby Hub all running
+concurrently, with the system at 11GB/15GB memory used and actively
+swapping (4.4GB in swap). Between the first and second 500-client test
+runs, system load average climbed from 5.81 to 6.86 and **connect
+latency alone — completely unrelated to the broadcast patch — grew from
+~1-5ms to 43ms median**, proving the machine's own resource state
+(likely compounded by this same long session's own accumulated
+processes) was degrading independently of any code change and dominated
+the measurement. Correctly identified this as a confound rather than
+reporting a misleading "still bad, patch didn't help" conclusion from
+noisy data.
+
+**What was actually verified, cleanly**: `go build`/`go vet`/`gofmt -l`
+clean across the whole module including the fork. A small-scale run (20
+clients, well below where system noise dominates) confirmed full
+functional correctness post-patch: 100% connect/publish success, fast
+latency (connect p50=1ms, publish p50=15ms), and correct event delivery
+count (1,600 received = exactly the expected fan-out for 60 publishes
+across ~20-27 live subscribers each) — no crashes, no deadlocks, no lost
+events. The architectural defect itself (dead `WriteWait`, fully
+synchronous fan-out) is proven by direct source inspection, independent
+of any benchmark; what's *not* independently proven yet is the precise
+magnitude of improvement at real concurrency, since this environment
+can't currently produce a trustworthy number for that.
+
+**Next step, deliberately left as a decision point rather than assumed**:
+deploy this to production and validate for real using the health
+dashboard already built (a genuinely idle production machine, no desktop-
+contention confound) rather than keep fighting local noise — or hold and
+revisit with a cleaner local environment first. Not yet decided as of
+this entry.
+
 ## Live server health added to the operator dashboard (2026-08-06)
 
 Prompted by a real capacity question (user running ~7 concurrent
