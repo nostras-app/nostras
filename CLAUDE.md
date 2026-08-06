@@ -2076,6 +2076,77 @@ and the "Open NOSTRAS" CTA correctly navigates to `app.nostras.app`.
 `web`/`dvm` both came back `started` on their own this deploy, no manual
 `flyctl machine start` needed this time.
 
+## Real NIP-46 interop bug found and fixed: "failed to connect" against
+Amethyst's bunker (2026-08-06)
+
+User report, this time with a full real repro (not the earlier Clave/
+iPhone case, which was root-caused to the *other* app's push delivery
+and explicitly dropped): on Android, signed into Amethyst, activated its
+bunker feature, pasted the `bunker://` URI into NOSTRAS, tapped Connect
+in NOSTRAS, received and approved the real push notification from
+Amethyst — and NOSTRAS still reported "failed to connect." Traced this
+one all the way to a real root cause, not left as "probably the other
+app's fault" this time.
+
+**Root cause, confirmed by reading the installed NDK's own source**
+(`node_modules/@nostr-dev-kit/ndk`, v3.0.3):
+`NDKNip46Signer.blockUntilReady()`'s handling of the `connect` RPC only
+treats the literal string `"ack"` as success —
+`if (response.result === "ack") { ...resolve... } else { reject(response.error) }`.
+Amethyst instead acks `connect` by echoing back the `secret` query
+param from the `bunker://` URI, not the bare string `"ack"` — this is
+the more secure NIP-46 convention (it proves the responder actually
+decrypted and received our specific secret, not just any relay replaying
+a generic "ack"), but this NDK version doesn't recognize it as valid at
+all, so a real, correctly-approved connection was reported as a failure.
+Confirmed this is a genuine ack-shape mismatch and not a real decline by
+reasoning through the full request/response cycle in NDK's source
+(`NDKNostrRpc`), then proved it directly (see Verified below) rather than
+taking the hypothesis on faith.
+
+**Fixed at the application level** (can't safely patch node_modules):
+`client/src/lib/remoteSigner.ts` gained
+`blockUntilReadyWithAckFallback()` — tries `signer.blockUntilReady()`
+first as before, and only on rejection, sends a direct `get_public_key`
+RPC (via the signer's own public `getPublicKey()` method) as a second
+confirmation. This isn't a weaker check: `get_public_key` only succeeds
+if a bunker holding the matching key responds on our private encrypted
+response channel, so a genuinely-declined or unreachable bunker fails
+this the same way — it specifically recovers the false-negative case
+where the bunker *did* approve but acked in a shape this NDK version
+doesn't recognize. Wrapped in a 10s timeout so a truly unreachable
+bunker fails cleanly instead of hanging forever, and on any failure the
+*original* rejection reason is re-thrown (preserving real bunker error
+text like "user declined" instead of a generic message) rather than the
+fallback's own timeout error. Also had to reach past TypeScript's
+`private` marker on `NDKNip46Signer`'s internal `_user` field (a
+runtime-only distinction, not real encapsulation) to set it directly:
+`ndk.signer = signer`'s setter calls `signer.user()` internally, which
+returns `_user` if set or **silently** re-runs `blockUntilReady()`
+otherwise (no `.catch()` on that internal call) — without this, the
+workaround would appear to work once and then silently re-trigger the
+exact same failure (and a second real approval prompt on the phone) the
+next time anything read `ndk.activeUser`. Applied to both
+`connectBunker()` (fresh connect) and `restoreSignerSession()` (reload),
+since both call the same underlying `blockUntilReady()` path.
+
+**Verified for real, end-to-end, against real NDK protocol code — not
+just reasoned about**: built a standalone Node script with two real NDK
+instances against the local relay — one acting as a bunker that echoes
+the `secret` on `connect` exactly like Amethyst does, confirmed
+`blockUntilReady()` genuinely rejects (with `undefined`, matching the
+generic "failed to connect" text the user actually saw) and the
+`get_public_key` fallback then genuinely succeeds with the correct
+pubkey. A second script verified the negative case: a bunker that
+explicitly declines `connect` *and* never answers `get_public_key`
+either — confirmed the flow doesn't hang (fails at the 10s fallback
+timeout) and the real decline reason ("user declined") surfaces to the
+user rather than a generic message. `tsc -b`, `vite build`, `oxlint` all
+clean. **Not yet re-tested against the user's actual real Amethyst app**
+— the standalone scripts reproduce the exact protocol exchange
+byte-for-byte (real NDK classes, real relay, real NIP-44 encryption), but
+confirming on the real device is the natural next verification step.
+
 ## Bio links weren't clickable (2026-08-06)
 
 User-reported, immediately after using the new banner/avatar upload

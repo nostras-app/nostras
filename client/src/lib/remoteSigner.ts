@@ -1,4 +1,4 @@
-import { NDKNip46Signer, NDKNip07Signer } from '@nostr-dev-kit/ndk'
+import { NDKNip46Signer, NDKNip07Signer, type NDKUser } from '@nostr-dev-kit/ndk'
 import { ndk } from './ndk'
 import { getDevSigner } from './signer'
 
@@ -41,6 +41,72 @@ function clearSession() {
   localStorage.removeItem(LOCAL_KEY_KEY)
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
+// Real interop gap, found by reading the installed NDK's own source
+// (node_modules/@nostr-dev-kit/ndk): NDKNip46Signer.blockUntilReady()'s
+// `connect` RPC only accepts the literal string "ack" as a successful
+// response and rejects anything else. Some remote signers (confirmed with
+// Amethyst on Android) instead ack `connect` by echoing back the `secret`
+// query param — the more secure convention (it proves the responder
+// actually received our secret, not just any relay replaying "ack"), but
+// this NDK version doesn't check for it, so a real, user-approved
+// connection was being reported as "failed to connect".
+//
+// By the time blockUntilReady() rejects this way, the user has already
+// tapped Connect on the remote signer and its RPC subscription is live —
+// a direct get_public_key call, which only the bunker holding the
+// matching key could answer on our private response channel, succeeds
+// where the stricter ack check just failed. This isn't a weaker check:
+// a genuinely-declined or unreachable bunker fails this the same way (or
+// times out, handled below), so it only recovers the false-negative case.
+async function blockUntilReadyWithAckFallback(signer: NDKNip46Signer): Promise<NDKUser> {
+  try {
+    return await signer.blockUntilReady()
+  } catch (originalError) {
+    try {
+      const pubkey = await withTimeout(
+        signer.getPublicKey(),
+        10000,
+        'Timed out waiting for the remote signer to confirm the connection',
+      )
+      if (!pubkey) throw new Error('Remote signer did not confirm the connection')
+      signer.userPubkey = pubkey
+      const user = ndk.getUser({ pubkey })
+      // blockUntilReady()'s own success path sets this same private field
+      // before resolving. NDK's `ndk.signer = signer` setter calls
+      // signer.user() internally, which returns it directly if set, or
+      // otherwise silently re-runs blockUntilReady() (no .catch() on that
+      // internal call) — re-sending a second connect RPC and failing the
+      // same way again, with no error ever surfacing. Has to be set here
+      // for this workaround to actually stick past the initial connect.
+      ;(signer as unknown as { _user?: NDKUser })._user = user
+      return user
+    } catch {
+      // NDK's own rejection reason (response.error) is often a bare
+      // string, not an Error — e.g. a real "user declined" from the
+      // bunker — so preserve that text rather than discarding it for a
+      // generic message.
+      if (originalError instanceof Error) throw originalError
+      throw new Error(typeof originalError === 'string' ? originalError : 'Failed to connect')
+    }
+  }
+}
+
 // Connects to a bunker:// URI (NIP-46). Reuses the saved local connection
 // key when reconnecting to the same bunker so the remote signer recognizes
 // this session without the user having to re-approve it.
@@ -49,7 +115,7 @@ export async function connectBunker(uri: string) {
   const localKey = saved?.uri === uri ? saved.localKey : undefined
 
   const signer = NDKNip46Signer.bunker(ndk, uri, localKey)
-  const user = await signer.blockUntilReady()
+  const user = await blockUntilReadyWithAckFallback(signer)
 
   saveBunkerSession(uri, signer)
   ndk.signer = signer
@@ -73,7 +139,7 @@ export async function restoreSignerSession() {
     const saved = getSavedRemoteSignerSession()
     if (!saved) return null
     const signer = NDKNip46Signer.bunker(ndk, saved.uri, saved.localKey)
-    const user = await signer.blockUntilReady()
+    const user = await blockUntilReadyWithAckFallback(signer)
     ndk.signer = signer
     return { user, mode }
   }
