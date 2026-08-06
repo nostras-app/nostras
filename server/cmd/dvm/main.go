@@ -114,25 +114,66 @@ func main() {
 	}
 
 	ctx := context.Background()
-	relay, err := nostr.RelayConnect(ctx, relayURL)
-	if err != nil {
-		panic(err)
-	}
-
 	payment := loadPaymentConfig(ctx)
 
-	// Throwaway identity for this DVM instance. It never touches the user's
-	// real key material — it's just the pubkey the DVM signs job
-	// feedback/results with.
+	// Throwaway identity for this DVM *process's whole lifetime* — stays
+	// stable across the relay reconnects below, so a client that already
+	// received a payment-required from this pubkey still gets its result
+	// from the same pubkey after a brief connection drop, not a new
+	// random one it has no reason to trust.
 	sk := nostr.GeneratePrivateKey()
 	pk, _ := nostr.GetPublicKey(sk)
 	fmt.Println("NOSTRAS DVM (NIP-90 summarization 5001->6001, translation 5002->6002, text generation 5050->6050) running as", pk)
-	fmt.Println("listening on", relayURL)
 	if payment == nil {
 		fmt.Println("payment gating: OFF (set NOSTRAS_DVM_NWC_URI to enable)")
 	} else {
 		fmt.Printf("payment gating: ON — priced per job from real token cost (fallback %d sats if pricing lookup fails)\n", payment.priceSats)
 	}
+
+	// Reconnection loop. Previously a single dropped connection (network
+	// blip, relay restart, etc.) closed sub.Events, the for-range below
+	// ended, main() returned, and the process exited cleanly (code 0) —
+	// which Fly does NOT restart automatically, unlike a crash. Confirmed
+	// as the real root cause of most of this project's recurring "DVM
+	// stopped" incidents by reading the actual boot logs directly: a
+	// clean 20-90 minute run, then a silent exit with no panic, no error,
+	// nothing to alert on until the next manual check or the scheduled
+	// uptime-check workflow happened to catch it. Backoff resets to the
+	// base interval once a connection has been stable for a while, so one
+	// old failure doesn't leave a long-since-recovered DVM retrying
+	// slowly forever.
+	backoff := time.Second
+	const maxBackoff = 30 * time.Second
+	for {
+		fmt.Println("listening on", relayURL)
+		connectedAt := time.Now()
+		err := runDVM(ctx, relayURL, claude, sk, payment)
+		if err != nil {
+			fmt.Println("relay connection lost, reconnecting:", err)
+		} else {
+			fmt.Println("relay subscription ended, reconnecting")
+		}
+		if time.Since(connectedAt) > time.Minute {
+			backoff = time.Second
+		}
+		time.Sleep(backoff)
+		if backoff *= 2; backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+// runDVM connects to the relay, subscribes to job-request kinds, and
+// processes jobs until the connection drops or the subscription's Events
+// channel closes. Returns nil for a clean subscription end, or the error
+// that caused the disconnect — either way, the caller's reconnection loop
+// decides what happens next, this function never terminates the process.
+func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk string, payment *paymentConfig) error {
+	relay, err := nostr.RelayConnect(ctx, relayURL)
+	if err != nil {
+		return err
+	}
+	defer relay.Close()
 
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{
@@ -140,12 +181,13 @@ func main() {
 		Since: &since,
 	}})
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	for evt := range sub.Events {
 		go handleJob(ctx, relay, claude, sk, payment, evt)
 	}
+	return nil
 }
 
 // loadPaymentConfig reads the DVM operator's own receiving wallet from

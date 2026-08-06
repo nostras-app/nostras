@@ -2316,6 +2316,76 @@ copy exactly the tracked files (a faithful stand-in for what Docker's
 Dockerfile now runs — both succeeded cleanly before the second deploy
 attempt went out.
 
+## Real root cause found for most of this project's recurring "DVM
+stopped" incidents: no reconnection logic at all (2026-08-06)
+
+Found while checking on the version-tracking deploys above — noticed two
+failed scheduled `uptime-check.yml` runs earlier the same day and
+decided to actually dig in rather than just restart the machine again
+and move on, given how many times this exact class of incident has
+already been logged in this file across the whole session.
+
+**Root cause, confirmed by reading the DVM's own boot logs directly**:
+`cmd/dvm/main.go`'s `main()` ran `for evt := range sub.Events { go
+handleJob(...) }` with **no reconnection logic whatsoever**. The moment
+the relay connection drops for *any* reason — a network blip, the local
+relay restarting, a routine Fly rolling deploy — `sub.Events` closes,
+the `for range` loop ends, and since nothing follows it, `main()` just
+returns. That's a **clean exit, code 0** — confirmed directly in the
+logs (`Main child exited normally with code: 0`) after entirely
+unremarkable 20-90 minute runs, no panic, no error. Fly's runner
+explicitly does **not** restart a machine that exits cleanly
+(`machine exited with exit code 0, not restarting`), unlike a crash —
+so the DVM just stayed down silently until the next manual check or
+until the scheduled uptime check happened to catch it. This is a
+**second, distinct** failure mode from the already-documented boot-vs-
+DNS-race panic (that one shows an explicit panic + stack trace on
+startup) — this one is a silent, delayed, non-crashing exit that can
+happen at any point after a long healthy run, and in hindsight likely
+explains a meaningful fraction of every previous "found the DVM stopped
+again" entry in this file that didn't have an obvious deploy or panic to
+point to.
+
+**Fixed**: extracted the connect→subscribe→consume sequence into
+`runDVM()`, which now returns an error (instead of `panic`) on any
+connect/subscribe failure or when the subscription simply ends.
+`main()` wraps it in an infinite retry loop with exponential backoff
+(1s doubling to a 30s cap), resetting back to the 1s base once a
+connection has been stable for over a minute — so one old failure
+doesn't leave an otherwise-healthy DVM retrying slowly forever. The
+DVM's signing identity (`sk`/`pk`) is generated once, **outside** the
+retry loop, and stays stable across reconnects — a client that already
+received a `payment-required` from this pubkey still gets its result
+from the same pubkey after a brief drop, not a new random one it has no
+reason to trust.
+
+**Verified for real, not just built clean, reproducing the actual real-
+world failure mode directly**: ran the relay and DVM locally, confirmed
+a normal connection, then **killed the relay process outright** — the
+exact scenario that used to silently end the DVM process. Confirmed via
+the log: `relay subscription ended, reconnecting` → repeated `relay
+connection lost, reconnecting: ... connection refused` while retrying —
+and confirmed independently via `ps`/`pgrep` that **the process stayed
+alive** throughout, unlike before this fix. Restarted the relay and
+confirmed the DVM reconnected on its own (no manual intervention) and
+resumed processing: submitted a real NIP-90 job and got a genuine
+`kind:7000` "processing" response back from the **same pubkey** the DVM
+started with, confirming the identity-persists-across-reconnects design
+worked as intended, not just that *some* connection recovered.
+
+One test artifact worth recording honestly rather than omitting: the
+first attempt at this test appeared to hang indefinitely on
+`connection refused` even after the relay was confirmed back up via
+direct `curl`/`nak` checks — turned out to be a misreading of the log's
+own shape (each cycle prints `listening on...` *before* attempting, so
+the final unpaired "listening on..." line **is** the success case, not
+a stuck failure) confirmed by checking `lsof` for a genuine
+`ESTABLISHED` connection and then proving it conclusively with a real
+job round-trip, rather than assuming from output that just looked like
+a repeat of the previous errors.
+
+`go build`/`go vet`/`gofmt -l` clean throughout.
+
 ## Version identification for both client and relay (2026-08-06)
 
 User question, directly prompted by having just watched several deploys
