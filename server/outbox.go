@@ -24,6 +24,21 @@ import (
 // than block indefinitely.
 const outboxFetchTimeout = 8 * time.Second
 
+// Real production incident (2026-08-06), continued: even with the timeout
+// above, memory on this machine's 512MB budget dropped from ~130MB free
+// to ~27MB free within minutes under concurrent authors-filtered query
+// load — each concurrent FetchFeedPage call can open several real
+// outbound relay connections at once, and that adds up fast at this
+// machine size. Bounds how many aggregation operations run
+// simultaneously, independent of how many clients are asking; a query
+// that can't get a slot within the wait window just falls back to
+// local-only results already streamed above, the same graceful-
+// degradation principle as the fetch timeout itself.
+const maxConcurrentOutboxFetches = 6
+const outboxSemWait = 2 * time.Second
+
+var outboxSem = make(chan struct{}, maxConcurrentOutboxFetches)
+
 // newAggregatedQuery returns a khatru QueryEvents function that implements
 // the NIP-65 outbox model: for filters scoped to specific authors, it
 // queries our local store AND fans the same query out to each author's
@@ -70,6 +85,15 @@ func newAggregatedQuery(
 			limit := filter.Limit
 			if limit == 0 {
 				limit = 50
+			}
+
+			select {
+			case outboxSem <- struct{}{}:
+				defer func() { <-outboxSem }()
+			case <-time.After(outboxSemWait):
+				return // too many concurrent fetches already in flight
+			case <-ctx.Done():
+				return
 			}
 
 			fetchCtx, cancel := context.WithTimeout(ctx, outboxFetchTimeout)
