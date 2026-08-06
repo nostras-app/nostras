@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/fiatjaf/khatru"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -13,12 +15,28 @@ import (
 // connection and OnEventSaved runs in the same hot path as every event
 // this relay stores, so these hooks must stay trivially cheap. This is
 // the same lesson the push-notification lock-contention outage taught the
-// hard way (see CLAUDE.md) — applied proactively here instead.
+// hard way (see CLAUDE.md) — applied proactively here instead. The
+// disconnectSeen map (below) is the one exception, guarded by a plain
+// mutex — connection open/close happens at connection-churn frequency,
+// not event frequency, so it doesn't carry the same hot-path risk.
 var (
 	processStartedAt = time.Now()
 	liveConnections  int64
 	dvmEventTotal    int64
 	lastDvmEventAt   int64 // unix seconds; 0 = never observed since boot
+)
+
+// Confirmed by reading khatru's own handlers.go: a connection's main
+// read-loop goroutine and its separate ping-ticker goroutine both
+// independently `defer kill()`, which fires OnDisconnect twice per real
+// disconnect (OnConnect only fires once). Verified live during load
+// testing — without this guard, liveConnections drifted to -100 after
+// 100 clients connected and disconnected. Deduplicated per-connection via
+// khatru.GetConnection(ctx), which returns a stable pointer identifying
+// the same WebSocket across both calls.
+var (
+	disconnectSeenMu sync.Mutex
+	disconnectSeen   = map[*khatru.WebSocket]struct{}{}
 )
 
 // DVM job feedback/result kinds this relay might see pass through — see
@@ -39,6 +57,22 @@ func newHealthConnectHook() func(ctx context.Context) {
 
 func newHealthDisconnectHook() func(ctx context.Context) {
 	return func(ctx context.Context) {
+		conn := khatru.GetConnection(ctx)
+		if conn == nil {
+			return
+		}
+		disconnectSeenMu.Lock()
+		_, alreadySeen := disconnectSeen[conn]
+		if alreadySeen {
+			delete(disconnectSeen, conn)
+		} else {
+			disconnectSeen[conn] = struct{}{}
+		}
+		disconnectSeenMu.Unlock()
+
+		if alreadySeen {
+			return
+		}
 		atomic.AddInt64(&liveConnections, -1)
 	}
 }

@@ -2122,6 +2122,72 @@ assumed from the absence of an error; (2) the reloaded page rendered
 correctly (screenshotted), not stuck blank. `tsc -b`, `vite build`,
 `oxlint` all clean.
 
+## Real bug found via load testing: OnDisconnect fires twice per
+connection, and the actual scaling bottleneck identified (2026-08-06)
+
+Built a standalone Go load-test tool (outside the repo, not committed —
+opens N concurrent WebSocket clients against a relay, each subscribing
+to a broad filter and optionally publishing on an interval, reporting
+connect/publish success rates and latency percentiles) to get real
+numbers before spending on infra, per explicit user request.
+
+**Real bug caught immediately, not shipped**: after the first run (100
+clients, all connected then disconnected), the new health dashboard's
+`liveConnections` read **-100** instead of 0. Traced to khatru's own
+`handlers.go`: a connection's main read-loop goroutine and a separate
+ping-ticker goroutine both independently `defer kill()` — so
+`OnDisconnect` fires **twice** per real disconnect while `OnConnect`
+fires once. Fixed by deduplicating in `server/health.go` via
+`khatru.GetConnection(ctx)` (a stable per-connection pointer), guarded
+by a plain mutex — connection churn is nowhere near event-storage
+frequency, so this doesn't carry the same hot-path risk as `OnEventSaved`.
+Re-verified: `liveConnections` returns to exactly 0 after a real 100-
+client connect/disconnect cycle.
+
+**Real finding, not assumed**: ran three scenarios against the local
+relay, watching the new live health panel throughout.
+- **100 clients, light publishing (1 event/8s/client)**: 100% connect
+  success, connect latency p50=1.6ms/p99=9ms, publish latency
+  p50=29ms/p99=112ms. No stress.
+- **500 clients, light publishing (1 event/10s/client)**: connects
+  still 100% successful and fast (p50=1.4ms), but publish latency
+  exploded — p50=6.6s, p95=17.2s, max=19.9s — with a 37% publish
+  failure rate.
+- **500 clients, zero publishing (pure subscribers)**: connects 100%
+  successful and fast, **no degradation at all**. The "10,000 events
+  received" in this run is exactly 500 clients × the 20-event initial
+  backfill each subscription requests on open — not live broadcast,
+  confirming these connections were genuinely idle.
+
+**Conclusion**: holding many concurrent open connections/subscriptions
+is not the bottleneck — connect latency stayed flat and fast at 500
+clients regardless of publish load. The actual constraint is
+**publish/broadcast fanout under concurrent subscriber load** — every
+published event's delivery cost scales with the number of live matching
+subscriptions, and that's where the real degradation showed up. This is
+architecturally expected for a broadcast-model relay in general, not
+necessarily a NOSTRAS-specific bug, but the severity (multi-second
+median latency at only ~500 clients / a light publish rate) suggests
+real room to investigate khatru's broadcast path specifically before
+assuming more concurrent users is fine.
+
+**Important caveat, stated plainly, not glossed over**: this ran on the
+local dev sandbox (4 shared cores, `nproc`), with the load-test client
+and the relay server competing for the *same* CPU — confirmed real
+contention via `uptime`'s load average (5.81 on 4 cores) during the
+500-client publish run. This is not a clean, isolated benchmark and the
+absolute latency numbers shouldn't be read as "this is what production
+will do." The production relay (`shared-cpu-1x`, a single shared vCPU —
+*less* than this sandbox's 4 cores) doesn't have this specific
+confound (nothing else competes with it there), but also has less raw
+CPU to begin with — so if degradation shows up this clearly here, it's
+a real signal worth taking seriously, not one to dismiss because the
+test environment was imperfect. A cleaner test (relay and load
+generator on separate machines, ideally matching the real Fly spec)
+would give more trustworthy absolute numbers; this was good enough to
+answer "is fanout under load a real risk" with real evidence rather
+than pure speculation.
+
 ## Live server health added to the operator dashboard (2026-08-06)
 
 Prompted by a real capacity question (user running ~7 concurrent
