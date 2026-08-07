@@ -57,18 +57,35 @@ func main() {
 	// count as this incident's cause and matching this project's own
 	// prior observation that local badger boot times have been growing
 	// as the store accumulates data from ongoing outbox aggregation.
-	// Tuned down to fit comfortably: worst case here is roughly
-	// 3*16=48MB memtables + 32MB block cache + a *bounded* 32MB index
-	// cache (so indices now evict under an LRU instead of growing
-	// forever), versus the ~580MB+ theoretical default ceiling.
+	// Follow-up correction, same day: the first tuning pass (32MB block
+	// cache, 3*16MB memtables) fixed the memory crisis but was too
+	// aggressive on the cache side — real production symptom was publish
+	// latency degrading to 4-10.5s (some client-side timeouts) with a
+	// single-vCPU load average over 2.8 and badger's own periodic cache-
+	// metrics log showing heavy sets-rejected/gets-dropped counts,
+	// consistent with a cache too small for real read volume causing
+	// disk-fallback + cache-churn CPU overhead rather than a memory
+	// shortage (MemAvailable was actually healthy, ~235MB, at the time).
+	// Rebalanced now that the memory crisis itself is confirmed fixed and
+	// there's real headroom to work with: worst case here is roughly
+	// 4*32=128MB memtables + 96MB block cache + a bounded 64MB index
+	// cache = ~288MB, still well below the ~580MB+ default ceiling that
+	// caused the original incident, but far less cache-starved than the
+	// first pass. NumCompactors also explicitly dropped from badger's
+	// server-oriented default of 4 to 2 (badger's own comment: "run at
+	// least 2") -- this machine is a single shared vCPU, and 4 compactor
+	// goroutines contending for one core is itself a plausible
+	// contributor to the observed CPU pressure, independent of cache
+	// sizing.
 	db := badger.BadgerBackend{
 		Path: badgerPath,
 		BadgerOptionsModifier: func(opts dgraphBadger.Options) dgraphBadger.Options {
 			return opts.
-				WithMemTableSize(16 << 20).
-				WithNumMemtables(3).
-				WithBlockCacheSize(32 << 20).
-				WithIndexCacheSize(32 << 20)
+				WithMemTableSize(32 << 20).
+				WithNumMemtables(4).
+				WithBlockCacheSize(96 << 20).
+				WithIndexCacheSize(64 << 20).
+				WithNumCompactors(2)
 		},
 	}
 	if err := db.Init(); err != nil {
