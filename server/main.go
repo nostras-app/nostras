@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	dgraphBadger "github.com/dgraph-io/badger/v4"
 	"github.com/fiatjaf/eventstore/badger"
 	"github.com/fiatjaf/eventstore/bluge"
 	"github.com/fiatjaf/khatru"
@@ -41,7 +42,35 @@ func main() {
 	blugePath := envOr("NOSTRAS_BLUGE_PATH", "./search-index")
 	port := envOr("NOSTRAS_PORT", "7777")
 
-	db := badger.BadgerBackend{Path: badgerPath}
+	// Real production incident (2026-08-07): badger.DefaultOptions (read
+	// directly from dgraph-io/badger/v4's own source) is tuned for
+	// multi-GB server deployments, not this machine's 512MB budget —
+	// NumMemtables(5) * MemTableSize(64MB) = up to 320MB, plus a 256MB
+	// BlockCacheSize, plus IndexCacheSize left at 0 (badger's docs: 0
+	// means indices are loaded fully into memory with no bound, growing
+	// permanently as the store grows, never evicted). That combination
+	// alone exceeds this machine's entire RAM before Go's own runtime,
+	// bluge's separate index, or a single live connection are accounted
+	// for — confirmed as the real driver of two near-OOM incidents
+	// within the same session, the second of which recurred with only
+	// ~78 live connections (vs. 305 in the first), ruling out connection
+	// count as this incident's cause and matching this project's own
+	// prior observation that local badger boot times have been growing
+	// as the store accumulates data from ongoing outbox aggregation.
+	// Tuned down to fit comfortably: worst case here is roughly
+	// 3*16=48MB memtables + 32MB block cache + a *bounded* 32MB index
+	// cache (so indices now evict under an LRU instead of growing
+	// forever), versus the ~580MB+ theoretical default ceiling.
+	db := badger.BadgerBackend{
+		Path: badgerPath,
+		BadgerOptionsModifier: func(opts dgraphBadger.Options) dgraphBadger.Options {
+			return opts.
+				WithMemTableSize(16 << 20).
+				WithNumMemtables(3).
+				WithBlockCacheSize(32 << 20).
+				WithIndexCacheSize(32 << 20)
+		},
+	}
 	if err := db.Init(); err != nil {
 		panic(err)
 	}
