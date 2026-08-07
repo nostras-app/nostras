@@ -3035,6 +3035,83 @@ specifically when desktop does. Needs its own investigation, likely in
 `ProfileView.tsx`'s button/error-span rendering or event handling under
 iOS Safari — not yet started as of this entry.
 
+## Same "0 published, 1 required" error recurred after the connection cap
+shipped — real root cause found in badger's own default memory options
+(2026-08-07)
+
+Directly following the connection-cap fix above: the user reported the
+exact same error again shortly after, on the freshly deployed version.
+This time investigation found the connection cap, while a real and
+correct fix for its own scenario, was not the whole story.
+
+**Confirmed live the connection-count theory didn't explain this
+recurrence**: `/proc/net/tcp` + `/proc/net/tcp6` on the `web` machine
+showed only ~78 total connections — nowhere near the 200 cap, and far
+below the 305 that caused the first incident — yet `MemAvailable` was
+again critically low (11-18MB) and actively declining. Checked the
+actual relay process's `VmRSS` directly (`/proc/<pid>/status`, using the
+*current* PID — machine restarts reassign PIDs, `ps aux` confirmed which
+one was actually `relay` this time): ~400MB resident, matching
+`AnonPages` in `/proc/meminfo` almost exactly. This ruled out connection
+volume as this incident's driver — the same ~400MB ceiling was reached
+in almost the same ~45-minute window as the first incident, despite a
+~4x lower connection count, pointing at something time/activity-based
+rather than connection-count-based.
+
+**Root cause, confirmed by reading `dgraph-io/badger/v4`'s actual
+installed source** (`options.go`, `DefaultOptions`), not assumed:
+`badger.DefaultOptions` — used unmodified by
+`github.com/fiatjaf/eventstore/badger`'s `BadgerBackend.Init()` — sets
+`NumMemtables: 5` × `MemTableSize: 64MB` = up to **320MB** for
+memtables alone, plus `BlockCacheSize: 256MB`, plus `IndexCacheSize: 0`.
+Per badger's own documented semantics, `IndexCacheSize <= 0` means
+table indices are loaded fully into memory with **no bound and no
+eviction** — they simply accumulate permanently as the store grows.
+These defaults are sized for multi-GB server deployments, not this
+machine's 512MB budget, and the memtable + block-cache ceiling alone
+(576MB) already exceeds the whole machine before Go's own runtime,
+bluge's separate index, or a single live connection are counted. The
+unbounded index cache specifically explains the *time-based* growth
+pattern: this project's own history already noted local badger boot
+times growing (sub-200ms early on, ~5.8s more recently) as the store
+accumulates data from ongoing NIP-65 outbox-aggregation caching —
+consistent with RSS trending upward over the store's lifetime
+regardless of how many clients happen to be connected at any given
+moment, which is exactly what distinguished this incident from the
+first.
+
+**Fixed**: `server/main.go` now sets `BadgerBackend.BadgerOptionsModifier`
+(a hook the `eventstore/badger` package already exposes for exactly this)
+to tune memtables down to 3 × 16MB (48MB worst case, from 320MB), the
+block cache down to 32MB (from 256MB), and — the specifically bounded
+fix — the index cache to a real 32MB LRU-bounded value instead of
+unbounded. Worst-case badger footprint drops from ~580MB+ (already over
+budget on its own) to roughly 110-150MB, leaving real headroom on the
+512MB machine for bluge, the Go runtime, GC slack, and live connections.
+
+**Verified before deploying**: `go build`/`go vet`/`gofmt -l` clean.
+Ran locally with the tuned options — relay boots cleanly, a real publish
+and a real query both succeed. Followed the same disaster-recovery
+process as the connection-cap fix: committed as its own separate
+checkpoint (not folded into the earlier commit, so either can be rolled
+back independently), deployed via normal CI (succeeded; `web`/`dvm` both
+came back `started` on their own), confirmed functionally in
+production — HTTP responds in 0.23s, a fresh `nak` publish succeeds in
+1.18s, and `MemAvailable` reads 261MB immediately after the fresh boot
+(healthy, though — being honest about what is and isn't yet proven —
+this specific number only confirms the *fresh-boot* state; the real test
+is whether it stays stable over the next 45+ minutes the way it didn't
+before, which hadn't been observed yet as of this entry).
+
+**Relationship to the connection-cap fix**: both fixes are independently
+correct and worth keeping. The connection cap protects against a
+genuine, different failure mode (a real burst of connection volume, as
+seen in the first incident) that the badger tuning does nothing to
+address; the badger tuning addresses the store's baseline memory
+footprint, which the connection cap does nothing to address. Neither
+alone was sufficient; this incident is what surfaced that the first fix,
+while correct, wasn't the complete picture.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
