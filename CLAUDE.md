@@ -3466,6 +3466,80 @@ CI path and confirmed live: the production bundle at `app.nostras.app`
 contains both the new `"Rebroadcast to current relays"` string and the
 `article-card-menu` class.
 
+## Rebroadcast became a curated relay picker (2026-08-07)
+
+Direct follow-up, same day: after using the plain rebroadcast button on
+their own real published article and confirming it worked, the user
+found Yakihonne (a different Nostr client, used on their iPhone for a
+second identity with 400+ followers) has its own "republish" feature
+that offers a checklist of 30+ relays to pick from, not one implicit
+target — and asked for NOSTRAS to build the same.
+
+**Implementation**: `client/src/lib/curatedRelays.ts` is a new,
+deliberately hardcoded/trusted list of 15 well-known public relays
+(`relay.damus.io`, `relay.primal.net`, `nos.lol`, `relay.nostr.band`,
+`nostr.wine`, `relay.snort.social`, `purplepag.es`, `eden.nostr.land`,
+`relay.nostr.bg`, `nostr21.com`, `relay.current.fyi`, `offchain.pub`,
+`nostr.mom`, `relayable.org`, `nostr.oxtr.dev`) — not fetched or
+user-submitted, since Settings > Relays already covers adding arbitrary
+custom relays for anyone who wants a longer/different list.
+`NoteMenu.tsx`'s single-click "Rebroadcast to current relays" action
+(added earlier the same day) became "Rebroadcast to relays…", which
+opens a new picker panel (reusing the existing fixed-position centered
+`.note-menu-panel` modal pattern, since a 15-relay checklist can get
+tall): a checkbox per curated relay (all pre-checked by default), plus
+Select all/Select none, plus a submit button whose label live-updates
+with the selected count (`Rebroadcast to N relays`). Submitting builds a
+fresh `NDKRelaySet.fromRelayUrls(urls, ndk)` from just the checked URLs
+and calls `event.publish(relaySet, 8000)` — the same already-signed-event
+rebroadcast mechanism as before (same id/sig, no re-signing), just
+against a picker-selected set instead of the fixed
+`devPublishRelaySet`. **Deliberately a separate mechanism from
+`devPublishRelaySet`/Settings > Relays**, not a reuse of it — this is a
+one-off "get this specific note or article more reach" action, not the
+app's standing local-only-by-default publish scope, and the two should
+stay conceptually distinct. The curated URLs are pre-filtered through
+`makeRelayConnectionFilter` (`relayFilter.ts`) before
+`NDKRelaySet.fromRelayUrls` even though they're a trusted hardcoded
+constant, not untrusted third-party data — matching this codebase's
+standing rule (learned from the DM recipient-relay-discovery work) that
+`fromRelayUrls` constructs `NDKRelay` objects unconditionally and
+bypasses the pool-level filter entirely, so pre-filtering at the call
+site is cheap, correct insurance regardless of the source.
+
+**Verified live in local dev, not just built clean**: `tsc -b`,
+`vite build`, `oxlint` all clean. Found a real, unrelated leftover from
+earlier the same day while restarting the local relay for this test: an
+old `go run .` process's *compiled child binary* had outlived the
+wrapper process a prior cleanup killed, still holding the badger lock
+and port 7777 — a real instance of "killing `go run .` doesn't
+necessarily kill what it spawned," not a code bug, fixed by finding and
+killing the actual binary via `lsof -i :7777` before restarting cleanly.
+The picker itself was verified end-to-end against a real live note in
+the real public feed, via direct DOM interaction (more reliable than
+screenshots for catching transient state, same lesson as the plain
+rebroadcast button's own verification): confirmed all 15 relays render
+pre-checked and the submit label reads "Rebroadcast to 15 relays";
+toggling two checkboxes off correctly drops both the checked count and
+the button label to 13; "Select none" correctly zeroes the count and
+disables the submit button; "Select all" correctly restores all 15;
+"Close" correctly tears down the panel and backdrop with no residual
+state. **Deliberately did not click the actual submit button during
+this test** — doing so from a real live public note would have sent
+real test traffic to real third-party public relay operators, which
+this project has consistently avoided throughout (matching the
+precedent set by the publish-target-toggle work: "verified without ever
+publishing a real note to a public relay, doing so would itself violate
+the safety property being tested"). The underlying `event.publish(relaySet,
+timeoutMs)` call and the `makeRelayConnectionFilter` reuse are both
+already-proven code paths (the former just confirmed working minutes
+earlier via the user's own real click on their real article; the latter
+already unit-verified across 11 cases during the "Not Secure" bug fix) —
+only the new UI-side selection logic needed fresh verification, and it
+was. Deployed via the usual CI path and confirmed live: the production
+bundle at `app.nostras.app` contains `"Rebroadcast to relays"`,
+`relay.damus.io`, and the `rebroadcast-relay-list` class.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
