@@ -20,6 +20,7 @@ import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
 import { PushNotificationSettings } from './components/PushNotificationSettings'
 import { InstallPwaSettings } from './components/InstallPwaSettings'
 import { AboutSettings } from './components/AboutSettings'
+import { AboutModal } from './components/AboutModal'
 import { NavRail, type View } from './components/NavRail'
 import { setActiveView, useNavState } from './lib/navigation'
 import './App.css'
@@ -35,7 +36,8 @@ function App() {
   // from anywhere (e.g. clicking an author's name deep inside FeedItem)
   // without prop-drilling a callback through every component that
   // renders one.
-  const { view: activeView, profilePubkey, article } = useNavState()
+  const { view: activeView, profilePubkey, article, dmTarget } = useNavState()
+  const [aboutOpen, setAboutOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -100,10 +102,15 @@ function App() {
       <div className="app-content">
         <header className="app-header">
           <div className="header-spacer" aria-hidden="true" />
-          <div className="brand">
+          <button
+            type="button"
+            className="brand brand-btn"
+            onClick={() => setAboutOpen(true)}
+            aria-haspopup="dialog"
+          >
             <img src="/favicon.svg" alt="" className="brand-icon" />
             <h1>NOSTRAS</h1>
-          </div>
+          </button>
           {/* Empty on purpose — mirrors header-spacer on the left so the
               brand block stays centered via the 3-column grid. The
               connection-status pill that used to live here was removed:
@@ -111,6 +118,8 @@ function App() {
               on narrow viewports. */}
           <div className="header-right" aria-hidden="true" />
         </header>
+
+        {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
 
         {authState === 'needs-choice' && (
           <AuthGate onReady={() => setAuthState('ready')} />
@@ -151,7 +160,7 @@ function App() {
             </div>
 
             <div className={panelClass('messages')}>
-              <MessagesView />
+              <MessagesView initialPeer={dmTarget} />
             </div>
 
             <section className={`card settings-panel ${panelClass('settings')}`}>

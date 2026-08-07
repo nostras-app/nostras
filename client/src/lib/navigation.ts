@@ -2,9 +2,14 @@ import { useSyncExternalStore } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import type { View } from '../components/NavRail'
 
-type NavState = { view: View; profilePubkey: string | null; article: NDKEvent | null }
+type NavState = {
+  view: View
+  profilePubkey: string | null
+  article: NDKEvent | null
+  dmTarget: string | null
+}
 
-let state: NavState = { view: 'home', profilePubkey: null, article: null }
+let state: NavState = { view: 'home', profilePubkey: null, article: null, dmTarget: null }
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -16,13 +21,14 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener)
 }
 
-// Switching tabs via the nav rail always resets the profile/article panels
-// back to their defaults — distinct from viewProfile()/viewArticle(), the
-// only ways a specific pubkey/article get shown there. Without this reset,
-// clicking Home then back could leave a previously-viewed stranger's
-// profile or an old article still showing.
+// Switching tabs via the nav rail always resets the profile/article/dm
+// panels back to their defaults — distinct from viewProfile()/viewArticle()/
+// startDmWith(), the only ways a specific pubkey/article/dm target get
+// shown there. Without this reset, clicking Home then back could leave a
+// previously-viewed stranger's profile, an old article, or a stale DM
+// thread still showing.
 export function setActiveView(view: View) {
-  state = { view, profilePubkey: null, article: null }
+  state = { view, profilePubkey: null, article: null, dmTarget: null }
   notify()
 }
 
@@ -31,7 +37,7 @@ export function setActiveView(view: View) {
 // every component that renders a FeedItem (Feed, SearchView,
 // BookmarksView, ProfileView's own notes list all share it).
 export function viewProfile(pubkey: string) {
-  state = { view: 'profile', profilePubkey: pubkey, article: null }
+  state = { view: 'profile', profilePubkey: pubkey, article: null, dmTarget: null }
   notify()
 }
 
@@ -39,7 +45,16 @@ export function viewProfile(pubkey: string) {
 // NDKEvent directly (from whatever feed/card the user clicked) rather than
 // an naddr + a fresh relay lookup, since the event is already in hand.
 export function viewArticle(event: NDKEvent) {
-  state = { view: 'article', profilePubkey: null, article: event }
+  state = { view: 'article', profilePubkey: null, article: event, dmTarget: null }
+  notify()
+}
+
+// Opens the Messages view with a specific pubkey's conversation already
+// selected — used by AboutModal's "Message the developer" action, reusing
+// the exact same DM machinery MessagesView's own "start a new conversation
+// by npub" input already uses.
+export function startDmWith(pubkey: string) {
+  state = { view: 'messages', profilePubkey: null, article: null, dmTarget: pubkey }
   notify()
 }
 

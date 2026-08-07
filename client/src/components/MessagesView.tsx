@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { nip19 } from '@nostr-dev-kit/ndk'
 import { ndk } from '../lib/ndk'
 import { useActiveUser } from '../hooks/useActiveUser'
@@ -175,11 +175,18 @@ function Thread({
   )
 }
 
-export function MessagesView() {
+export function MessagesView({ initialPeer }: { initialPeer?: string | null } = {}) {
   const { conversations, loading } = useDirectMessages()
   const [selectedPeer, setSelectedPeer] = useState<string | null>(null)
   const [newPeerInput, setNewPeerInput] = useState('')
   const [newPeerError, setNewPeerError] = useState(false)
+
+  // Driven by lib/navigation.ts's startDmWith() (e.g. AboutModal's "Message
+  // the developer" action) — re-runs on every initialPeer change so
+  // re-triggering it while already on this view still re-opens the thread.
+  useEffect(() => {
+    if (initialPeer) setSelectedPeer(initialPeer)
+  }, [initialPeer])
 
   function handleStartConversation() {
     const trimmed = newPeerInput.trim()

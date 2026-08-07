@@ -1701,6 +1701,143 @@
   flex: none;
 }
 
+/* ---------- About modal ---------- */
+
+.brand-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.modal-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 0;
+  border-radius: 8px;
+}
+
+.modal-close:hover {
+  color: var(--text);
+  background: var(--code-bg);
+}
+
+.about-modal-heading {
+  font-size: 19px;
+  font-weight: 700;
+  text-align: center;
+  margin: 0 0 12px;
+  padding-right: 24px;
+}
+
+.about-modal-lede {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 18px;
+}
+
+.about-modal-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 22px;
+  color: var(--text-muted);
+}
+
+.about-modal-links a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.about-modal-links a:hover {
+  text-decoration: underline;
+}
+
+.about-modal-developer {
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+  text-align: center;
+}
+
+.about-modal-developer-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.about-modal-npub {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-h);
+  cursor: pointer;
+  margin: 0 0 12px;
+}
+
+.about-modal-npub:hover {
+  border-color: var(--accent-border);
+}
+
+.about-modal-developer-actions {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 12px;
+}
+
+.about-modal-developer-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.about-modal-developer-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
 /* ---------- View switching ----------
    Kept last in the file so these always win any equal-specificity tie
    against a component's own `display` rule (e.g. .settings-panel sets
