@@ -73,7 +73,21 @@ primary_region = "fra"
   memory    = "512mb"
   processes = ["dvm"]
 
+# "web" moved from shared-cpu-1x to a dedicated performance-1x the same
+# day the 1GB memory bump above landed (2026-08-07): the memory fix held
+# -- MemAvailable stayed healthy (~390MB+) under the same failure
+# conditions that used to OOM it -- but publishes still failed/timed out.
+# Confirmed via /proc/stat on the live machine, sampled multiple times
+# including immediately after a full stop/start (which normally
+# reschedules to different underlying hardware): idle time was 0 and
+# "steal" time (CPU the hypervisor gave to other tenants instead of this
+# machine) dominated the sampling window, with load average climbing
+# past 8 on a single shared vCPU. That's hypervisor-level contention,
+# not something app-level tuning or more memory can fix -- a dedicated
+# core isn't time-shared with other Fly customers at all. Explicitly
+# confirmed with the user before making this (larger) recurring-cost
+# change, same as the earlier memory bump.
 [[vm]]
-  size      = "shared-cpu-1x"
+  size      = "performance-1x"
   memory    = "1gb"
   processes = ["web"]
