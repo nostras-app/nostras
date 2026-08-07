@@ -10,6 +10,7 @@ import { SearchView } from './components/SearchView'
 import { ProfileView } from './components/ProfileView'
 import { BookmarksView } from './components/BookmarksView'
 import { NotificationsView } from './components/NotificationsView'
+import { CommunitiesView } from './components/CommunitiesView'
 import { MessagesView } from './components/MessagesView'
 import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
@@ -150,6 +151,10 @@ function App() {
             <div className={panelClass('bookmarks')}>
               <BookmarksView active={activeView === 'bookmarks'} />
             </div>
+
+            <section className={`card ${panelClass('communities')}`}>
+              <CommunitiesView />
+            </section>
 
             <div className={panelClass('notifications')}>
               <NotificationsView />

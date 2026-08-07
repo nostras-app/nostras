@@ -1835,6 +1835,108 @@
   margin: 0 0 12px;
 }
 
+/* ---------- Communities view (roadmap placeholder, not a shipped
+   feature yet) ---------- */
+
+.communities-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 12px 4px 4px;
+}
+
+.communities-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.communities-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.communities-heading {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.communities-status {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--zap);
+  margin: 0 0 16px;
+}
+
+.communities-lede {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 460px;
+  margin: 0 0 28px;
+}
+
+.communities-nips {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 480px;
+  text-align: left;
+}
+
+.communities-nip {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.communities-nip-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.communities-nip-badge {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.communities-nip-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.communities-nip-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.communities-nip-existing {
+  font-size: 12px;
+  color: var(--success);
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
 .about-essay h4 {
   font-size: 16px;
   font-weight: 700;

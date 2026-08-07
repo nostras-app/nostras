@@ -6,6 +6,7 @@ import {
   MessageSquareIcon,
   SearchIcon,
   UserIcon,
+  UsersIcon,
   BookmarkIcon,
   SparkleIcon,
   SettingsIcon,
@@ -24,6 +25,7 @@ export type View =
   | 'bookmarks'
   | 'notifications'
   | 'messages'
+  | 'communities'
   | 'article'
 
 export function NavRail({
@@ -65,6 +67,14 @@ export function NavRail({
         title="Home"
       >
         <HomeIcon />
+      </button>
+      <button
+        type="button"
+        className={`nav-rail-btn${activeClass('communities')}`}
+        onClick={() => onSelect('communities')}
+        title="Communities"
+      >
+        <UsersIcon />
       </button>
       <button
         type="button"
