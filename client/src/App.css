@@ -1356,6 +1356,26 @@
   flex-shrink: 0;
 }
 
+.relay-result {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  width: 16px;
+  text-align: center;
+}
+
+.relay-result-pending {
+  color: var(--text-muted);
+}
+
+.relay-result-success {
+  color: var(--success);
+}
+
+.relay-result-failed {
+  color: var(--danger);
+}
+
 /* Real reported bug (2026-08-07): the raw-event/report/delete-confirm
    panels are much taller than the plain menu (a full JSON textarea, a
    grid of report reasons) — anchoring them to the trigger like the menu

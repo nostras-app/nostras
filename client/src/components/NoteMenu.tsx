@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk'
-import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk'
+import { NDKEvent, NDKRelaySet, normalizeRelayUrl } from '@nostr-dev-kit/ndk'
+import type { NDKEvent as NDKEventType, NDKRelay } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, localRelayUrl } from '../lib/ndk'
 import { makeRelayConnectionFilter } from '../lib/relayFilter'
 import { CURATED_RELAYS } from '../lib/curatedRelays'
@@ -50,6 +50,18 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   const [rebroadcastError, setRebroadcastError] = useState('')
   const [rebroadcastCount, setRebroadcastCount] = useState(0)
   const [selectedRelays, setSelectedRelays] = useState<Set<string>>(() => new Set(CURATED_RELAYS))
+  // User follow-up (2026-08-07): "I understand 15 selected 7 successful" —
+  // wanted to see *which* relays actually took it, not just the count.
+  // NDKEvent is a real EventEmitter during a publish: NDK's own
+  // NDKRelayPublisher emits "relay:published" / "relay:publish:failed" on
+  // the event itself as each individual relay resolves, independent of
+  // the aggregate NDKRelaySet.publish() promise — so this listens on the
+  // event directly rather than waiting for the batch to finish. Keyed by
+  // normalizeRelayUrl since that's the form NDKRelay.url is always in
+  // (adds a trailing slash), not the raw curated URL string.
+  const [relayResults, setRelayResults] = useState<Record<string, 'pending' | 'success' | 'failed'>>(
+    {},
+  )
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   // Every panel (menu/raw/report/delete-confirm) defaults to opening
@@ -151,21 +163,49 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     if (rebroadcastState === 'busy' || selectedRelays.size === 0) return
     setRebroadcastState('busy')
     setRebroadcastError('')
+    // Curated URLs are a hardcoded, trusted constant, but filtering here
+    // anyway matches this codebase's standing rule (learned the hard way
+    // from the DM recipient-relay-discovery work): always pre-filter
+    // before NDKRelaySet.fromRelayUrls, since it constructs and returns
+    // NDKRelay objects unconditionally, bypassing the pool-level
+    // relayConnectionFilter entirely.
+    const urls = Array.from(selectedRelays).filter(isAllowedRelay)
+    const normalizedUrls = urls.map(normalizeRelayUrl)
+    setRelayResults(Object.fromEntries(normalizedUrls.map((u) => [u, 'pending' as const])))
+
+    const onPublished = (relay: NDKRelay) => {
+      setRelayResults((prev) => ({ ...prev, [relay.url]: 'success' }))
+    }
+    const onFailed = (relay: NDKRelay) => {
+      setRelayResults((prev) => ({ ...prev, [relay.url]: 'failed' }))
+    }
+    event.on('relay:published', onPublished)
+    event.on('relay:publish:failed', onFailed)
+
     try {
-      // Curated URLs are a hardcoded, trusted constant, but filtering
-      // here anyway matches this codebase's standing rule (learned the
-      // hard way from the DM recipient-relay-discovery work): always
-      // pre-filter before NDKRelaySet.fromRelayUrls, since it constructs
-      // and returns NDKRelay objects unconditionally, bypassing the
-      // pool-level relayConnectionFilter entirely.
-      const urls = Array.from(selectedRelays).filter(isAllowedRelay)
       const relaySet = NDKRelaySet.fromRelayUrls(urls, ndk)
       const published = await event.publish(relaySet, 8000)
       setRebroadcastCount(published.size)
+      // A relay that neither published nor explicitly failed (e.g. never
+      // connected in time) stays "pending" forever otherwise — resolve
+      // any leftovers to "failed" once the batch itself is done.
+      setRelayResults((prev) => {
+        const next = { ...prev }
+        for (const u of normalizedUrls) if (next[u] === 'pending') next[u] = 'failed'
+        return next
+      })
       setRebroadcastState('done')
     } catch (e) {
       setRebroadcastError(e instanceof Error ? e.message : 'Rebroadcast failed')
+      setRelayResults((prev) => {
+        const next = { ...prev }
+        for (const u of normalizedUrls) if (next[u] === 'pending') next[u] = 'failed'
+        return next
+      })
       setRebroadcastState('error')
+    } finally {
+      event.off('relay:published', onPublished)
+      event.off('relay:publish:failed', onFailed)
     }
   }
 
@@ -297,6 +337,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => setSelectedRelays(new Set(CURATED_RELAYS))}
+              disabled={rebroadcastState === 'busy'}
             >
               Select all
             </button>
@@ -304,21 +345,40 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => setSelectedRelays(new Set())}
+              disabled={rebroadcastState === 'busy'}
             >
               Select none
             </button>
           </div>
           <div className="rebroadcast-relay-list">
-            {CURATED_RELAYS.map((url) => (
-              <label key={url} className="rebroadcast-relay-row">
-                <input
-                  type="checkbox"
-                  checked={selectedRelays.has(url)}
-                  onChange={() => toggleRelay(url)}
-                />
-                <span className="relay-url">{url.replace('wss://', '')}</span>
-              </label>
-            ))}
+            {CURATED_RELAYS.map((url) => {
+              const result = relayResults[normalizeRelayUrl(url)]
+              return (
+                <label key={url} className="rebroadcast-relay-row">
+                  <input
+                    type="checkbox"
+                    checked={selectedRelays.has(url)}
+                    onChange={() => toggleRelay(url)}
+                    disabled={rebroadcastState === 'busy'}
+                  />
+                  <span className="relay-url">{url.replace('wss://', '')}</span>
+                  {selectedRelays.has(url) && result && (
+                    <span
+                      className={`relay-result relay-result-${result}`}
+                      title={
+                        result === 'pending'
+                          ? 'Waiting…'
+                          : result === 'success'
+                            ? 'Received it'
+                            : 'Rejected, timed out, or unreachable'
+                      }
+                    >
+                      {result === 'pending' ? '…' : result === 'success' ? '✓' : '✕'}
+                    </span>
+                  )}
+                </label>
+              )
+            })}
           </div>
           {rebroadcastState === 'error' && (
             <span className="note-menu-inline-error">{rebroadcastError}</span>
