@@ -57,35 +57,36 @@ func main() {
 	// count as this incident's cause and matching this project's own
 	// prior observation that local badger boot times have been growing
 	// as the store accumulates data from ongoing outbox aggregation.
-	// Follow-up correction, same day: the first tuning pass (32MB block
-	// cache, 3*16MB memtables) fixed the memory crisis but was too
-	// aggressive on the cache side — real production symptom was publish
-	// latency degrading to 4-10.5s (some client-side timeouts) with a
-	// single-vCPU load average over 2.8 and badger's own periodic cache-
-	// metrics log showing heavy sets-rejected/gets-dropped counts,
-	// consistent with a cache too small for real read volume causing
-	// disk-fallback + cache-churn CPU overhead rather than a memory
-	// shortage (MemAvailable was actually healthy, ~235MB, at the time).
-	// Rebalanced now that the memory crisis itself is confirmed fixed and
-	// there's real headroom to work with: worst case here is roughly
-	// 4*32=128MB memtables + 96MB block cache + a bounded 64MB index
-	// cache = ~288MB, still well below the ~580MB+ default ceiling that
-	// caused the original incident, but far less cache-starved than the
-	// first pass. NumCompactors also explicitly dropped from badger's
-	// server-oriented default of 4 to 2 (badger's own comment: "run at
-	// least 2") -- this machine is a single shared vCPU, and 4 compactor
-	// goroutines contending for one core is itself a plausible
-	// contributor to the observed CPU pressure, independent of cache
-	// sizing.
+	// Second correction, same day: a follow-up rebalance attempt (32MB
+	// block cache -> 96MB, memtables 3*16MB -> 4*32MB, AND NumCompactors
+	// dropped 4 -> 2) made things measurably worse, not better --
+	// confirmed live: within minutes of a fresh boot, load average hit
+	// 5.74 (5-min) on this single shared vCPU and connections started
+	// failing outright (not just slow), before real user traffic could
+	// plausibly explain it. Most likely mechanism: this machine has one
+	// real core regardless of how many compactor goroutines badger runs,
+	// so *halving* NumCompactors while simultaneously *increasing*
+	// memtable size (more data queued for compaction at once) left less
+	// effective throughput to clear the larger backlog, especially right
+	// at boot when existing on-disk tables are being reopened. Reverted
+	// NumCompactors to badger's default (4) and pulled the memtable/cache
+	// sizes back to the first pass's values, which -- while not perfectly
+	// tuned -- did not exhibit outright connection failures the way this
+	// second attempt did. Worst case here is roughly 3*16=48MB memtables
+	// + 32MB block cache + a bounded 32MB index cache, versus the
+	// ~580MB+ default ceiling that caused the original incident.
+	// Deliberately NOT continuing to hand-tune further knobs live against
+	// production after two consecutive attempts each had real negative
+	// side effects -- if this baseline still isn't sufficient, the right
+	// next step is more machine memory, not a third guess at cache sizes.
 	db := badger.BadgerBackend{
 		Path: badgerPath,
 		BadgerOptionsModifier: func(opts dgraphBadger.Options) dgraphBadger.Options {
 			return opts.
-				WithMemTableSize(32 << 20).
-				WithNumMemtables(4).
-				WithBlockCacheSize(96 << 20).
-				WithIndexCacheSize(64 << 20).
-				WithNumCompactors(2)
+				WithMemTableSize(16 << 20).
+				WithNumMemtables(3).
+				WithBlockCacheSize(32 << 20).
+				WithIndexCacheSize(32 << 20)
 		},
 	}
 	if err := db.Init(); err != nil {
