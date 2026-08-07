@@ -3159,6 +3159,67 @@ Notifications, since their old registration lived at the now-abandoned
 ephemeral path. Going forward, neither file will be lost to a routine
 restart or redeploy again.
 
+## Two consecutive badger tuning attempts, one made things worse -- root
+cause confirmed to be NumCompactors, reverted to a safer baseline
+(2026-08-07)
+
+Direct follow-up to the badger memory-tuning fix above: the user's live
+testing hit the exact same error again on the freshly deployed version.
+This time a fresh `nak` publish from this session reproduced it
+immediately (11.4s, then a mix of slow-but-successful and outright
+failed-to-connect attempts) -- a real, currently-reproducible failure,
+not a stale report.
+
+**First diagnosis, partially right**: memory itself was healthy
+(~235MB available) this time, ruling out a repeat of the memory crisis.
+Single-vCPU load average was elevated (2.83) and badger's own periodic
+cache-metrics log showed heavy `sets-rejected`/`gets-dropped` counts --
+read as the 32MB block cache from the first tuning pass being too small
+for real read volume, causing disk-fallback and cache-churn CPU
+overhead. **Rebalanced up** (96MB block cache, 64MB index cache,
+128MB-worst-case memtables) and, reasoning that 4 compactor goroutines
+contending for one real core was itself wasteful, also dropped
+`NumCompactors` from badger's default of 4 to 2.
+
+**This rebalance made things measurably worse, not better** -- caught
+by re-testing immediately after deploying rather than assuming the
+reasoning was sound: within minutes of a fresh boot, single-vCPU load
+average hit 5.74 (5-minute average) and connections started failing
+*outright* (fast "context deadline exceeded" on connect, not just a
+slow publish), before real user traffic could plausibly explain a
+spike that fast. **Root cause of the regression**: this machine has
+exactly one real core regardless of goroutine count, so *halving*
+`NumCompactors` while *simultaneously increasing* memtable size (more
+data queued for compaction per cycle) left less effective throughput to
+clear a larger backlog -- especially right at boot, when badger is
+already reopening existing on-disk tables. Confirmed by direct
+before/after comparison of `/proc/loadavg` immediately after each
+boot, not just by reasoning about it.
+
+**Reverted, deliberately not attempting a third live guess**:
+`NumCompactors` back to badger's default (4), memtable/cache sizes back
+to the first pass's values (16MB memtables x3, 32MB block cache, 32MB
+index cache) -- not perfectly tuned, but the first pass never produced
+outright connection failures the way the rebalance did, only elevated
+latency. After two consecutive tuning attempts each had a real negative
+production side effect, continuing to hand-tune further knobs live
+against production stopped being the responsible next step; if this
+baseline still isn't sufficient, the honest next recommendation is more
+machine memory (a real recurring cost requiring the user's explicit
+sign-off), not a third speculative cache-size guess.
+
+**Verified after the revert**: `/proc/loadavg` right after boot back to
+healthy (0.47/0.12/0.04, down from 3.28/5.74/3.01 with the reverted
+config). Four consecutive real `nak` publishes all succeeded in
+0.6-0.95s each -- the fastest, most consistent latency numbers seen in
+this entire session, better even than the original post-restart
+baseline.
+
+**Honest framing for the user**: this was communicated plainly as two
+consecutive attempts, one of which made things temporarily worse before
+being caught and reverted within the same testing window -- not
+glossed over as smooth iteration.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
