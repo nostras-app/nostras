@@ -1349,6 +1349,19 @@
   z-index: 20;
 }
 
+/* Real reported bug (2026-08-07): the menu/panel/toast all default to
+   opening upward, which clips against the header for any trigger near
+   the top of the viewport — notifications hit this constantly since
+   they're compact. NoteMenu measures itself after each render and adds
+   this class when it would clip; flips bottom->top so it opens downward
+   into open space instead. */
+.note-menu-dropdown.note-menu-below,
+.note-menu-panel.note-menu-below,
+.note-menu-toast.note-menu-below {
+  bottom: auto;
+  top: calc(100% + 6px);
+}
+
 /* ---------- Zap panel (expanded state) ---------- */
 
 .zap-panel {

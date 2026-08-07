@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
 import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
@@ -27,6 +27,17 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   const [deleted, setDeleted] = useState(false)
   const [busy, setBusy] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  // Every panel (menu/raw/report/delete-confirm) defaults to opening
+  // upward via CSS (bottom: calc(100% + 6px)) -- fine for a note near the
+  // bottom of a feed, but a real reported bug: for a trigger near the top
+  // of the viewport (notifications are compact, so this happens often —
+  // this is what surfaced it), opening upward clips the panel behind the
+  // sticky header with no way to reach the cut-off items. Measured after
+  // each render rather than assumed from viewport position alone, since
+  // different panels (the raw-event textarea vs. the plain menu) have very
+  // different heights.
+  const [openBelow, setOpenBelow] = useState(false)
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -36,6 +47,17 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [panel])
+
+  useLayoutEffect(() => {
+    if (!panel || !panelRef.current) return
+    // Rendered while still positioned upward (the CSS default) — a
+    // negative top means it's already clipped above the viewport.
+    // Deliberately not reset when the panel closes (panel === null): the
+    // "Copied!" toast below renders right as a panel closes and reuses
+    // this same direction, so it doesn't independently need re-measuring
+    // for what's normally a very short-lived, small element.
+    setOpenBelow(panelRef.current.getBoundingClientRect().top < 0)
   }, [panel])
 
   function copy(label: string, text: string) {
@@ -127,10 +149,14 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
         <MoreIcon />
       </button>
 
-      {copied && <span className="note-menu-toast">{copied} copied</span>}
+      {copied && (
+        <span className={`note-menu-toast${openBelow ? ' note-menu-below' : ''}`}>
+          {copied} copied
+        </span>
+      )}
 
       {panel === 'menu' && (
-        <div className="note-menu-dropdown">
+        <div ref={panelRef} className={`note-menu-dropdown${openBelow ? ' note-menu-below' : ''}`}>
           <button type="button" onClick={() => copy('Event ID', event.id)}>
             Copy event ID
           </button>
@@ -169,7 +195,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
       )}
 
       {panel === 'raw' && (
-        <div className="note-menu-panel">
+        <div ref={panelRef} className={`note-menu-panel${openBelow ? ' note-menu-below' : ''}`}>
           <textarea
             className="textarea raw-event"
             readOnly
@@ -189,7 +215,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
       )}
 
       {panel === 'report' && (
-        <div className="note-menu-panel">
+        <div ref={panelRef} className={`note-menu-panel${openBelow ? ' note-menu-below' : ''}`}>
           <span className="translate-panel-label">Report this note as…</span>
           <div className="language-grid">
             {REPORT_TYPES.map((type) => (
@@ -217,7 +243,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
       )}
 
       {panel === 'delete-confirm' && (
-        <div className="note-menu-panel">
+        <div ref={panelRef} className={`note-menu-panel${openBelow ? ' note-menu-below' : ''}`}>
           <span className="translate-panel-label">
             Delete this note? This publishes a deletion request (NIP-09) —
             most relays honor it, but it isn't a guarantee the note is gone
