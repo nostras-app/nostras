@@ -61,6 +61,19 @@ primary_region = "fra"
   # doesn't, the fallback is the plain "<app>.internal" form.
   NOSTRAS_RELAY_URL   = "ws://web.process.nostras.internal:7777"
 
+# Split by process group (2026-08-07): "web" (the relay, running badger +
+# bluge) repeatedly hit real memory/connection-cap pressure under genuine
+# production traffic at 512MB -- confirmed twice in one day at different
+# timescales (a fast ~45min crisis, then a slower ~2h recurrence even
+# after tuning badger's own memory options down). "dvm" has never shown
+# this problem and doesn't touch either embedded store, so it stays at
+# the original size -- no reason to pay for memory it doesn't need.
 [[vm]]
-  size   = "shared-cpu-1x"
-  memory = "512mb"
+  size      = "shared-cpu-1x"
+  memory    = "512mb"
+  processes = ["dvm"]
+
+[[vm]]
+  size      = "shared-cpu-1x"
+  memory    = "1gb"
+  processes = ["web"]
