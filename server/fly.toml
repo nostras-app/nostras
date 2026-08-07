@@ -41,6 +41,17 @@ primary_region = "fra"
   NOSTRAS_BADGER_PATH = "/data/badger"
   NOSTRAS_BLUGE_PATH  = "/data/bluge"
   NOSTRAS_PORT        = "7777"
+  # Real bug found 2026-08-07: without these, both files fall back to
+  # envOr's "./..." default, resolved relative to the Dockerfile's runtime
+  # WORKDIR (/app) -- the container's own ephemeral filesystem, NOT the
+  # /data Volume mounted above. Every machine restart or redeploy was
+  # silently wiping analytics history (surfaced by the operator dashboard
+  # showing only same-day data 3 days after launch) and, more seriously,
+  # every push-notification subscription (no user-visible error -- a
+  # device just silently stops receiving pushes until it re-enables in
+  # Settings). Both now live on the persistent volume, same as badger/bluge.
+  NOSTRAS_ANALYTICS_PATH            = "/data/analytics.json"
+  NOSTRAS_PUSH_SUBSCRIPTIONS_PATH   = "/data/push-subscriptions.json"
   # <process-group>.process.<app>.internal is Fly's private-networking
   # hostname convention for reaching a specific process group without
   # going out over the public internet — NOT verified against a live Fly
