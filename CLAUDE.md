@@ -3427,6 +3427,45 @@ confirmed live: the production bundle contains the new `about-view`
 class and has zero remaining references to the deleted
 `modal-backdrop` class.
 
+## Rebroadcast action + articles finally got a menu (2026-08-07)
+
+User-reported gap, hit for real on their own published article: after
+publishing an article (local-only, per `devPublishRelaySet`'s standing
+default), they opted a public relay into this session's publish targets
+via Settings > Relays — but there was no way to actually get the
+already-published article out to it. "No icon to republish on the blob
+nor on the article." Root cause, confirmed by reading both components
+directly: `ArticleCard.tsx` and `ArticleView.tsx` never rendered
+`NoteMenu` at all — articles had zero actions (no copy link, no raw
+event, nothing), unlike every other content type in the app.
+
+**Fixed in two parts.** First, `NoteMenu` gained a new "Rebroadcast to
+current relays" action (`client/src/components/NoteMenu.tsx`): calling
+`event.publish(devPublishRelaySet)` again on an already-signed `NDKEvent`
+just re-sends the exact same bytes (same id/sig, no re-signing) to
+whatever relays are currently active publish targets — this is a real,
+correct rebroadcast, not a new version of the event. Second, `NoteMenu`
+was wired into both `ArticleCard.tsx` (positioned absolutely in the
+card's top-right corner, outside the card's own big clickable button,
+since a button can't nest inside a button) and `ArticleView.tsx`
+(alongside the author row) — so articles now get the full menu
+(copy id/npub/link/content, view raw event, rebroadcast, report, mute)
+that every other note type already had.
+
+**Verified end-to-end in local dev, not just built clean**: `tsc -b`,
+`vite build`, `oxlint` all clean. Published a real throwaway-signed
+kind:30023 article directly to the local relay via `nak`, found it via
+Search's new pubkey-lookup path, confirmed the "..." menu now renders on
+both the article card and the full article view (previously totally
+absent), and clicked "Rebroadcast to current relays" — confirmed via
+direct DOM inspection (not a screenshot, which kept missing the
+transient state) that the button correctly settled on "Rebroadcast ✓",
+disabled, with no error span rendered, matching the same busy/done/error
+pattern already used elsewhere in this component. Deployed via the usual
+CI path and confirmed live: the production bundle at `app.nostras.app`
+contains both the new `"Rebroadcast to current relays"` string and the
+`article-card-menu` class.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
