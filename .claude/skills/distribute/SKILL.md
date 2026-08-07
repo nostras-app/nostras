@@ -1,0 +1,69 @@
+---
+name: distribute
+description: Use when the user wants to get NOSTRAS listed, submitted, or discovered somewhere outside this repo — directory sites (nostr.net, nostrapps.com), NIP-89 app handler events, app-store-adjacent listings, or similar. Tracks what's already been done so the same channel isn't submitted to twice, and keeps submissions honest about which features are actually shipped.
+---
+
+# Distributing NOSTRAS
+
+A repeatable process for getting NOSTRAS in front of people outside this
+repo — directory listings, protocol-native discovery (NIP-89), and
+anything similar. Each of these is a small, one-off action, but they
+share the same shape and the same failure modes, so follow this rather
+than re-deriving the process each time.
+
+## 1. Check what's already been done
+
+Before proposing or drafting anything, read
+`nostr-client-node-strategy.md`'s **Decisions log** (search for "First
+concrete distribution action" and similar dated entries) and its
+**PWA distribution** section under "Post-roadmap: polish, hosting,
+distribution." This is the running ledger of every channel considered,
+decided, submitted, and its current status (submitted-pending / merged /
+rejected). Don't re-submit somewhere already listed; don't re-propose a
+channel already explicitly declined.
+
+If `nostr-client-node-strategy.md` doesn't exist in this checkout (it's
+gitignored, local-only), say so and ask the user for context instead of
+assuming a blank slate.
+
+## 2. Research the target's actual submission format
+
+Never guess a directory's listing format from memory or from what
+similar sites look like. Fetch the real contribution guidelines
+(CONTRIBUTING.md, README, or the site's own "how to add yours" page) and
+match its exact conventions — bullet format, required fields, category
+placement, star badges, alphabetical ordering, whatever it actually
+uses. Getting this wrong wastes a maintainer's review cycle. (Precedent:
+the nostr.net listing pulled the real format directly from
+`aljazceru/awesome-nostr`'s README before drafting anything.)
+
+## 3. Draft honestly, from the actual feature history
+
+Source claims from `CLAUDE.md`'s dated entries — what's genuinely
+shipped and verified — not from the strategy doc's aspirational roadmap
+sections. A listing that oversells gets caught by exactly the audience
+it's trying to reach.
+
+## 4. Get explicit sign-off before anything goes public
+
+Drafting is free; submitting is not. Present the draft (exact text,
+where it goes, what account/identity it'll be submitted under) and wait
+for explicit confirmation before opening a PR, filling a form, or
+publishing anything — regardless of how similar a prior approved action
+was. This matches the project's standing rule that public-facing actions
+need per-action confirmation, not a standing blanket approval.
+
+When the target site attributes contributions to an individual (e.g. a
+GitHub PR), prefer submitting from the user's own account/fork rather
+than a generic identity, unless they say otherwise — it's their project
+and their name that should be attached.
+
+## 5. Log the outcome back to the ledger
+
+After submitting (or after the user reports a status change — merged,
+rejected, needs changes), update `nostr-client-node-strategy.md`'s
+Decisions log entry for that channel: what was submitted, the actual PR
+or listing URL, and current status. Follow the existing
+Choice/Why/Status format used elsewhere in that log. This is what makes
+the next session's step 1 actually work — an undocumented submission is
+as good as one that never happened.
