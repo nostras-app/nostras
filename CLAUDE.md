@@ -3540,6 +3540,45 @@ was. Deployed via the usual CI path and confirmed live: the production
 bundle at `app.nostras.app` contains `"Rebroadcast to relays"`,
 `relay.damus.io`, and the `rebroadcast-relay-list` class.
 
+**Per-relay success/fail indicators added the same day**, directly
+prompted by the user seeing a real "15 selected, 7 successful" result
+and wanting to know *which* 7. NDK's own `NDKRelayPublisher.publish()`
+emits `"relay:published"` / `"relay:publish:failed"` on the `NDKEvent`
+itself as each individual relay in a batch resolves — independent of,
+and earlier than, the aggregate `NDKRelaySet.publish()` promise the
+picker already awaited for its final count. `NoteMenu.tsx`'s
+`handleRebroadcast` now registers both listeners right before
+publishing and tears them down in a `finally`, tracking a
+`relayResults: Record<string, 'pending' | 'success' | 'failed'>` state
+keyed by `normalizeRelayUrl` (the form `NDKRelay.url` is always in —
+adds a trailing slash the raw curated URL strings don't have). Each
+checked relay row shows a live `…` → `✓`/`✕` next to it as results come
+in; any relay still `pending` once the whole batch resolves (never
+connected in time, rather than an explicit rejection) is swept to
+`failed` as a safety net so nothing hangs indefinitely in the UI.
+Checkboxes and Select all/Select none are disabled mid-publish to avoid
+a confusing selection change while results are actively streaming in.
+
+**Verified live in local dev with a real, controlled success/fail
+pair** — not against real production relays, which would have meant
+sending real test traffic to third-party operators just to watch it
+fail, the same restraint applied throughout this feature's testing.
+Temporarily swapped `CURATED_RELAYS` to two entries only (the local
+relay, guaranteed to succeed instantly; a deliberately nonexistent
+hostname, guaranteed to fail after the timeout), confirmed via direct
+DOM inspection that the local relay's row showed `✓` within 300ms while
+the bogus one still showed the pending `…`, then confirmed after the
+full 8s timeout that the bogus one correctly flipped to `✕` and the
+submit button correctly read `Rebroadcast ✓ (1)` — proving the
+live-streaming update, the timeout-driven fallback-to-failed logic, and
+the final count all work together correctly. Reverted `CURATED_RELAYS`
+back to the real 15-relay list immediately after (confirmed via `git
+checkout`) before committing. `tsc -b`, `vite build`, `oxlint` all
+clean. Deployed via the usual CI path and confirmed live: the
+production CSS bundle at `app.nostras.app` contains
+`relay-result-success` and `relay-result-pending`, and the JS bundle
+contains `relay:publish:failed`.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
