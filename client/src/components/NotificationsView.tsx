@@ -2,7 +2,9 @@ import { zapInvoiceFromEvent, type NDKEvent } from '@nostr-dev-kit/ndk'
 import { useProfile } from '../hooks/useProfile'
 import { useNotifications } from '../hooks/useNotifications'
 import { formatRelativeTime } from '../lib/time'
+import { viewProfile } from '../lib/navigation'
 import { NoteContent } from './NoteContent'
+import { NoteMenu } from './NoteMenu'
 import { FeedSkeleton } from './Feed'
 import { ReplyIcon, RepostIcon, HeartIcon, ZapIcon } from './icons'
 
@@ -49,21 +51,41 @@ function NotificationItem({ event }: { event: NDKEvent }) {
 
   return (
     <li className="feed-item">
-      {profile?.picture ? (
-        <img className="avatar" src={profile.picture} alt="" />
-      ) : (
-        <span className="avatar-fallback">{label.charAt(0)}</span>
-      )}
+      <button
+        type="button"
+        className="feed-item-avatar-btn"
+        onClick={() => viewProfile(actor)}
+        title={`View ${label}'s profile`}
+      >
+        {profile?.picture ? (
+          <img className="avatar" src={profile.picture} alt="" />
+        ) : (
+          <span className="avatar-fallback">{label.charAt(0)}</span>
+        )}
+      </button>
       <div className="feed-item-body">
         <div className="feed-item-meta">
           <span className={`notification-icon ${colorClass}`}>{icon}</span>
-          <span className="feed-item-name">{label}</span>
+          <button type="button" className="feed-item-name-btn" onClick={() => viewProfile(actor)}>
+            <span className="feed-item-name">{label}</span>
+          </button>
           <span className="notification-action">{action}</span>
           {event.created_at && (
             <span className="feed-item-time">{formatRelativeTime(event.created_at)}</span>
           )}
         </div>
         {event.kind === 1 && <NoteContent content={event.content} />}
+        {/* Real traceability gap reported by the user (2026-08-07): a
+            notification's actor name wasn't even clickable, and there was
+            no way to inspect who they actually are beyond the display
+            name NDK happened to cache — no profile link, no way to see
+            the account's real npub or the notification event's raw data.
+            Both fixed above/below by reusing the exact same
+            viewProfile()/NoteMenu already proven for regular notes,
+            rather than building new investigation tooling from scratch. */}
+        <div className="feed-item-footer notification-item-footer">
+          <NoteMenu event={event} />
+        </div>
       </div>
     </li>
   )
