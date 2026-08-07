@@ -9,6 +9,7 @@ import {
   BookmarkIcon,
   SparkleIcon,
   SettingsIcon,
+  InfoIcon,
   PencilIcon,
 } from './icons'
 
@@ -17,6 +18,7 @@ export type View =
   | 'compose'
   | 'ask-claude'
   | 'settings'
+  | 'about'
   | 'search'
   | 'profile'
   | 'bookmarks'
@@ -111,6 +113,14 @@ export function NavRail({
         title="Settings"
       >
         <SettingsIcon />
+      </button>
+      <button
+        type="button"
+        className={`nav-rail-btn${activeClass('about')}`}
+        onClick={() => onSelect('about')}
+        title="About NOSTRAS"
+      >
+        <InfoIcon />
       </button>
       <button
         type="button"

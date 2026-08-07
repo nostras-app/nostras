@@ -20,7 +20,7 @@ import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
 import { PushNotificationSettings } from './components/PushNotificationSettings'
 import { InstallPwaSettings } from './components/InstallPwaSettings'
 import { AboutSettings } from './components/AboutSettings'
-import { AboutModal } from './components/AboutModal'
+import { AboutView } from './components/AboutView'
 import { NavRail, type View } from './components/NavRail'
 import { setActiveView, useNavState } from './lib/navigation'
 import './App.css'
@@ -37,7 +37,6 @@ function App() {
   // without prop-drilling a callback through every component that
   // renders one.
   const { view: activeView, profilePubkey, article, dmTarget } = useNavState()
-  const [aboutOpen, setAboutOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -105,8 +104,7 @@ function App() {
           <button
             type="button"
             className="brand brand-btn"
-            onClick={() => setAboutOpen(true)}
-            aria-haspopup="dialog"
+            onClick={() => setActiveView('about')}
           >
             <img src="/favicon.svg" alt="" className="brand-icon" />
             <h1>NOSTRAS</h1>
@@ -118,8 +116,6 @@ function App() {
               on narrow viewports. */}
           <div className="header-right" aria-hidden="true" />
         </header>
-
-        {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
 
         {authState === 'needs-choice' && (
           <AuthGate onReady={() => setAuthState('ready')} />
@@ -196,6 +192,10 @@ function App() {
                 <span className="settings-section-title">About</span>
                 <AboutSettings />
               </div>
+            </section>
+
+            <section className={`card ${panelClass('about')}`}>
+              <AboutView />
             </section>
           </main>
         )}

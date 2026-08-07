@@ -1701,7 +1701,10 @@
   flex: none;
 }
 
-/* ---------- About modal ---------- */
+/* ---------- About view ----------
+   A normal nav-rail-switched view (like Settings/Ask Claude), not a
+   popup — reachable via the header wordmark or the info icon in the nav
+   rail, per explicit user preference over an overlaying modal. */
 
 .brand-btn {
   background: none;
@@ -1711,96 +1714,63 @@
   font: inherit;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+.about-view {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 100;
+  text-align: center;
+  padding: 12px 4px 4px;
 }
 
-.modal-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 28px;
-  max-width: 480px;
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  position: relative;
-}
-
-.modal-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px;
-  line-height: 0;
-  border-radius: 8px;
-}
-
-.modal-close:hover {
-  color: var(--text);
-  background: var(--code-bg);
-}
-
-.about-modal-heading {
-  font-size: 19px;
+.about-heading {
+  font-size: 20px;
   font-weight: 700;
-  text-align: center;
   margin: 0 0 12px;
-  padding-right: 24px;
+  max-width: 420px;
 }
 
-.about-modal-lede {
-  text-align: center;
+.about-lede {
   color: var(--text-muted);
   font-size: 14px;
-  line-height: 1.5;
-  margin: 0 0 18px;
+  line-height: 1.6;
+  max-width: 440px;
+  margin: 0 0 20px;
 }
 
-.about-modal-links {
+.about-links {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   font-size: 14px;
   font-weight: 600;
-  margin: 0 0 22px;
+  margin: 0 0 24px;
   color: var(--text-muted);
 }
 
-.about-modal-links a {
+.about-links a {
   color: var(--accent);
   text-decoration: none;
 }
 
-.about-modal-links a:hover {
+.about-links a:hover {
   text-decoration: underline;
 }
 
-.about-modal-developer {
+.about-developer {
   border-top: 1px solid var(--border);
-  padding-top: 18px;
-  text-align: center;
+  padding-top: 20px;
+  width: 100%;
+  max-width: 320px;
 }
 
-.about-modal-developer-label {
+.about-developer-label {
   font-size: 13px;
   color: var(--text-muted);
-  margin: 0 0 8px;
+  margin: 0 0 10px;
 }
 
-.about-modal-npub {
+.about-npub {
   background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1809,26 +1779,25 @@
   font-size: 12px;
   color: var(--text-h);
   cursor: pointer;
-  margin: 0 0 12px;
+  margin: 0 0 14px;
 }
 
-.about-modal-npub:hover {
+.about-npub:hover {
   border-color: var(--accent-border);
 }
 
-.about-modal-developer-actions {
-  display: flex;
+.about-developer-actions {
   justify-content: center;
-  margin: 0 0 12px;
+  margin: 0 0 14px;
 }
 
-.about-modal-developer-actions .btn {
+.about-developer-actions .btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.about-modal-developer-hint {
+.about-developer-hint {
   display: flex;
   align-items: center;
   justify-content: center;
