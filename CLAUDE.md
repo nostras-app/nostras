@@ -2950,6 +2950,91 @@ the code deploys with the dashboard correctly OFF until
 should choose and know their own password rather than have one invented
 and set silently on their behalf.
 
+## Real near-OOM incident: consistent "0 published, 1 required" Follow
+failures traced to unbounded connection growth, capped (2026-08-07)
+
+Directly reported by the user: the previous Follow-button fix's new error
+message ("Not enough relays received the event (0 published, 1 required)")
+was now showing up **every** time they tried to Follow someone, not just
+intermittently — and, separately, the Follow button didn't visually update
+at all on iPhone Safari even though like/repost worked fine there (that
+second, mobile-specific report is still open — see below).
+
+**Root cause, confirmed live, not assumed**: `curl` against
+`https://nostras.app/` timed out three times in a row (real, not sandbox
+flakiness — retried). SSH'd directly into the `web` machine
+(`flyctl ssh console --app nostras --machine <id>` — note this defaults to
+the *first* machine in the app, which is `dvm`, not `web`; must pass
+`--machine` explicitly to reach the right one) and found the `/app/relay`
+process itself was healthy and answered a local request instantly, but
+`MemAvailable` was 57MB and, checked again roughly a minute later, had
+dropped to 24.6MB — an active, fast decline, not a stable-but-tight
+steady state. `ss -tn` showed 305 established connections on port 7777.
+Compared to a fresh boot (`MemAvailable` ~327MB, 0 connections
+immediately after a restart), that's roughly 1MB of memory per
+connection — consistent with WS buffers + goroutine stacks + khatru/NDK
+overhead, not a wild outlier.
+
+**No code-level leak found** — khatru's ping/pong keepalive (`PingPeriod`
+30s, `PongWait` 60s, both already correctly configured per the earlier
+broadcast-path fork work) was reaping genuinely-dead connections as
+designed; the log only showed 4 "closing websocket" cleanup events across
+~46 minutes of uptime, too few to explain 305 connections as a pile of
+undetected zombies. The much more likely explanation, given this relay is
+now a real, publicly discoverable domain (linked from the landing page,
+advertised via NIP-11, in the docs org): genuine connection volume,
+plausibly including the wider Nostr ecosystem's relay-monitoring/crawler
+bots (common behavior against any publicly known relay), simply
+outgrew the 512MB machine's budget — a capacity problem, not a bug in the
+narrow sense. This directly explains why the Follow error went from
+intermittent to consistent: the machine was too resource-starved to ack
+a publish inside the client's timeout window, for every publish, not just
+unlucky ones.
+
+**Immediate mitigation**: `flyctl machine restart 7844157c559e28 --app
+nostras` (memory recovered to 327MB available immediately after), then
+verified for real — a fresh `nak event -k 3` publish succeeded in 1.2s
+(down from 8.3s observed mid-incident, right at the edge of timing out).
+
+**Actual fix, not just a restart**: `server/health.go` gained
+`maxLiveConnections = 200` and `tooManyConnections()`, wired into
+`server/main.go` via khatru's existing `relay.RejectConnection` hook
+(runs *before* the WebSocket upgrade, returns a clean 429) — reusing the
+`liveConnections` atomic counter `health.go` already tracked for the
+dashboard. Same bound-it-and-degrade-gracefully pattern as
+`outboxSem`/`broadcastSem` elsewhere in this codebase: past 200
+concurrent connections, new ones are refused outright rather than
+accepted and left to compete for memory an existing client's request
+depends on. 200 was picked with real headroom below the ~305 that
+actually caused the near-OOM state (~100MB+ of margin at the observed
+~1MB/connection rate), not right at the edge.
+
+**Verified before deploying, not just built clean**: `go build ./...`,
+`go vet ./...`, `gofmt -l .` all clean. The cap's boundary logic was
+verified with a temporary scratch test
+(`atomic.StoreInt64(&liveConnections, N)` at 199/200/305, asserting
+`tooManyConnections()` returns false/true/true) rather than opening 200
+real sockets — removed before committing, not shipped. Followed the
+standing disaster-recovery process: rollback point recorded before
+touching anything (commit `e81319d`, image
+`nostras:deployment-01KZCHZZSP6TB6DANN3NJDZWFZ`, machine
+`7844157c559e28`), fix committed as its own checkpoint, deployed via
+normal CI (succeeded, `web`/`dvm` both came back `started` on their own —
+no manual `flyctl machine start` needed this time, unlike several past
+incidents), and confirmed functionally afterward: HTTP responds in
+0.12s (down from timing out entirely), a fresh publish succeeds in
+1.15s.
+
+**Not yet resolved**: the mobile-specific report (Follow button not
+visually changing state on iPhone Safari, while like/repost work fine
+there) — this incident's root cause (server-side resource exhaustion)
+plausibly explains why *any* browser's Follow attempts were failing
+during the acute window, but doesn't obviously explain why the *button
+itself* wouldn't even show its "Updating…"/error state on iOS
+specifically when desktop does. Needs its own investigation, likely in
+`ProfileView.tsx`'s button/error-span rendering or event handling under
+iOS Safari — not yet started as of this entry.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
