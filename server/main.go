@@ -91,6 +91,14 @@ func main() {
 	relay.OnDisconnect = append(relay.OnDisconnect, newHealthDisconnectHook())
 	relay.OnEventSaved = append(relay.OnEventSaved, newHealthEventSavedHook())
 
+	// See maxLiveConnections in health.go for why this exists — runs before
+	// the WebSocket upgrade, so a connection over the cap is refused
+	// cleanly (429) instead of accepted and left to compete for memory an
+	// existing client's request depends on.
+	relay.RejectConnection = append(relay.RejectConnection, func(r *http.Request) bool {
+		return tooManyConnections()
+	})
+
 	dashboardPassword := os.Getenv("NOSTRAS_DASHBOARD_PASSWORD")
 	if dashboardPassword == "" {
 		fmt.Println("dashboard: OFF (NOSTRAS_DASHBOARD_PASSWORD not set)")
