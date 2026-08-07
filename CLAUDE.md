@@ -3330,6 +3330,72 @@ effectively zero (1 jiffy over 3 seconds, versus 300+ before) with
 idle time healthy again -- the clearest, most unambiguous before/after
 contrast of any fix this session.
 
+## Real DVM performance check + a real gap fixed: the operator dashboard
+had no DVM metrics at all (2026-08-07)
+
+Direct follow-up to the CPU upgrade above: user asked whether the DVM
+machine was still on shared CPU too (it is -- `shared-cpu-1x:512MB`,
+deliberately not touched, since it's never shown the contention/OOM
+symptoms the relay did and isn't on the hot path for every user's
+feed/publish traffic), then pointed at the dashboard's "Server health"
+panel and asked why it doesn't show DVM metrics.
+
+**Checked the DVM machine directly first**: `/proc/meminfo` (401MB
+available of 469MB total), `/proc/loadavg` (0.00/0.00/0.00), and a
+`/proc/stat` steal-time sample (0 delta over 3s) all confirmed
+genuinely healthy right now -- no hidden contention.
+
+**Root cause of the dashboard gap**: `/dashboard/health` was always the
+*relay* process reporting on itself (`getHealthSnapshot()` in
+`health.go`) -- it has zero visibility into the DVM, a separate binary
+on a separate Fly machine. The existing "DVM activity" line is a
+passive signal (has a DVM-kind event passed through this relay
+recently?) that can't distinguish "the DVM is down" from "nobody's
+asked it anything," and was never meant to be a real health check —
+that's what the scheduled uptime-check workflow is for.
+
+**Fixed by giving the DVM real self-reported health, not by extending
+the passive signal**: `server/cmd/dvm/health.go` (new) tracks the DVM's
+own uptime, memory, goroutines, jobs received, last-job time, its own
+connection status to the relay, and payment-gating state, served on a
+small HTTP endpoint. Deliberately private-network-only — the `dvm`
+process group has no `[http_service]` block in `fly.toml` at all, so
+nothing routes public traffic to this port regardless of what it
+listens on, the same safety property the WS protocol port already had.
+`server/health.go` gained `fetchDvmHealth()`, hitting that endpoint
+over the exact same `<process>.process.<app>.internal` private-network
+convention `NOSTRAS_RELAY_URL` already uses in the other direction,
+bounded by a 2s client timeout so an unreachable DVM never makes the
+dashboard hang -- degrades to `reachable: false` rather than erroring,
+consistent with every other optional signal in this codebase.
+`dashboard.go` merges it into `/dashboard/health` as a nested `dvm`
+object; `dashboard.html` gained a matching "DVM health -- live" panel.
+
+**Real bug caught and fixed before shipping**: the two DVM status
+booleans (`relayConnected`, `paymentGating`) initially used
+`omitempty`, which drops a field entirely when it's `false` --
+indistinguishable from the field being absent because the DVM was
+unreachable. Caught via a local end-to-end test (with the DVM's real
+`paymentGating: false` silently vanishing from the merged response),
+fixed by removing `omitempty` from those two specifically —
+`Reachable` stays the one field callers actually branch on to tell "no
+data" from "data says false."
+
+**Verified locally end-to-end, then live in production**: local test
+confirmed `reachable: false` with the DVM stopped, then `reachable:
+true` with real uptime/memory/goroutines once it was running; a real
+NIP-90 job submitted via `nak` correctly incremented `jobsHandled` and
+populated `lastJobUnix`. Deployed; DVM boot log showed the expected
+already-documented boot-vs-DNS race (self-recovered, no manual
+intervention) and confirmed the health server started. **Not
+independently re-verified via the dashboard UI itself** -- it's Basic-
+Auth gated and browser automation can't get past that without
+triggering a native auth dialog, which is avoided on purpose; instead
+verified with a real functional NIP-90 job against production (real
+`payment-required` feedback with a genuine invoice came back, proving
+the DVM is alive and subscribed) -- not paid, same standing rule as
+always.
+
 ## About view reworked from a popup modal to a real nav-rail view (2026-08-07)
 
 Direct user correction after seeing the first version (documented in
