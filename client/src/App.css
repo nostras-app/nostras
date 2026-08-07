@@ -1318,6 +1318,12 @@
   color: var(--danger) !important;
 }
 
+.note-menu-inline-error {
+  font-size: 12px;
+  color: var(--danger);
+  padding: 0 10px 4px;
+}
+
 /* Real reported bug (2026-08-07): the raw-event/report/delete-confirm
    panels are much taller than the plain menu (a full JSON textarea, a
    grid of report reasons) — anchoring them to the trigger like the menu
@@ -1639,6 +1645,17 @@
 
 /* ---------- Articles (NIP-23) ---------- */
 
+.article-card {
+  position: relative;
+}
+
+.article-card-menu {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+}
+
 .article-card-btn {
   display: flex;
   gap: 12px;
@@ -1716,6 +1733,13 @@
   line-height: 1.2;
 }
 
+.article-view-author-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .article-view-author {
   display: flex;
   align-items: center;
@@ -1724,7 +1748,6 @@
   border: none;
   padding: 0;
   cursor: pointer;
-  align-self: flex-start;
   color: inherit;
 }
 

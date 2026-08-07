@@ -4,6 +4,7 @@ import { parseArticleMeta } from '../lib/article'
 import { formatRelativeTime } from '../lib/time'
 import { viewArticle } from '../lib/navigation'
 import { FileTextIcon } from './icons'
+import { NoteMenu } from './NoteMenu'
 
 export function ArticleCard({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
@@ -13,6 +14,15 @@ export function ArticleCard({ event }: { event: NDKEvent }) {
 
   return (
     <li className="feed-item article-card">
+      {/* Real gap reported by the user (2026-08-07): articles had no menu
+          at all -- no way to copy a link, view the raw event, or (the
+          specific case that surfaced this) rebroadcast an already-
+          published article after opting a new relay into this session's
+          publish targets. Kept outside the card's own big clickable
+          button below, since a button can't nest inside a button. */}
+      <div className="article-card-menu">
+        <NoteMenu event={event} />
+      </div>
       <button type="button" className="article-card-btn" onClick={() => viewArticle(event)}>
         {meta.image ? (
           <img className="article-card-image" src={meta.image} alt="" />

@@ -26,6 +26,18 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   const [muted, setMuted] = useState(false)
   const [deleted, setDeleted] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Real gap reported by the user (2026-08-07): after publishing an
+  // article local-only, then opting a public relay in as a session
+  // publish target, there was no way to actually get that already-signed
+  // event out to the new target — articles had no menu at all, and even
+  // notes' menu had no "send this again to whatever relays I'm currently
+  // publishing to" action. event.publish() on an already-signed NDKEvent
+  // just re-sends the same bytes (same id/sig) to a relay set — no
+  // re-signing, so this is a genuine rebroadcast, not a new version.
+  const [rebroadcastState, setRebroadcastState] = useState<'idle' | 'busy' | 'done' | 'error'>(
+    'idle',
+  )
+  const [rebroadcastError, setRebroadcastError] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   // Every panel (menu/raw/report/delete-confirm) defaults to opening
@@ -114,6 +126,19 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     }
   }
 
+  async function handleRebroadcast() {
+    if (rebroadcastState === 'busy') return
+    setRebroadcastState('busy')
+    setRebroadcastError('')
+    try {
+      await event.publish(devPublishRelaySet)
+      setRebroadcastState('done')
+    } catch (e) {
+      setRebroadcastError(e instanceof Error ? e.message : 'Rebroadcast failed')
+      setRebroadcastState('error')
+    }
+  }
+
   async function handleDelete() {
     if (busy || deleted) return
     setBusy(true)
@@ -175,6 +200,21 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
           <button type="button" onClick={() => setPanel('raw')}>
             View raw event
           </button>
+          <button
+            type="button"
+            onClick={handleRebroadcast}
+            disabled={rebroadcastState === 'busy' || rebroadcastState === 'done'}
+            title="Re-sends this exact already-signed event to whatever relays are currently active publish targets (Settings > Relays) — useful if a relay was toggled on after this was first published."
+          >
+            {rebroadcastState === 'busy'
+              ? 'Rebroadcasting…'
+              : rebroadcastState === 'done'
+                ? 'Rebroadcast ✓'
+                : 'Rebroadcast to current relays'}
+          </button>
+          {rebroadcastState === 'error' && (
+            <span className="note-menu-inline-error">{rebroadcastError}</span>
+          )}
           <button type="button" onClick={() => setPanel('report')} disabled={reported}>
             {reported ? 'Reported' : 'Report'}
           </button>

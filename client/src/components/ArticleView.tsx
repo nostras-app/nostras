@@ -5,6 +5,7 @@ import { parseArticleMeta } from '../lib/article'
 import { formatRelativeTime } from '../lib/time'
 import { setActiveView, viewProfile } from '../lib/navigation'
 import { ArrowLeftIcon } from './icons'
+import { NoteMenu } from './NoteMenu'
 
 export function ArticleView({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
@@ -22,15 +23,18 @@ export function ArticleView({ event }: { event: NDKEvent }) {
 
       <h1 className="article-view-title">{meta.title}</h1>
 
-      <button type="button" className="article-view-author" onClick={() => viewProfile(event.pubkey)}>
-        {profile?.picture ? (
-          <img className="avatar" src={profile.picture} alt="" />
-        ) : (
-          <span className="avatar-fallback">{authorLabel.charAt(0)}</span>
-        )}
-        <span className="feed-item-name">{authorLabel}</span>
-        {time && <span className="feed-item-time">{formatRelativeTime(time)}</span>}
-      </button>
+      <div className="article-view-author-row">
+        <button type="button" className="article-view-author" onClick={() => viewProfile(event.pubkey)}>
+          {profile?.picture ? (
+            <img className="avatar" src={profile.picture} alt="" />
+          ) : (
+            <span className="avatar-fallback">{authorLabel.charAt(0)}</span>
+          )}
+          <span className="feed-item-name">{authorLabel}</span>
+          {time && <span className="feed-item-time">{formatRelativeTime(time)}</span>}
+        </button>
+        <NoteMenu event={event} />
+      </div>
 
       <div className="article-view-content">
         <ReactMarkdown>{event.content}</ReactMarkdown>
