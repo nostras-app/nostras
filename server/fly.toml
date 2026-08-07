@@ -86,8 +86,14 @@ primary_region = "fra"
 # not something app-level tuning or more memory can fix -- a dedicated
 # core isn't time-shared with other Fly customers at all. Explicitly
 # confirmed with the user before making this (larger) recurring-cost
-# change, same as the earlier memory bump.
+# change, same as the earlier memory bump. Memory bumped from 1gb to
+# 2gb here too, not by choice but by requirement: the first deploy
+# attempt failed cleanly (machine left untouched, still on its prior
+# healthy config) with "invalid config.guest.memory_mb, minimum
+# required 2048 MiB" -- Fly's performance tier has a higher memory
+# floor than shared-cpu-1x did. Not wasted: the extra memory is no
+# downside given this machine was already comfortably using its 1GB.
 [[vm]]
   size      = "performance-1x"
-  memory    = "1gb"
+  memory    = "2gb"
   processes = ["web"]
