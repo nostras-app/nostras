@@ -1946,6 +1946,9 @@
 
 .about-essay p {
   margin: 0 0 12px;
+  text-align: justify;
+  text-align-last: left;
+  hyphens: auto;
 }
 
 .about-essay ul {
@@ -1954,6 +1957,12 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.about-essay li {
+  text-align: justify;
+  text-align-last: left;
+  hyphens: auto;
 }
 
 .about-essay strong {
