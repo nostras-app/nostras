@@ -1,6 +1,8 @@
 import { useState, type KeyboardEvent } from 'react'
 import { NDKSubscriptionCacheUsage, type NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, localRelaySet } from '../lib/ndk'
+import { resolvePubkeyInput } from '../lib/resolvePubkey'
+import { viewProfile } from '../lib/navigation'
 import { FeedItem } from './Feed'
 import { SearchIcon } from './icons'
 
@@ -14,6 +16,20 @@ export function SearchView() {
   async function handleSearch() {
     const trimmed = query.trim()
     if (!trimmed || state === 'loading') return
+
+    // Real user-reported gap (2026-08-07): there was no way to look up an
+    // unfamiliar pubkey from a notification — NIP-50 search only matches
+    // note *content*, so pasting a raw pubkey/npub here (not a search
+    // term at all) always came back empty. Detect identity-shaped input
+    // — hex, npub, or nprofile, whatever form someone happened to copy —
+    // and jump straight to that profile instead of running it as a
+    // (guaranteed-empty) content search.
+    const pubkey = resolvePubkeyInput(trimmed)
+    if (pubkey) {
+      viewProfile(pubkey)
+      return
+    }
+
     setState('loading')
     try {
       // ONLY_RELAY: NDK's cache doesn't implement full-text search, so a
@@ -48,7 +64,7 @@ export function SearchView() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Search notes…"
+          placeholder="Search notes, or paste a pubkey/npub to view a profile…"
         />
         <button
           type="button"
@@ -62,7 +78,8 @@ export function SearchView() {
       <p className="field-hint">
         Searches notes published to the local relay (NIP-50) — public-relay
         content only shows up here once it's touched the local relay some
-        other way.
+        other way. Pasting a pubkey (hex, npub, or nprofile) instead opens
+        that profile directly.
       </p>
 
       {state === 'idle' && (
