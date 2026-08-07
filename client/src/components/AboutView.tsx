@@ -248,6 +248,36 @@ export function AboutView() {
           specs, a relay you can inspect yourself. That reasoning is
           documented, not asserted.
         </p>
+
+        <hr className="about-divider" />
+
+        <p className="about-closing-label">A closing word, from me directly.</p>
+        <p>
+          I didn't arrive at this from ideology — I arrived at it from work.
+          Outside NOSTRAS, I build payment infrastructure that lets software
+          pay its own way in sats, settled on a node I control, never on
+          someone else's promise. The rule is always the same, whatever I'm
+          building: keys stay on hardware you own, limits are hard caps
+          nothing can exceed, and nothing counts as paid until it's actually
+          settled. I've watched a complete stranger send value to something I
+          built and get something real back, automatically, with no account
+          on either side and nobody's permission required. That moment is
+          this whole essay, compressed into one transaction.
+        </p>
+        <p>
+          NOSTRAS applies the same conviction somewhere more personal — not
+          infrastructure something else runs on, but the actual place where
+          you post, follow, and are followed. I build it alone, unfunded, the
+          same way I build everything else, because I think the parts of your
+          life that matter most deserve the same guarantee I insist on
+          everywhere: verifiable, not trusted; yours, not rented.
+        </p>
+        <p>
+          If any of this actually landed — not agreed with abstractly, but
+          landed — the npub above is how you tell me. A zap costs you almost
+          nothing, and it tells me, concretely, that building this alone was
+          worth it.
+        </p>
       </div>
     </div>
   )

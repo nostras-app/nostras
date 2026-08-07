@@ -1826,6 +1826,15 @@
   margin: 0 0 20px;
 }
 
+.about-closing-label {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin: 0 0 12px;
+}
+
 .about-essay h4 {
   font-size: 16px;
   font-weight: 700;
