@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"os"
 	"runtime"
 	"sync"
@@ -146,4 +148,66 @@ func getHealthSnapshot() healthSnapshot {
 		DvmEventTotal:    atomic.LoadInt64(&dvmEventTotal),
 		LastDvmEventUnix: atomic.LoadInt64(&lastDvmEventAt),
 	}
+}
+
+// dvmHealthSnapshot mirrors the shape cmd/dvm/health.go actually serves —
+// duplicated rather than shared, since the relay and DVM are separate
+// binaries/packages with no common internal module between them (matching
+// how this project already keeps main.go/cmd/dvm/main.go independent).
+// Reachable is false (and every other field its zero value) whenever the
+// fetch itself fails — the DVM being briefly unreachable over the private
+// network shouldn't break the dashboard, just honestly report the gap,
+// same degrade-gracefully posture as every other optional signal here
+// (analytics geo lookup, DVM payment gating, etc.).
+type dvmHealthSnapshot struct {
+	// Reachable is the only field callers should branch on to distinguish
+	// "DVM unreachable" from "DVM reachable, reporting a real false" — the
+	// two bools below deliberately have no `omitempty` (which treats false
+	// as the zero value and would drop the field entirely, indistinguishable
+	// from it being absent because the fetch failed).
+	Reachable      bool    `json:"reachable"`
+	Version        string  `json:"version,omitempty"`
+	UptimeSeconds  int64   `json:"uptimeSeconds,omitempty"`
+	RelayConnected bool    `json:"relayConnected"`
+	PaymentGating  bool    `json:"paymentGating"`
+	JobsHandled    int64   `json:"jobsHandled,omitempty"`
+	LastJobUnix    int64   `json:"lastJobUnix,omitempty"`
+	Goroutines     int     `json:"goroutines,omitempty"`
+	MemAllocMB     float64 `json:"memAllocMB,omitempty"`
+	MemSysMB       float64 `json:"memSysMB,omitempty"`
+}
+
+var dvmHealthHTTPClient = &http.Client{Timeout: 2 * time.Second}
+
+// fetchDvmHealth hits the DVM's own /health endpoint over Fly's private
+// network (NOSTRAS_DVM_HEALTH_URL — same "<process>.process.<app>.internal"
+// convention NOSTRAS_RELAY_URL already relies on for the DVM to reach the
+// relay in the other direction). A short client timeout bounds worst-case
+// latency on the dashboard request; any failure just yields Reachable:
+// false rather than an error the caller has to handle.
+func fetchDvmHealth(ctx context.Context) dvmHealthSnapshot {
+	url := os.Getenv("NOSTRAS_DVM_HEALTH_URL")
+	if url == "" {
+		url = "http://localhost:7778/health"
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return dvmHealthSnapshot{}
+	}
+	resp, err := dvmHealthHTTPClient.Do(req)
+	if err != nil {
+		return dvmHealthSnapshot{}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return dvmHealthSnapshot{}
+	}
+
+	var snap dvmHealthSnapshot
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		return dvmHealthSnapshot{}
+	}
+	snap.Reachable = true
+	return snap
 }

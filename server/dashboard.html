@@ -207,6 +207,11 @@
     70% { box-shadow: 0 0 0 6px rgba(0, 0, 0, 0); }
     100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
   }
+  .live-dot.dot-offline {
+    background: var(--text-dim);
+    box-shadow: none;
+    animation: none;
+  }
   .health-caption {
     font-size: 0.82rem;
     color: var(--text-dim);
@@ -244,6 +249,18 @@
 </section>
 
 <section class="panel">
+  <div class="panel-title"><span class="live-dot" id="dvm-live-dot"></span><h2>DVM health — live</h2></div>
+  <div class="cards">
+    <div class="card"><div class="label">Version</div><div class="value" id="dvm-health-version">—</div></div>
+    <div class="card"><div class="label">Relay connection</div><div class="value" id="dvm-health-connected">—</div></div>
+    <div class="card"><div class="label">Uptime</div><div class="value" id="dvm-health-uptime">—</div></div>
+    <div class="card"><div class="label">Memory (alloc / sys)</div><div class="value" id="dvm-health-mem">—</div></div>
+    <div class="card"><div class="label">Goroutines</div><div class="value" id="dvm-health-goroutines">—</div></div>
+  </div>
+  <p class="health-caption" id="dvm-health-caption">Jobs handled: —</p>
+</section>
+
+<section class="panel">
   <h2>Connections per day — last 30 days</h2>
   <div id="chart-wrap"><canvas id="chart" height="180"></canvas></div>
 </section>
@@ -261,12 +278,17 @@
   from the connecting IP address at connection time only; the IP itself is
   never stored, only the resulting country code.
   <br /><br />
-  "DVM activity" only reflects DVM-kind events (job results/feedback)
-  observed passing through this relay — it requires someone to have
-  actually submitted a job, so silence doesn't distinguish "the DVM is
-  down" from "nobody's asked it anything recently." It is not a
-  scheduled liveness check (that's what the uptime-check GitHub Action
-  does, on its own timer).
+  "DVM activity" (in the Server health panel above) only reflects
+  DVM-kind events observed passing through this relay — it requires
+  someone to have actually submitted a job, so silence doesn't
+  distinguish "the DVM is down" from "nobody's asked it anything
+  recently." The separate "DVM health" panel below it is the DVM process
+  reporting on itself directly (uptime, memory, its own connection
+  status to this relay), fetched over Fly's private network — a real
+  signal, not inferred from job traffic, though it still isn't the same
+  as a scheduled end-to-end liveness check (that's what the
+  uptime-check GitHub Action does, on its own timer, by actually
+  submitting a real job).
 </footer>
 
 <script>
@@ -470,6 +492,32 @@ async function loadHealth() {
   document.getElementById("health-goroutines").textContent = h.goroutines.toLocaleString();
   document.getElementById("health-dvm-caption").textContent =
     `DVM activity: last seen ${fmtAgo(h.lastDvmEventUnix)} — ${h.dvmEventTotal.toLocaleString()} job events observed since this relay started`;
+
+  const dvm = h.dvm || {};
+  const dot = document.getElementById("dvm-live-dot");
+  dot.classList.toggle("dot-offline", !dvm.reachable);
+
+  if (!dvm.reachable) {
+    document.getElementById("dvm-health-version").textContent = "—";
+    document.getElementById("dvm-health-connected").textContent = "unreachable";
+    document.getElementById("dvm-health-uptime").textContent = "—";
+    document.getElementById("dvm-health-mem").textContent = "—";
+    document.getElementById("dvm-health-goroutines").textContent = "—";
+    document.getElementById("dvm-health-caption").textContent =
+      "DVM health endpoint did not respond — this only means the health check itself failed, not necessarily that job processing is down.";
+    return;
+  }
+
+  document.getElementById("dvm-health-version").textContent = dvm.version || "—";
+  document.getElementById("dvm-health-connected").textContent =
+    dvm.relayConnected ? "connected" : "reconnecting";
+  document.getElementById("dvm-health-uptime").textContent = fmtUptime(dvm.uptimeSeconds);
+  document.getElementById("dvm-health-mem").textContent =
+    `${dvm.memAllocMB.toFixed(0)} / ${dvm.memSysMB.toFixed(0)} MB`;
+  document.getElementById("dvm-health-goroutines").textContent = dvm.goroutines.toLocaleString();
+  document.getElementById("dvm-health-caption").textContent =
+    `Jobs handled: ${dvm.jobsHandled.toLocaleString()} since this process started — last one ${fmtAgo(dvm.lastJobUnix)}` +
+    (dvm.paymentGating ? " — payment gating: ON" : " — payment gating: OFF");
 }
 
 load();

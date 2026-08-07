@@ -46,5 +46,14 @@ func handleDashboardData(store *analyticsStore) http.HandlerFunc {
 
 func handleDashboardHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(getHealthSnapshot())
+	json.NewEncoder(w).Encode(struct {
+		healthSnapshot
+		Dvm dvmHealthSnapshot `json:"dvm"`
+	}{
+		healthSnapshot: getHealthSnapshot(),
+		// Bounded by fetchDvmHealth's own 2s client timeout regardless of
+		// r.Context()'s own deadline, so a slow/unreachable DVM never makes
+		// this whole dashboard request hang.
+		Dvm: fetchDvmHealth(r.Context()),
+	})
 }

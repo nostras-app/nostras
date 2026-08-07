@@ -130,6 +130,13 @@ func main() {
 		fmt.Printf("payment gating: ON — priced per job from real token cost (fallback %d sats if pricing lookup fails)\n", payment.priceSats)
 	}
 
+	healthPort := os.Getenv("NOSTRAS_DVM_HEALTH_PORT")
+	if healthPort == "" {
+		healthPort = "7778"
+	}
+	startHealthServer(healthPort, payment != nil)
+	fmt.Println("health endpoint: private network only, :" + healthPort + "/health")
+
 	// Reconnection loop. Previously a single dropped connection (network
 	// blip, relay restart, etc.) closed sub.Events, the for-range below
 	// ended, main() returned, and the process exited cleanly (code 0) —
@@ -174,6 +181,8 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk st
 		return err
 	}
 	defer relay.Close()
+	markRelayConnected(true)
+	defer markRelayConnected(false)
 
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{
@@ -218,6 +227,8 @@ func loadPaymentConfig(ctx context.Context) *paymentConfig {
 }
 
 func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client, sk string, payment *paymentConfig, req *nostr.Event) {
+	markJobReceived()
+
 	var resultKind int
 	var systemPrompt string
 

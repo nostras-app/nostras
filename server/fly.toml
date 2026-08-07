@@ -54,12 +54,16 @@ primary_region = "fra"
   NOSTRAS_PUSH_SUBSCRIPTIONS_PATH   = "/data/push-subscriptions.json"
   # <process-group>.process.<app>.internal is Fly's private-networking
   # hostname convention for reaching a specific process group without
-  # going out over the public internet — NOT verified against a live Fly
-  # deploy yet (couldn't be, from this sandbox). Confirm this actually
-  # resolves and connects after the first real deploy (check `fly logs
-  # --process dvm` for "listening on" with no connection error); if it
-  # doesn't, the fallback is the plain "<app>.internal" form.
+  # going out over the public internet — confirmed working in production
+  # (both this and the health URL below use the exact same convention).
   NOSTRAS_RELAY_URL   = "ws://web.process.nostras.internal:7777"
+  # 2026-08-07: the DVM's own health endpoint (see cmd/dvm/health.go),
+  # fetched by the relay's /dashboard/health over the same private
+  # network path as NOSTRAS_RELAY_URL above, just in the other direction
+  # — never exposed publicly, since the "dvm" process group has no
+  # [http_service] block at all in this file.
+  NOSTRAS_DVM_HEALTH_PORT = "7778"
+  NOSTRAS_DVM_HEALTH_URL  = "http://dvm.process.nostras.internal:7778/health"
 
 # Split by process group (2026-08-07): "web" (the relay, running badger +
 # bluge) repeatedly hit real memory/connection-cap pressure under genuine
