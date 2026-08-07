@@ -980,6 +980,46 @@
   color: var(--text-muted);
 }
 
+.feed-item-reply-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  margin: -2px 0 2px;
+}
+
+.feed-item-reply-context svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.feed-item-reply-context-btn {
+  cursor: pointer;
+}
+
+.feed-item-reply-context-btn:hover {
+  color: var(--accent);
+}
+
+.feed-item-reply-context-btn strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.feed-item-reply-context-btn:hover strong {
+  color: var(--accent);
+}
+
+.feed-item-reply-context-snippet {
+  color: var(--text-muted);
+}
+
 .notification-icon {
   display: inline-flex;
   color: var(--accent);

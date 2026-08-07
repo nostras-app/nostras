@@ -3,11 +3,58 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { useProfile } from '../hooks/useProfile'
 import { useNoteFeed } from '../hooks/useNoteFeed'
 import { useFollowing } from '../hooks/useFollowing'
+import { useReferencedNote } from '../hooks/useReferencedNote'
 import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
+import { getReplyToEventId } from '../lib/nip10'
 import { NoteContent } from './NoteContent'
 import { EngagementBar } from './EngagementBar'
 import { ArticleCard } from './ArticleCard'
+import { ReplyIcon } from './icons'
+
+// Real user-reported gap (2026-08-07): replies rendered as ordinary,
+// standalone notes with nothing indicating what they were replying to —
+// this app has no threaded view yet (just a reply count on the original),
+// so a reply floating in a feed with no context read as a non-sequitur.
+// This doesn't build full threading, just a lightweight "Replying to
+// <author>: <snippet>" line above the reply's own content, linking to the
+// parent author's profile — the smallest fix that actually answers "which
+// note was this a reply to."
+function ReplyContext({ replyToId }: { replyToId: string }) {
+  const parent = useReferencedNote(replyToId)
+  const parentProfile = useProfile(parent?.pubkey)
+
+  if (!parent) {
+    // Still resolving (or genuinely unfindable — same ambiguity
+    // useReferencedNote already accepts) — a static line rather than a
+    // skeleton, since this is a small secondary detail, not the note's
+    // own content.
+    return (
+      <div className="feed-item-reply-context">
+        <ReplyIcon /> Replying to a note…
+      </div>
+    )
+  }
+
+  const parentLabel =
+    parentProfile?.name || parentProfile?.displayName || `${parent.author.npub.slice(0, 12)}…`
+  const snippet =
+    parent.content.length > 80 ? `${parent.content.slice(0, 80).trim()}…` : parent.content
+
+  return (
+    <button
+      type="button"
+      className="feed-item-reply-context feed-item-reply-context-btn"
+      onClick={() => viewProfile(parent.pubkey)}
+    >
+      <ReplyIcon />
+      <span>
+        Replying to <strong>{parentLabel}</strong>
+        {snippet && <span className="feed-item-reply-context-snippet">: “{snippet}”</span>}
+      </span>
+    </button>
+  )
+}
 
 // Branches on event.kind here (not at each call site) so every place
 // that already renders FeedItem — the global/following feed, search
@@ -16,6 +63,7 @@ import { ArticleCard } from './ArticleCard'
 export function FeedItem({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
   const label = profile?.name || profile?.displayName || `${event.author.npub.slice(0, 12)}…`
+  const replyToId = getReplyToEventId(event.tags)
 
   if (event.kind === 30023) {
     return <ArticleCard event={event} />
@@ -50,6 +98,7 @@ export function FeedItem({ event }: { event: NDKEvent }) {
             </span>
           )}
         </div>
+        {replyToId && <ReplyContext replyToId={replyToId} />}
         <NoteContent content={event.content} />
         <div className="feed-item-footer">
           <EngagementBar event={event} />
