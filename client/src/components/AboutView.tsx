@@ -65,6 +65,190 @@ export function AboutView() {
           project directly.
         </p>
       </div>
+
+      {/* Same longer narrative already published on the github.com/nostras-app
+          org profile README, reproduced verbatim (not paraphrased) per the
+          user's explicit request to add it here too. */}
+      <div className="about-essay">
+        <h3 className="about-essay-intro">I owe you the why NOSTRAS:</h3>
+
+        <h4>The web we settled for</h4>
+        <p>
+          The internet was built on a bet: that if you let anyone publish,
+          anyone read, and anyone find each other, the result would be better
+          than any gatekeeper could design. For a while that bet paid off.
+        </p>
+        <p>
+          Then the economics took over. What was once a sprawl of independent
+          pages consolidated into a handful of data centres owned by a
+          handful of companies — and used by most of the planet. Convenience
+          was the trade, and we made it without reading the terms.
+        </p>
+        <p>Look at what actually changed hands:</p>
+        <ul>
+          <li>
+            Your identity now lives in someone else's user table. It can be
+            suspended, renamed, or deleted by a decision you'll never see.
+          </li>
+          <li>Your work is uploaded under licences you agreed to by scrolling past them.</li>
+          <li>
+            Your attention is routed by ranking systems tuned for engagement,
+            not for you.
+          </li>
+        </ul>
+        <p>
+          The result is a small number of private entities deciding, at
+          planetary scale, what gets seen and what quietly disappears. That
+          isn't a moderation problem. It's a structural one — and you can't
+          fix a structural problem with better policies from the same owners.
+        </p>
+
+        <hr className="about-divider" />
+
+        <h4>Nostr: fixing the structure, not the policy</h4>
+        <p>
+          Nostr — Notes and Other Stuff Transmitted by Relays — removes the
+          assumption that made all of this possible: that your data has to
+          live on a server somebody else owns.
+        </p>
+        <p>
+          It isn't an app or a company. It's a protocol, in the same sense as
+          HTTP or SMTP: a small set of rules anyone can implement without
+          asking permission. Events are plain JSON. Identity is a keypair.
+          Every event is signed, so anyone can verify who wrote it and prove
+          it hasn't been altered.
+        </p>
+        <p>
+          Two roles, and that's the whole system. Clients are what you use.
+          Relays pass messages along and store them, and anyone can run one —
+          an individual, a business, a community, you. No relay is
+          load-bearing. The protocol assumes relays will vanish, so you
+          publish to several and swap them out whenever you like. Nothing
+          about your identity or your audience depends on any one of them
+          surviving.
+        </p>
+        <p>
+          Think of it as email versus a walled social network: if your
+          provider goes down, your name and your contacts are still yours,
+          and you carry them somewhere else the same afternoon.
+        </p>
+
+        <hr className="about-divider" />
+
+        <h4>What you get back</h4>
+        <p>
+          <strong>An identity nobody issues you.</strong> Your account is a
+          cryptographic keypair you generate. No email, no phone number, no
+          ID scan, no KYC. Nobody grants it, so nobody can revoke it.
+        </p>
+        <p>
+          <strong>Proof instead of trust.</strong> Every post carries your
+          signature. Clients check it on arrival. You can demonstrate what
+          you wrote — and, just as usefully, what you didn't.
+        </p>
+        <p>
+          <strong>An audience that travels with you.</strong> Your follow
+          list is published to relays you choose, not held in a company's
+          database. Change client, change relay, keep everyone. Relays can
+          also earn their keep: filtering spam, curating feeds, serving
+          communities.
+        </p>
+        <p>
+          <strong>Speech that doesn't need approval.</strong> Relays set
+          their own policies — that's their right, and healthy. What's
+          different is what happens when every relay says no: you run your
+          own, and clients follow the hints back to you. Refusal by one
+          operator is no longer removal from the network.
+        </p>
+        <p>
+          <strong>Anonymity as a supported mode.</strong> Use your real name
+          or a pseudonym; both work identically. Nostr runs over Tor. The
+          protocol itself holds nothing to hand over, and any single relay or
+          client can only ever surrender what it actually has — which, for a
+          careful user, is a public key.
+        </p>
+        <p>
+          <strong>Permissionless building.</strong> No API keys, no partner
+          programme, no revocable access. Every client, relay, and tool built
+          on Nostr compounds with every other one, past and future.
+        </p>
+
+        <hr className="about-divider" />
+
+        <h4>Why not the alternatives</h4>
+        <p>
+          Ad-funded platforms monetise attention, so they optimise for
+          whatever holds it — which turns out to be outrage. The ranking is
+          secret, unchangeable, and not on your side.
+        </p>
+        <p>
+          Federated networks move the gatekeeper without removing it. Tying
+          identity to a domain means the domain owner still holds the off
+          switch, servers still defederate each other, and migration only
+          works if two admins cooperate. Instances get abandoned, and
+          everyone who signed up there is stranded. Smaller landlord, same
+          lease.
+        </p>
+        <p>Nostr breaks the link entirely: identity is a key, not an account on a machine.</p>
+
+        <hr className="about-divider" />
+
+        <h4>Why NOSTRAS</h4>
+        <ul>
+          <li>
+            <strong>Non-custodial, always.</strong> NOSTRAS never holds your
+            keys or your funds. Bring your own signer, bring your own
+            Lightning wallet.
+          </li>
+          <li>
+            <strong>Built on the open protocol, not a walled garden.</strong>{' '}
+            Every feature — search, translation, AI-assisted tools — is a
+            standard, publicly specified Nostr Improvement Proposal (NIP),
+            interoperable with the rest of the network.
+          </li>
+          <li>
+            <strong>The protocol is the audit surface, not the source.</strong>{' '}
+            See{' '}
+            <a
+              href="https://github.com/nostras-app/nostras#why-isnt-the-source-code-here"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              why the implementation isn't public
+            </a>{' '}
+            in the docs repo.
+          </li>
+        </ul>
+
+        <h4>Where NOSTRAS comes in</h4>
+        <p>Nostr gives you the guarantees. NOSTRAS is how you actually run them.</p>
+        <p>
+          <strong>A client and a relay, shipped together.</strong> Most
+          clients hand you the protocol's promises and then leave you renting
+          storage from strangers' relays. NOSTRAS pairs the client with a
+          relay you host — so the copy of your history that matters is on
+          hardware you control.
+        </p>
+        <p>
+          <strong>Non-custodial, permanently.</strong> Your keys are never
+          ours to hold. Bring your own signer, bring your own Lightning
+          wallet. There is no version of NOSTRAS that has a recovery flow,
+          because there is nothing on our side to recover from.
+        </p>
+        <p>
+          <strong>Standards, not features.</strong> Search, translation,
+          AI-assisted tooling — everything ships as a specified NIP and
+          interoperates with the rest of the network. Nothing here works only
+          if you stay.
+        </p>
+        <p>
+          <strong>The protocol is the audit surface.</strong> You don't have
+          to trust our source, because the guarantees don't live in it. Every
+          claim NOSTRAS makes is checkable from outside: signed events, open
+          specs, a relay you can inspect yourself. That reasoning is
+          documented, not asserted.
+        </p>
+      </div>
     </div>
   )
 }

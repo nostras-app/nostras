@@ -1807,6 +1807,54 @@
   margin: 0;
 }
 
+.about-essay {
+  align-self: stretch;
+  text-align: left;
+  max-width: 640px;
+  margin: 28px auto 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.about-essay-intro {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-h);
+  margin: 0 0 20px;
+}
+
+.about-essay h4 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+  margin: 0 0 10px;
+}
+
+.about-essay p {
+  margin: 0 0 12px;
+}
+
+.about-essay ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.about-essay strong {
+  color: var(--text-h);
+}
+
+.about-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 22px 0;
+}
+
 /* ---------- View switching ----------
    Kept last in the file so these always win any equal-specificity tie
    against a component's own `display` rule (e.g. .settings-panel sets
