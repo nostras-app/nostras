@@ -1,9 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { NDKEvent } from '@nostr-dev-kit/ndk'
+import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk'
 import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet } from '../lib/ndk'
+import { ndk, devPublishRelaySet, localRelayUrl } from '../lib/ndk'
+import { makeRelayConnectionFilter } from '../lib/relayFilter'
+import { CURATED_RELAYS } from '../lib/curatedRelays'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { MoreIcon } from './icons'
+
+const isAllowedRelay = makeRelayConnectionFilter(localRelayUrl)
 
 const REPORT_TYPES: { value: string; label: string }[] = [
   { value: 'spam', label: 'Spam' },
@@ -15,7 +19,7 @@ const REPORT_TYPES: { value: string; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-type Panel = 'menu' | 'raw' | 'report' | 'delete-confirm'
+type Panel = 'menu' | 'raw' | 'report' | 'delete-confirm' | 'rebroadcast'
 
 export function NoteMenu({ event }: { event: NDKEventType }) {
   const activeUser = useActiveUser()
@@ -30,14 +34,22 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   // article local-only, then opting a public relay in as a session
   // publish target, there was no way to actually get that already-signed
   // event out to the new target — articles had no menu at all, and even
-  // notes' menu had no "send this again to whatever relays I'm currently
-  // publishing to" action. event.publish() on an already-signed NDKEvent
-  // just re-sends the same bytes (same id/sig) to a relay set — no
-  // re-signing, so this is a genuine rebroadcast, not a new version.
+  // notes' menu had no "send this again" action. event.publish() on an
+  // already-signed NDKEvent just re-sends the same bytes (same id/sig) to
+  // a relay set — no re-signing, so this is a genuine rebroadcast, not a
+  // new version. Follow-up the same day: the user compared this to
+  // Yakihonne's own "republish", which offers a 30+-relay checklist
+  // rather than one implicit target — so this grew from a single-click
+  // action into a curated relay picker (CURATED_RELAYS), a deliberately
+  // separate mechanism from devPublishRelaySet/Settings > Relays, since
+  // this is a one-off "get this specific note more reach" action, not the
+  // app's standing local-only-by-default publish scope.
   const [rebroadcastState, setRebroadcastState] = useState<'idle' | 'busy' | 'done' | 'error'>(
     'idle',
   )
   const [rebroadcastError, setRebroadcastError] = useState('')
+  const [rebroadcastCount, setRebroadcastCount] = useState(0)
+  const [selectedRelays, setSelectedRelays] = useState<Set<string>>(() => new Set(CURATED_RELAYS))
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   // Every panel (menu/raw/report/delete-confirm) defaults to opening
@@ -126,12 +138,30 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     }
   }
 
+  function toggleRelay(url: string) {
+    setSelectedRelays((prev) => {
+      const next = new Set(prev)
+      if (next.has(url)) next.delete(url)
+      else next.add(url)
+      return next
+    })
+  }
+
   async function handleRebroadcast() {
-    if (rebroadcastState === 'busy') return
+    if (rebroadcastState === 'busy' || selectedRelays.size === 0) return
     setRebroadcastState('busy')
     setRebroadcastError('')
     try {
-      await event.publish(devPublishRelaySet)
+      // Curated URLs are a hardcoded, trusted constant, but filtering
+      // here anyway matches this codebase's standing rule (learned the
+      // hard way from the DM recipient-relay-discovery work): always
+      // pre-filter before NDKRelaySet.fromRelayUrls, since it constructs
+      // and returns NDKRelay objects unconditionally, bypassing the
+      // pool-level relayConnectionFilter entirely.
+      const urls = Array.from(selectedRelays).filter(isAllowedRelay)
+      const relaySet = NDKRelaySet.fromRelayUrls(urls, ndk)
+      const published = await event.publish(relaySet, 8000)
+      setRebroadcastCount(published.size)
       setRebroadcastState('done')
     } catch (e) {
       setRebroadcastError(e instanceof Error ? e.message : 'Rebroadcast failed')
@@ -202,19 +232,14 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
           </button>
           <button
             type="button"
-            onClick={handleRebroadcast}
-            disabled={rebroadcastState === 'busy' || rebroadcastState === 'done'}
-            title="Re-sends this exact already-signed event to whatever relays are currently active publish targets (Settings > Relays) — useful if a relay was toggled on after this was first published."
+            onClick={() => setPanel('rebroadcast')}
+            disabled={rebroadcastState === 'busy'}
+            title="Re-sends this exact already-signed event to whichever public relays you pick — separate from Settings > Relays' session publish targets, meant for getting one specific note or article more reach."
           >
-            {rebroadcastState === 'busy'
-              ? 'Rebroadcasting…'
-              : rebroadcastState === 'done'
-                ? 'Rebroadcast ✓'
-                : 'Rebroadcast to current relays'}
+            {rebroadcastState === 'done'
+              ? `Rebroadcast ✓ (${rebroadcastCount})`
+              : 'Rebroadcast to relays…'}
           </button>
-          {rebroadcastState === 'error' && (
-            <span className="note-menu-inline-error">{rebroadcastError}</span>
-          )}
           <button type="button" onClick={() => setPanel('report')} disabled={reported}>
             {reported ? 'Reported' : 'Report'}
           </button>
@@ -234,9 +259,10 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
         </div>
       )}
 
-      {(panel === 'raw' || panel === 'report' || panel === 'delete-confirm') && (
-        <div className="note-menu-backdrop" onClick={() => setPanel(null)} />
-      )}
+      {(panel === 'raw' ||
+        panel === 'report' ||
+        panel === 'delete-confirm' ||
+        panel === 'rebroadcast') && <div className="note-menu-backdrop" onClick={() => setPanel(null)} />}
 
       {panel === 'raw' && (
         <div ref={panelRef} className="note-menu-panel">
@@ -253,6 +279,70 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
               onClick={() => setPanel(null)}
             >
               Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {panel === 'rebroadcast' && (
+        <div ref={panelRef} className="note-menu-panel">
+          <span className="translate-panel-label">Rebroadcast to…</span>
+          <p className="field-hint">
+            Re-sends this exact already-signed event (same id, no
+            re-signing) to whichever relays you pick — independent of
+            your session's publish-target toggles in Settings.
+          </p>
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setSelectedRelays(new Set(CURATED_RELAYS))}
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setSelectedRelays(new Set())}
+            >
+              Select none
+            </button>
+          </div>
+          <div className="rebroadcast-relay-list">
+            {CURATED_RELAYS.map((url) => (
+              <label key={url} className="rebroadcast-relay-row">
+                <input
+                  type="checkbox"
+                  checked={selectedRelays.has(url)}
+                  onChange={() => toggleRelay(url)}
+                />
+                <span className="relay-url">{url.replace('wss://', '')}</span>
+              </label>
+            ))}
+          </div>
+          {rebroadcastState === 'error' && (
+            <span className="note-menu-inline-error">{rebroadcastError}</span>
+          )}
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPanel(null)}
+              disabled={rebroadcastState === 'busy'}
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={handleRebroadcast}
+              disabled={rebroadcastState === 'busy' || selectedRelays.size === 0}
+            >
+              {rebroadcastState === 'busy'
+                ? 'Rebroadcasting…'
+                : rebroadcastState === 'done'
+                  ? `Rebroadcast ✓ (${rebroadcastCount})`
+                  : `Rebroadcast to ${selectedRelays.size} relay${selectedRelays.size === 1 ? '' : 's'}`}
             </button>
           </div>
         </div>

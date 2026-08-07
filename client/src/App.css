@@ -1324,6 +1324,38 @@
   padding: 0 10px 4px;
 }
 
+.rebroadcast-relay-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.rebroadcast-relay-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.rebroadcast-relay-row:hover {
+  background: var(--accent-bg);
+}
+
+.rebroadcast-relay-row input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
 /* Real reported bug (2026-08-07): the raw-event/report/delete-confirm
    panels are much taller than the plain menu (a full JSON textarea, a
    grid of report reasons) — anchoring them to the trigger like the menu
