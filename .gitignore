@@ -3,6 +3,11 @@ nostras.env
 *.env
 *.env.*
 .nostr
+why-notras.md
+nostr-client-node-strategy.md
+nostras-node-productization-strategy.md
+nostras-nips-compliance.md
+NOSTRAS-CSV.md
 
 # Editor swap files
 *.swp
