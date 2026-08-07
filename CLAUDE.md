@@ -3112,6 +3112,53 @@ footprint, which the connection cap does nothing to address. Neither
 alone was sufficient; this incident is what surfaced that the first fix,
 while correct, wasn't the complete picture.
 
+## Analytics + push-subscription stores were silently living on ephemeral
+storage, wiped on every restart/redeploy (2026-08-07)
+
+User-reported, noticed on the live dashboard: connection history showed
+only a single bar (today), despite the dashboard having been live for
+three days. Traced immediately: `NOSTRAS_ANALYTICS_PATH` was never set
+in `fly.toml`, so it fell back to `envOr`'s `"./analytics.json"`
+default, resolved relative to the Dockerfile's runtime `WORKDIR`
+(`/app`), the container's own ephemeral filesystem, not the `/data`
+Volume already mounted for badger/bluge. Every machine restart or
+redeploy silently reset it to empty, and this session alone had already
+caused several (two manual restarts plus multiple deploys while chasing
+the near-OOM incidents above), which is exactly why the history looked
+wiped.
+
+**Found a second, more serious instance of the identical bug while
+checking**: `NOSTRAS_PUSH_SUBSCRIPTIONS_PATH` had the exact same
+unset-default problem. This one has real functional impact, not just a
+cosmetic dashboard gap: every registered push-notification device
+subscription (including the real Android device verified working
+end-to-end earlier in this project) was getting silently wiped the same
+way, with no error surfaced anywhere. A device would just quietly stop
+receiving push notifications until the user happened to reopen Settings
+and re-enable it, with nothing in the UI indicating why.
+
+**Fixed via config only, no code change**: both stores already handle a
+missing file gracefully (`os.IsNotExist` starts empty, writes on first
+save), confirmed by reading `analytics.go`/`push.go` directly, so the
+fix was just pointing both paths at `/data` in `fly.toml`'s `[env]`
+block, the same persistent Volume `NOSTRAS_BADGER_PATH`/
+`NOSTRAS_BLUGE_PATH` already use. Verified with `flyctl config
+validate` before deploying.
+
+**Verified live after deploy**: SSH'd into the fresh machine and
+confirmed `/data/analytics.json` now exists on the actual mounted
+volume (previously invisible from `/data`, since it lived under `/app`
+instead). `web`/`dvm` both came back `started` on their own.
+
+**One-time cost, communicated plainly to the user rather than left
+implicit**: this move means both files start fresh from this deploy.
+Prior analytics history is gone (already effectively true today, given
+this session's restarts), and any previously-registered push
+subscriptions need a one-time manual re-enable in Settings >
+Notifications, since their old registration lived at the now-abandoned
+ephemeral path. Going forward, neither file will be lost to a routine
+restart or redeploy again.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
