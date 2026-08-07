@@ -3220,6 +3220,44 @@ consecutive attempts, one of which made things temporarily worse before
 being caught and reverted within the same testing window -- not
 glossed over as smooth iteration.
 
+## Web process bumped to 1GB memory -- 512MB confirmed too small twice in one day (2026-08-07)
+
+Direct follow-up: the user continued live testing after the revert
+above, and a fresh check found the exact same resource-exhaustion
+pattern recurring, just slower -- ~2 hours of uptime this time instead
+of ~45 minutes. `nak` got a real `429` (the connection cap correctly
+enforcing itself, not a hang), and SSH confirmed 223 live connections
+(near the 200 cap), `MemAvailable` down to 56MB, and a sustained ~2.0
+load average across the full 1/5/15-minute windows -- not a brief spike.
+
+**Correctly read as a capacity signal, not a tuning bug**: the
+connection cap and badger memory tuning are both real, working fixes --
+they converted what used to be a silent OOM slide into clean, immediate
+429 rejections instead of a hung/crashed relay. But real connection
+volume (this relay is now publicly discoverable, linked from a real
+landing page, drawing genuine Nostr-ecosystem traffic) regularly
+approaches what a 512MB machine can sustain. After one tuning attempt
+already regressed earlier the same day (the NumCompactors entry above),
+continuing to guess at cache-size knobs stopped being the responsible
+next step -- the honest recommendation was more memory, a real
+recurring cost, explicitly asked of and confirmed by the user before
+acting (not assumed).
+
+**Implementation**: `server/fly.toml`'s single `[[vm]]` block split into
+two, scoped by `processes` (the same field already used for
+`[[mounts]]`) -- `dvm` stays at the original 512MB (it's never shown
+this problem and doesn't touch badger/bluge, so no reason to pay for
+memory it doesn't need), `web` goes to 1GB. Verified with `flyctl config
+validate` before deploying.
+
+**Verified live, not just deployed**: `flyctl machine list` confirmed
+the actual running machine is `shared-cpu-1x:1024MB` for `web` and
+unchanged `shared-cpu-1x:512MB` for `dvm`. Fresh boot: `MemTotal` now
+reads ~985MB (matching the 1GB allocation), `MemAvailable` 616MB right
+after boot -- a completely different order of headroom than any prior
+check this session. Three consecutive real `nak` publishes all
+completed in 0.58-0.69s.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
