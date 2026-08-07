@@ -3271,6 +3271,65 @@ still `shared-cpu-1x`, a shared, not dedicated, vCPU) was raised as a
 option to revisit later if the 1GB memory bump alone isn't sufficient,
 not something to act on now.
 
+## The deferred CPU upgrade landed the same day -- confirmed shared-vCPU
+contention, not memory, moved "web" to a dedicated performance-1x
+(2026-08-07)
+
+The "revisit later" above didn't last the day. The exact same publish-
+failure symptom recurred roughly two hours after the 1GB memory deploy,
+reproduced live via a fresh `nak` publish. This time `MemAvailable`
+stayed genuinely healthy (~390MB+) throughout -- the memory fix held,
+ruling out a repeat of the earlier OOM pattern outright.
+
+**Root-caused via direct `/proc/stat` sampling, not inferred**: two
+consecutive readings a few seconds apart showed `idle` time at 0 and
+`steal` time (CPU the hypervisor gave to *other tenants* instead of
+this machine) accounting for the overwhelming majority of the window,
+with `/proc/loadavg` climbing past 8 on a single shared vCPU. This is
+the textbook signature of contention on a `shared` CPU tier -- the
+guest OS had work to do and simply wasn't given real CPU time.
+
+**Two mitigation attempts tried live, both failed to help, which is
+itself diagnostic evidence**: a plain `flyctl machine restart` did not
+reduce load or steal time at all (confirmed via a fresh `/proc/stat`
+sample immediately after). A full `flyctl machine stop` +
+`machine start` -- which normally has a real chance of rescheduling a
+machine onto different underlying hardware, unlike a simple restart --
+also didn't help; load climbed even higher afterward (8+ on the 1-min
+average). Since a full stop/start didn't escape whatever was causing
+this, and the problem reappeared instantly rather than building up
+over time, this reads as either sustained contention on this specific
+physical host or real regional capacity pressure at the time -- not
+something specific to this app's own accumulated state, which a
+restart would have reset.
+
+**Explicitly asked the user before acting**, given this is a
+meaningfully larger recurring cost than the memory bump -- presented
+three options (upgrade to dedicated CPU, try a different Fly region
+first, or hold off and keep restarting when it recurs). User chose the
+direct fix now that the bottleneck was this clearly diagnosed, rather
+than spend more time narrowing down region-vs-host before acting.
+
+**Implementation**: `server/fly.toml`'s `web` `[[vm]]` block changed
+from `size = "shared-cpu-1x"` to `size = "performance-1x"`. **Real
+deploy failure caught and fixed within the same session, not
+pre-empted**: the first deploy attempt failed cleanly (machine left
+untouched, stayed on its prior healthy shared-cpu-1x/1GB config) with
+`invalid config.guest.memory_mb, minimum required 2048 MiB` --
+performance-tier machines have a higher memory floor than shared ones
+did. Fixed by bumping memory to 2GB in the same `[[vm]]` block (no
+downside, the machine was already comfortably using 1GB) and
+redeploying as a separate checkpoint commit.
+
+**Verified live, dramatically, not just "deploy succeeded"**:
+`flyctl machine status` confirmed `CPU Kind: performance`, `Memory:
+2048`. Three consecutive real `nak` publishes all completed in
+1.17-1.25s. `/proc/loadavg` read `0.18 0.11 0.04` (down from 8+
+minutes earlier) and a fresh `/proc/stat` sample showed steal time at
+effectively zero (1 jiffy over 3 seconds, versus 300+ before) with
+idle time healthy again -- the clearest, most unambiguous before/after
+contrast of any fix this session.
+
 ## About view reworked from a popup modal to a real nav-rail view (2026-08-07)
 
 Direct user correction after seeing the first version (documented in
