@@ -3258,6 +3258,50 @@ after boot -- a completely different order of headroom than any prior
 check this session. Three consecutive real `nak` publishes all
 completed in 0.58-0.69s.
 
+**User's own assessment of this whole chain (2026-08-07)**: after
+seeing the last two days of fixes, the user explicitly named the
+pattern themselves -- a lot of the individual incidents chased down
+this session (outbox-aggregation starvation, connection growth, badger's
+oversized defaults, the NumCompactors regression) trace back to the same
+underlying cause: the relay's infrastructure (starting at 512MB) was
+undersized for what real production traffic actually needed, not a
+series of unrelated bugs. Explicitly framed as "test with this memory
+improvement for now" -- a possible future CPU upgrade (this machine is
+still `shared-cpu-1x`, a shared, not dedicated, vCPU) was raised as a
+option to revisit later if the 1GB memory bump alone isn't sufficient,
+not something to act on now.
+
+## About view reworked from a popup modal to a real nav-rail view (2026-08-07)
+
+Direct user correction after seeing the first version (documented in
+the entry above) live: they wanted "just a normal blob that fills the
+screen, like the settings icon... or Ask AI" -- not a modal overlaying
+the rest of the app, which is what the first implementation had built.
+They explicitly offered the simpler fallback themselves: a dedicated
+info icon in the nav rail under Settings, if that was more
+straightforward than reworking the logo-click behavior.
+
+**Implementation**: `AboutModal.tsx` deleted, replaced with
+`AboutView.tsx` -- same content/links/developer-DM/zap section as
+before, but rendered as a plain `.card` `view-panel` section exactly
+like every other nav-rail destination (Settings, Ask Claude, etc.),
+with no backdrop, no close button, no Escape-key handling -- it's a
+persistent view navigated away from via the nav rail, not a dismissible
+overlay. `'about'` added to `NavRail`'s `View` union; a new `InfoIcon`
+(`icons.tsx`) and nav rail button placed under Settings, per the user's
+own suggested placement. Both original entry points now work: the
+header wordmark (the original ask) and the new info icon both call the
+same `setActiveView('about')`.
+
+**Verified in-browser**: both the logo and the new nav icon correctly
+open the view; it renders full-width matching Settings' own layout
+(confirmed via screenshot, not assumed); the nav rail's active-state
+highlighting correctly applies to the new icon; content is unchanged
+from the modal version, just the container changed. Deployed and
+confirmed live: the production bundle contains the new `about-view`
+class and has zero remaining references to the deleted
+`modal-backdrop` class.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
