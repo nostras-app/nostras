@@ -194,8 +194,12 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
         </div>
       )}
 
+      {(panel === 'raw' || panel === 'report' || panel === 'delete-confirm') && (
+        <div className="note-menu-backdrop" onClick={() => setPanel(null)} />
+      )}
+
       {panel === 'raw' && (
-        <div ref={panelRef} className={`note-menu-panel${openBelow ? ' note-menu-below' : ''}`}>
+        <div ref={panelRef} className="note-menu-panel">
           <textarea
             className="textarea raw-event"
             readOnly
@@ -215,7 +219,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
       )}
 
       {panel === 'report' && (
-        <div ref={panelRef} className={`note-menu-panel${openBelow ? ' note-menu-below' : ''}`}>
+        <div ref={panelRef} className="note-menu-panel">
           <span className="translate-panel-label">Report this note as…</span>
           <div className="language-grid">
             {REPORT_TYPES.map((type) => (
@@ -243,7 +247,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
       )}
 
       {panel === 'delete-confirm' && (
-        <div ref={panelRef} className={`note-menu-panel${openBelow ? ' note-menu-below' : ''}`}>
+        <div ref={panelRef} className="note-menu-panel">
           <span className="translate-panel-label">
             Delete this note? This publishes a deletion request (NIP-09) —
             most relays honor it, but it isn't a guarantee the note is gone

@@ -1318,16 +1318,37 @@
   color: var(--danger) !important;
 }
 
+/* Real reported bug (2026-08-07): the raw-event/report/delete-confirm
+   panels are much taller than the plain menu (a full JSON textarea, a
+   grid of report reasons) — anchoring them to the trigger like the menu
+   (even with the below-flip fix) could still overflow off the bottom or
+   top of a short viewport, since flipping direction alone doesn't help
+   once the panel itself is taller than the space in *either* direction.
+   Fixed by making these specific panels behave like a real small modal —
+   fixed position, centered on the viewport, capped height with its own
+   scroll — so it's always fully visible regardless of trigger position
+   or viewport size. The plain dropdown menu stays anchored (it's short
+   enough that the below-flip fix alone is sufficient there). */
+.note-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 29;
+}
+
 .note-menu-panel {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 10px;
   width: 280px;
-  max-width: 80vw;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
   padding: 12px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1349,14 +1370,16 @@
   z-index: 20;
 }
 
-/* Real reported bug (2026-08-07): the menu/panel/toast all default to
-   opening upward, which clips against the header for any trigger near
-   the top of the viewport — notifications hit this constantly since
-   they're compact. NoteMenu measures itself after each render and adds
-   this class when it would clip; flips bottom->top so it opens downward
-   into open space instead. */
+/* Real reported bug (2026-08-07): the dropdown/toast default to opening
+   upward, which clips against the header for any trigger near the top
+   of the viewport — notifications hit this constantly since they're
+   compact. NoteMenu measures itself after each render and adds this
+   class when it would clip; flips bottom->top so it opens downward into
+   open space instead. .note-menu-panel doesn't need this — it's fixed
+   and centered on the viewport instead (see above), which handles both
+   the "clips at top" and "too tall to fit anywhere anchored" cases at
+   once. */
 .note-menu-dropdown.note-menu-below,
-.note-menu-panel.note-menu-below,
 .note-menu-toast.note-menu-below {
   bottom: auto;
   top: calc(100% + 6px);
