@@ -47,7 +47,13 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
   const profile = useProfile(viewedPubkey)
   const { events, loading } = useNoteFeed(viewedPubkey ? [viewedPubkey] : undefined)
   const { following, followers } = useFollowCounts(viewedPubkey)
-  const { isFollowing, toggle, busy: followBusy } = useFollowing()
+  const {
+    isFollowing,
+    toggle,
+    busy: followBusy,
+    loading: followListLoading,
+    error: followError,
+  } = useFollowing()
   const nip05Verified = useNip05Verified(viewedUser, profile?.nip05)
   // Wallet balance is always the ACTIVE user's own connected NWC wallet —
   // showing it while viewing someone else's profile would misleadingly
@@ -87,10 +93,20 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
                   type="button"
                   className={`btn btn-sm ${isFollowing(viewedPubkey) ? 'btn-secondary' : 'btn-primary'}`}
                   onClick={() => toggle(viewedPubkey)}
-                  disabled={followBusy === viewedPubkey}
+                  disabled={followBusy === viewedPubkey || followListLoading}
+                  title={followListLoading ? 'Loading your follow list…' : undefined}
                 >
-                  {isFollowing(viewedPubkey) ? 'Unfollow' : 'Follow'}
+                  {followListLoading
+                    ? '…'
+                    : followBusy === viewedPubkey
+                      ? 'Updating…'
+                      : isFollowing(viewedPubkey)
+                        ? 'Unfollow'
+                        : 'Follow'}
                 </button>
+              )}
+              {followError && !isOwnProfile && (
+                <span className="alert-error follow-error">{followError}</span>
               )}
             </div>
             {npub && (

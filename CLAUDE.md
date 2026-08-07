@@ -2474,6 +2474,143 @@ VITE_GIT_SHA=...` since the version-tracking commit went in, and would
 have silently never taken effect there either until this same-day fix,
 regardless of the GitHub outage.
 
+## Follow button worked inconsistently — two real bugs, not
+infrastructure (2026-08-07)
+
+User report, directly following the outbox-aggregation incident above:
+clicking Follow on someone else's profile "sometimes works, mostly
+doesn't," no visible error. User's own working hypothesis was
+infrastructure (Fly idle/waking, shared-machine resource contention).
+
+**Found two real, distinct bugs in `useFollowing.ts`, both silent**:
+1. **No guard against toggling before the initial list fetch
+   resolved.** `toggle()` builds `nextTags` from the hook's `tags`
+   state, which starts as `[]` until `ndk.fetchEvent({kinds:[3], ...})`
+   resolves. Since kind:3 is a *replaceable* event, clicking Follow
+   before that fetch completed would have published a brand-new list
+   containing *only* the one new follow — silently overwriting the
+   user's entire real contact list. Not hypothetical: more likely to
+   actually trigger for a large list (slower fetch) or a relay under
+   load (slower still) — both real conditions for this account, this
+   week.
+2. **No error handling on the publish, and no `.catch()` at the call
+   site either** (`ProfileView.tsx`'s `onClick={() => toggle(...)}`).
+   `NDKEvent.publish()` defaults to a 2.5s per-relay timeout — tight
+   given the relay's demonstrated occasional latency under load (see the
+   outbox-aggregation incident directly above, same day). A publish that
+   took just slightly longer became a silent unhandled promise
+   rejection: no error shown, local state never updated, button
+   silently doesn't change. This is the actual, verified mechanism
+   behind "sometimes works, mostly doesn't, no visible error" — not
+   infrastructure idling (this app's Fly machines are configured
+   `auto_stop_machines = false`, always warm, confirmed already in
+   `fly.toml`), though real resource contention under load (which *was*
+   confirmed real earlier the same day) plausibly made the 2.5s default
+   time out more often than it otherwise would have.
+
+**Fixed**: `toggle()` now refuses to run while the initial fetch is
+still `loading` (Follow button shows "…" and is disabled during this
+window instead of silently risking data loss). Publish now passes an
+explicit 8s timeout (matching this project's other load-related fixes
+tonight) and is wrapped in try/catch, exposing a real `error` string the
+UI surfaces next to the button instead of swallowing it.
+
+**Found the identical pattern in `useBookmark.ts` and
+`useNip65RelayList.ts` too** (same fetch-then-republish shape, same
+missing loading-guard and error-handling gaps) — not yet fixed, flagged
+to the user as a likely-related follow-up rather than silently expanding
+scope beyond what was reported.
+
+**Verified for real, not just built clean**: `tsc -b`, `vite build`,
+`oxlint` all clean. Live end-to-end test against the local relay with a
+throwaway viewer identity that had a real pre-existing 2-follow list
+(with legacy content, matching the same preservation check other
+fetch-then-republish hooks were verified against): clicked Follow on a
+real target profile, confirmed the button updated correctly and the
+follower count incremented, then confirmed via `nak` that the published
+kind:3 event contained all 3 tags (the 2 original follows plus the new
+one) with the legacy content field byte-for-byte intact — the
+preservation logic itself was already correct, only the loading-guard
+and error-surfacing were missing. Separately verified the error-
+surfacing fix specifically: stopped the local relay, clicked Unfollow,
+and confirmed a real, visible error ("Not enough relays received the
+event (0 published, 1 required)") appeared next to the button instead
+of the previous silent no-op.
+
+## Real production incident: outbox aggregation could starve the whole
+relay's connection handling (2026-08-06)
+
+Live user report: `wss://nostras.app` WebSocket handshakes were failing
+outright with `context deadline exceeded` — not a slow query, the
+connection itself never completed.
+
+**Reproduced immediately, precisely**: a plain kind-only query worked
+fine; an authors-filtered query (the only kind that reaches outbox
+aggregation) reliably failed. Logs showed a massive, sustained flood of
+`NOTICE from wss://nos.lol: 'ERROR: too many concurrent REQs'` —
+hundreds within a minute.
+
+**Root cause**: `sys.FetchFeedPage` (go-nostr's own SDK, called from
+`server/outbox.go`) processes authors sequentially, one real network
+round-trip at a time, with no timeout of its own. A query needing
+outbox lookups for several authors against a popular relay could run
+uninterrupted for a long time. Under real concurrent traffic this piled
+up enough blocked, resource-holding goroutines to starve the relay's
+ability to even accept *new* WebSocket connections — unrelated
+connections, not just the slow query's own.
+
+**Two fixes shipped, in sequence, each validated before moving to the
+next rather than assumed sufficient**:
+1. Wrapped the `FetchFeedPage` call in `context.WithTimeout` (8s) — same
+   category as the earlier broadcast-path fix, bound worst-case blocking
+   instead of leaving it open-ended. This measurably cut the `nos.lol`
+   flood rate by roughly 95% (163 occurrences in under a minute, down to
+   ~6 over 5 minutes after deploy) — a real, verified improvement — but
+   **did not fully resolve the reported symptom**. Retested honestly
+   after shipping it, found it still failing intermittently, and kept
+   investigating rather than declaring victory on partial evidence.
+2. Investigated further and found memory dropping fast under concurrent
+   load even with the timeout in place — traced to each concurrent
+   `FetchFeedPage` call being able to open several real outbound relay
+   connections at once, adding up quickly on this machine's 512MB
+   budget. Added a semaphore capping concurrent outbox aggregation
+   operations at 6, with a 2s wait before falling back to local-only
+   results — the same graceful-degradation principle as the timeout,
+   applied to concurrency instead of duration.
+
+**A real self-correction worth recording, not smoothing over**: while
+diagnosing this live, ran dozens of rapid-fire test queries against
+production in quick succession — itself real concurrent load,
+plausibly contributing to some of the instability being diagnosed at
+the time, not purely observed from the outside. Also made a genuine
+metrics-reading mistake mid-investigation: alarmed at a `MemFree`
+reading of ~5-27MB and treated it as severe exhaustion, without
+initially cross-checking `MemAvailable` (the metric that actually
+reflects reclaimable page-cache memory, which Linux deliberately uses
+"free" RAM for). A later, careful re-check found `MemAvailable` was
+consistently in a reasonable range (~120-210MB) even when `MemFree`
+looked alarming — the earlier severity read was overstated for at least
+some of those checkpoints. Corrected the record rather than let an
+overstated interpretation stand.
+
+**Verified for real, deliberately minimally this time** (learning from
+the point above — a single spaced-out check, not another test barrage):
+after the second fix deployed, the exact query pattern that was failing
+returned real events correctly. `flyctl status` showed both processes
+healthy; `MemAvailable` was in the normal range on a fresh post-deploy
+check.
+
+**Honest open point**: given real user-generated load and this
+project's own diagnostic testing were intermixed throughout this
+incident, the *precise* contribution of each to the observed load
+spikes isn't cleanly separable after the fact. The two code fixes are
+real, sound, and independently justified by direct source-level
+analysis regardless (bounding a previously-unbounded operation is
+correct on its own merits) — but "is this now fully resolved under real
+production load with zero further tuning needed" isn't something this
+session can certify with full confidence, only "meaningfully improved
+and verified working in the specific scenario that was reported."
+
 ## khatru broadcast-path fix: deployed to production, verified for real
 (2026-08-06)
 
