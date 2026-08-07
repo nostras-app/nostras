@@ -76,10 +76,14 @@ export function SearchView() {
         </button>
       </div>
       <p className="field-hint">
-        Searches notes published to the local relay (NIP-50) — public-relay
-        content only shows up here once it's touched the local relay some
-        other way. Pasting a pubkey (hex, npub, or nprofile) instead opens
-        that profile directly.
+        Nostr has no central search index — every relay only knows what's
+        been published to it, so this searches notes that reached
+        NOSTRAS's own relay (via NIP-50, the protocol's search extension),
+        not the whole network. Your Nostr identity is a single key, just
+        shown in different reversible formats — hex (raw), npub (the
+        shareable form you'll usually see), nprofile (npub plus relay
+        hints). Paste any of the three here to jump straight to that
+        profile.
       </p>
 
       {state === 'idle' && (
