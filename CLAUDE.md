@@ -4013,6 +4013,58 @@ changes. Deployed via the usual CI path; confirmed live via the
 production bundle containing both fixes' error strings and the
 deploying commit's SHA.
 
+## Same fix applied to useBookmark.ts, plus a real data-loss risk it
+had that the other two didn't (2026-08-08)
+
+Direct follow-up, same session: `useBookmark.ts` had already been
+flagged (in the `useFollowing.ts` fix entry) as having "the identical
+pattern" — but on closer look it actually had **both** of
+`useFollowing`'s original bugs, not just the timeout/error one already
+fixed twice above. `toggle()` had no guard against running before the
+initial fetch of the existing bookmark list resolved — `listEvent`
+starts `null` until that fetch completes, so `existingTags =
+listEvent?.tags ?? []` would be `[]`, and since kind:10003 is
+replaceable, bookmarking a note before the fetch resolved would have
+silently overwritten the user's **entire real bookmark list** with
+just the one new entry. Real risk, not hypothetical — the bookmark
+button in `EngagementBar.tsx` was only ever `disabled={bookmarkBusy}`,
+never gated on fetch-in-flight state.
+
+Fixed both: the same `PUBLISH_TIMEOUT_MS = 8000` + try/catch/error
+pattern, plus a `loading` state mirroring `useFollowing.ts`'s own fix,
+with `toggle()` refusing to run while `loading`. `EngagementBar.tsx`
+now disables the bookmark button on `bookmarkLoading` too, and
+surfaces `bookmarkError` via the standard `alert-error` class — forced
+onto its own line with a new `.engage-error { flex-basis: 100% }` rule
+in the already `flex-wrap` engagement row, so a long error message
+doesn't squeeze awkwardly into the compact 8-icon row instead of
+wrapping cleanly.
+
+**Verified for real, both fixes together, not separately**: seeded a
+throwaway identity's real kind:10003 list via `nak` with one existing
+bookmark's `e` tag plus an unrelated legacy tag, confirmed the app's
+own bookmark icon correctly rendered that note as already-bookmarked
+on load. Killed the local relay and toggled a bookmark on a *second*
+note — confirmed a real error appeared ("Not enough relays received
+the event...") instead of a hang, and the first note's bookmark state
+was untouched. Restarted the relay and toggled the same second note
+again — confirmed success, then queried the relay directly via `nak`
+(not trusted from the UI icon color alone) and verified the resulting
+kind:10003 event preserved the original `e` tag and the unrelated tag
+byte-for-byte while correctly appending the new `e` tag — proving the
+loading-guard didn't just prevent the crash scenario but that the
+underlying tag-preservation logic (already correct before this fix)
+still works unchanged. `tsc -b`, `oxlint`, `vite build` all clean.
+Deployed via the usual CI path; confirmed live via the production
+bundle containing the new error string and the deploying commit's SHA.
+
+**`useBookmark`/`useNip65RelayList`/`useFollowing` now share the
+identical fetch-then-republish safety shape** — loading guard, 8s
+explicit timeout, try/catch surfaced as a real `error` state, success
+only assumed after a genuine resolved publish. Worth using as the
+reference pattern for any *future* hook with this same shape, rather
+than re-deriving it.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
