@@ -8,6 +8,7 @@ import { useFollowing } from '../hooks/useFollowing'
 import { useNip05Verified } from '../hooks/useNip05Verified'
 import { useWalletBalance } from '../hooks/useWalletBalance'
 import { FeedItem, FeedSkeleton } from './Feed'
+import { FollowListModal } from './FollowListModal'
 import { UserIcon, CheckCircleIcon, ZapCircleIcon } from './icons'
 import { parseContentSegments, shortenUrl } from '../lib/parseContent'
 
@@ -46,7 +47,8 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
   )
   const profile = useProfile(viewedPubkey)
   const { events, loading } = useNoteFeed(viewedPubkey ? [viewedPubkey] : undefined)
-  const { following, followers } = useFollowCounts(viewedPubkey)
+  const { following, followers, followingPubkeys, followerPubkeys } = useFollowCounts(viewedPubkey)
+  const [listModal, setListModal] = useState<'following' | 'followers' | null>(null)
   const {
     isFollowing,
     toggle,
@@ -118,12 +120,24 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
               <p className="profile-about">{renderAbout(profile.about)}</p>
             )}
             <div className="profile-stats">
-              <span title="Based on what's visible across connected relays, not the whole network">
+              <button
+                type="button"
+                className="profile-stat-btn"
+                onClick={() => setListModal('following')}
+                disabled={following === null || following === 0}
+                title="Based on what's visible across connected relays, not the whole network"
+              >
                 <strong>{following ?? '—'}</strong> Following
-              </span>
-              <span title="Based on what's visible across connected relays, not the whole network">
+              </button>
+              <button
+                type="button"
+                className="profile-stat-btn"
+                onClick={() => setListModal('followers')}
+                disabled={followers === 0}
+                title="Based on what's visible across connected relays, not the whole network"
+              >
                 <strong>{followers ?? '—'}</strong> Followers
-              </span>
+              </button>
               {profile?.nip05 && (
                 <span
                   className={`profile-nip05 ${nip05Verified ? 'verified' : 'unverified'}`}
@@ -168,6 +182,14 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
           </ul>
         )}
       </div>
+
+      {listModal && (
+        <FollowListModal
+          title={listModal === 'following' ? 'Following' : 'Followers'}
+          pubkeys={listModal === 'following' ? followingPubkeys : followerPubkeys}
+          onClose={() => setListModal(null)}
+        />
+      )}
     </div>
   )
 }

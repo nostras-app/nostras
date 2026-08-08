@@ -832,6 +832,24 @@
   font-weight: 700;
 }
 
+.profile-stat-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.profile-stat-btn:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.profile-stat-btn:disabled {
+  cursor: default;
+}
+
 .profile-nip05,
 .profile-balance {
   display: inline-flex;
@@ -1395,6 +1413,57 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: var(--shadow);
+}
+
+/* ---------- Follow list modal (Following/Followers popup) ---------- */
+
+.follow-list-modal {
+  width: 360px;
+}
+
+.follow-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.follow-list-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.follow-list-close:hover {
+  color: var(--text-h);
+}
+
+.follow-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.follow-list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.follow-list-name-btn {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .note-menu-toast {
