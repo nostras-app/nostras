@@ -19,8 +19,13 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
   const likeCount = useEventCount(event.id, 7)
   const repostCount = useEventCount(event.id, 6)
   const replyCount = useEventCount(event.id, 1)
-  const { isBookmarked, toggle: toggleBookmark, busy: bookmarkBusy } =
-    useBookmark(event.id)
+  const {
+    isBookmarked,
+    toggle: toggleBookmark,
+    busy: bookmarkBusy,
+    loading: bookmarkLoading,
+    error: bookmarkError,
+  } = useBookmark(event.id)
 
   const [liked, setLiked] = useState(false)
   const [reposted, setReposted] = useState(false)
@@ -120,7 +125,7 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
           type="button"
           className={`engage-btn engage-btn-bookmark${isBookmarked ? ' engage-btn-active' : ''}`}
           onClick={toggleBookmark}
-          disabled={bookmarkBusy}
+          disabled={bookmarkBusy || bookmarkLoading}
           title={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
         >
           <BookmarkIcon filled={isBookmarked} />
@@ -131,6 +136,7 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
         </span>
         <TranslateButton event={event} />
         <NoteMenu event={event} />
+        {bookmarkError && <span className="alert-error engage-error">{bookmarkError}</span>}
       </div>
 
       {replying && (

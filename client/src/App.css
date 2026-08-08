@@ -1141,6 +1141,10 @@
   position: relative;
 }
 
+.engage-error {
+  flex-basis: 100%;
+}
+
 .engage-btn {
   display: inline-flex;
   align-items: center;
