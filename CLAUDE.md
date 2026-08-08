@@ -3579,6 +3579,44 @@ production CSS bundle at `app.nostras.app` contains
 `relay-result-success` and `relay-result-pending`, and the JS bundle
 contains `relay:publish:failed`.
 
+## DVM outage: alive but unable to mint invoices — NWC connection to the
+wallet's relay dropped, not the usual "process silently exited" pattern
+(2026-08-08)
+
+Found while routinely checking DVM health after unrelated distribution
+work — `flyctl status --app nostras` showed the `dvm` machine as
+`started`, which past incidents in this file already established isn't
+sufficient proof of a working DVM. Sent a real `kind:5050` job via `nak`
+to confirm, and got a genuine `kind:7000` response back — but `status:
+error`, `content: "could not create invoice: not connected to
+wss://relay.getalby.com"`. This is a **new, distinct failure mode** from
+every previous DVM incident logged in this file: the process itself was
+genuinely up, correctly subscribed, and correctly received/processed the
+job — only its NWC connection to the operator wallet's relay
+(`relay.getalby.com`) had dropped, so `make_invoice` had nowhere to go.
+Every real paid job request during this window would have failed with
+an explicit error rather than the usual silent non-response.
+
+**Fixed the standard way**: `flyctl machine restart` on the `dvm`
+machine (`48ee96ece456e8`). **Verified for real, not just via
+`flyctl status`**: a fresh `kind:5050` test job after the restart got a
+genuine `payment-required` with a real bolt11 invoice (confirming the
+NWC connection came back), followed by the correct `"payment not
+received in time"` error exactly 2 minutes later since the invoice was
+deliberately never paid — same standing rule as every other DVM
+verification in this project, Claude only ever triggers the
+request/invoice side.
+
+**Worth remembering alongside the other DVM incidents in this file**:
+`flyctl status` showing `started` now has at least three known failure
+modes that still look healthy from the outside — the boot-vs-DNS race
+(self-recovers), the silent clean-exit-on-disconnect bug (fixed via the
+DVM reconnection-loop rewrite), and now a dropped NWC relay connection
+specific to the payment path. A real job round-trip remains the only
+verification that actually distinguishes "healthy" from "running but
+broken," which is exactly why `uptime-check.yml` exercises one instead
+of a plain HTTP ping.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
