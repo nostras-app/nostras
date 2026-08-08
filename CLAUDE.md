@@ -3801,6 +3801,52 @@ resolved). `tsc -b`, `vite build`, `oxlint` all clean. Deployed via the
 usual CI path; confirmed live via the production bundle containing the
 `follow-list-modal` class.
 
+## Real Log off action added — there was previously no way to log off
+at all (2026-08-08)
+
+User-reported gap: nothing in Settings actually returned to AuthGate's
+initial choice screen. The existing Signer "Disconnect" button
+(`remoteSigner.ts`, predates `AuthGate`) is scoped specifically to
+swapping *away from* a NIP-46/07 signer, and silently falls back to
+the dev key rather than presenting a real choice — and there was no
+disconnect/logoff affordance at all for someone already on the dev-key
+path, since `SignerConnect.tsx` only renders its connected/disconnect
+UI when a saved remote-signer mode exists.
+
+**Implementation**: `client/src/lib/authState.ts` (new) moves
+`authState` out of `App.tsx`'s local `useState` into a shared
+module-level store — same `useSyncExternalStore` pattern already used
+by `lib/navigation.ts` — since the new `logOff()` needs to flip it
+back to `'needs-choice'` from deep inside the settings panel
+(`AccountSettings.tsx`, a new bottom-of-Settings section) without
+prop-drilling a callback down through every intermediate component.
+`logOff()` clears any NIP-46/07 session (`remoteSigner.ts` gained an
+exported `clearSignerSession()`, split out from `disconnectSigner()`
+so logging off doesn't inherit its dev-key-fallback behavior) and sets
+`ndk.signer = undefined`, then flips `authState` — AuthGate renders
+immediately, no page reload needed, since the whole `<main>` block is
+gated on `state === 'connected' && authState === 'ready'` and
+unmounts/remounts cleanly off that condition already.
+
+**Deliberately does not delete the dev-key identity from
+localStorage** — `signer.ts`'s `getDevSigner()` already returns the
+existing key if one is present rather than minting a fresh one, so
+choosing "Continue anonymously" again after logging off seamlessly
+restores the exact same identity. Actually forgetting a key forever
+would be a much more consequential, separate action, not something a
+plain "log off" should do as a side effect — this was a deliberate
+scope decision, not an oversight.
+
+**Verified live in local dev, not just built clean**: `tsc -b`,
+`vite build`, `oxlint` all clean. Logged in with the dev-key identity,
+confirmed the `nsec` in `localStorage` before clicking Log off,
+confirmed AuthGate rendered immediately in the same session, clicked
+"Continue anonymously" again, and confirmed the exact same `nsec`
+prefix was restored (not regenerated) — proving both halves of the
+behavior, not just the visible transition. Deployed via the usual CI
+path; confirmed live via the production bundle containing the "Log
+off" string.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
