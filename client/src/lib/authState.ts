@@ -38,13 +38,13 @@ export function useAuthState(): AuthState {
 // active ndk.signer entirely, then flips back to 'needs-choice' so
 // AuthGate renders again.
 //
-// Deliberately does NOT delete the dev-key identity from localStorage —
-// signer.ts's getDevSigner() already returns the existing key if one is
-// present rather than minting a fresh one, so choosing "Continue
-// anonymously" again after logging off seamlessly restores the exact
-// same identity. Actually forgetting/discarding a key forever would be a
-// much more consequential, separate action, not something a plain
-// "log off" should do as a side effect.
+// Deliberately does NOT delete any local identity from localStorage —
+// identities.ts's getActiveIdentitySigner() already returns the active
+// saved identity if one is present rather than minting a fresh one, so
+// choosing "Continue anonymously" again after logging off seamlessly
+// restores the exact same identity. Actually forgetting/discarding a key
+// forever would be a much more consequential, separate action, not
+// something a plain "log off" should do as a side effect.
 export function logOff() {
   clearSignerSession()
   ndk.signer = undefined

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ndk } from './lib/ndk'
-import { getDevSigner, hasStoredDevSigner } from './lib/signer'
+import { getActiveIdentitySigner, hasAnyLocalIdentity } from './lib/identities'
 import { restoreSignerSession } from './lib/remoteSigner'
 import { resolveDeepLinkFromUrl } from './lib/deeplink'
 import { setAuthState, useAuthState } from './lib/authState'
@@ -24,6 +24,7 @@ import { PushNotificationSettings } from './components/PushNotificationSettings'
 import { InstallPwaSettings } from './components/InstallPwaSettings'
 import { AboutSettings } from './components/AboutSettings'
 import { AccountSettings } from './components/AccountSettings'
+import { IdentitySettings } from './components/IdentitySettings'
 import { AboutView } from './components/AboutView'
 import { NavRail, type View } from './components/NavRail'
 import { setActiveView, useNavState } from './lib/navigation'
@@ -76,8 +77,8 @@ function App() {
         if (cancelled) return
         if (restored) {
           setAuthState('ready')
-        } else if (hasStoredDevSigner()) {
-          ndk.signer = getDevSigner()
+        } else if (hasAnyLocalIdentity()) {
+          ndk.signer = getActiveIdentitySigner()
           setAuthState('ready')
         } else {
           setAuthState('needs-choice')
@@ -190,6 +191,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Notifications</span>
                 <PushNotificationSettings />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Identities</span>
+                <IdentitySettings />
               </div>
               <div className="settings-section">
                 <span className="settings-section-title">Signer</span>

@@ -73,8 +73,8 @@ export function SignerConnect() {
   return (
     <div className="stack">
       <p className="field-hint">
-        Signing with a temporary local dev key. Connect a real signer
-        instead:
+        Signing with a local key stored in this browser (see Identities
+        above). Connect a real signer instead:
       </p>
       <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
         <button

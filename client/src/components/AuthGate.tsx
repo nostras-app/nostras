@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ndk } from '../lib/ndk'
-import { getDevSigner } from '../lib/signer'
+import { getActiveIdentitySigner, createIdentity, importIdentity } from '../lib/identities'
 import { connectBunker, connectExtension, hasNip07Extension } from '../lib/remoteSigner'
 
 type Step = 'choice' | 'login' | 'created'
@@ -12,14 +12,17 @@ export function AuthGate({ onReady }: { onReady: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [newNsec, setNewNsec] = useState('')
   const [copied, setCopied] = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [importNsec, setImportNsec] = useState('')
+  const [importError, setImportError] = useState<string | null>(null)
 
   function handleAnonymous() {
-    ndk.signer = getDevSigner()
+    ndk.signer = getActiveIdentitySigner()
     onReady()
   }
 
   function handleCreateAccount() {
-    const signer = getDevSigner()
+    const { signer } = createIdentity()
     setNewNsec(signer.nsec)
     ndk.signer = signer
     setStep('created')
@@ -49,6 +52,18 @@ export function AuthGate({ onReady }: { onReady: () => void }) {
       setError(e instanceof Error ? e.message : 'Failed to connect extension')
     } finally {
       setBusy(false)
+    }
+  }
+
+  function handleImport() {
+    if (!importNsec.trim()) return
+    setImportError(null)
+    try {
+      const { signer } = importIdentity(importNsec.trim())
+      ndk.signer = signer
+      onReady()
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : 'Could not import that key')
     }
   }
 
@@ -141,12 +156,57 @@ export function AuthGate({ onReady }: { onReady: () => void }) {
               </button>
             </div>
             {error && <p className="alert-error">{error}</p>}
+
+            {!showImport ? (
+              <button
+                type="button"
+                className="auth-gate-import-toggle"
+                onClick={() => setShowImport(true)}
+              >
+                Import an existing key instead (advanced)
+              </button>
+            ) : (
+              <div className="stack auth-gate-import">
+                <p className="alert-error">
+                  Pasting a private key into any website is generally
+                  unsafe — a bunker or browser extension above never
+                  exposes your key to the page at all. Only do this if
+                  you understand the risk and trust this device. The key
+                  stays local to this browser, same as everything else
+                  here — NOSTRAS never sends it anywhere.
+                </p>
+                <input
+                  className="input"
+                  type="password"
+                  value={importNsec}
+                  onChange={(e) => {
+                    setImportNsec(e.target.value)
+                    setImportError(null)
+                  }}
+                  placeholder="nsec1..."
+                  autoComplete="off"
+                />
+                {importError && <p className="alert-error">{importError}</p>}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleImport}
+                  disabled={!importNsec.trim()}
+                >
+                  Import key
+                </button>
+              </div>
+            )}
+
             <button
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => {
                 setStep('choice')
                 setError(null)
+                setShowImport(false)
+                setImportNsec('')
+                setImportError(null)
               }}
             >
               Back
@@ -165,6 +225,11 @@ export function AuthGate({ onReady }: { onReady: () => void }) {
             <button type="button" className="btn btn-secondary" onClick={handleCopyNsec}>
               {copied ? 'Copied' : 'Copy key'}
             </button>
+            <p className="field-hint">
+              Saved to this browser too — you can switch back to it, or
+              to any other identity you add later, from Settings &gt;
+              Identities.
+            </p>
             <button type="button" className="btn btn-primary" onClick={onReady}>
               I've saved it — continue
             </button>

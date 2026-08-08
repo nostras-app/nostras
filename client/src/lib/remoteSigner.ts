@@ -1,6 +1,6 @@
 import { NDKNip46Signer, NDKNip07Signer, type NDKUser } from '@nostr-dev-kit/ndk'
 import { ndk } from './ndk'
-import { getDevSigner } from './signer'
+import { getActiveIdentitySigner } from './identities'
 
 const MODE_KEY = 'nostras:signer-mode'
 const URI_KEY = 'nostras:remote-signer-uri'
@@ -159,5 +159,5 @@ export async function restoreSignerSession() {
 
 export function disconnectSigner() {
   clearSignerSession()
-  ndk.signer = getDevSigner()
+  ndk.signer = getActiveIdentitySigner()
 }
