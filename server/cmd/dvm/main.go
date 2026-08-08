@@ -37,6 +37,15 @@ const (
 	kindJobResultGenerate   = 6050
 	kindJobFeedback         = 7000
 
+	// NIP-89 handler information event, reused by NIP-90 (Appendix 2:
+	// "Service provider discoverability") to advertise a DVM's supported
+	// job kinds so clients that aren't NOSTRAS can discover and pay this
+	// DVM directly, without ever installing the app. Republished (as a
+	// replaceable event, same `d` tag) on every relay connection — see
+	// runDVM — so it stays fresh and self-heals if a relay ever drops it.
+	kindHandlerAnnouncement = 31990
+	dvmHandlerDTag          = "nostras-dvm"
+
 	dvmModel     = "claude-opus-5"
 	dvmMaxTokens = 2048
 
@@ -183,6 +192,8 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk st
 	defer relay.Close()
 	markRelayConnected(true)
 	defer markRelayConnected(false)
+
+	publishHandlerAnnouncement(ctx, relay, sk)
 
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{
@@ -427,6 +438,44 @@ func callClaude(ctx context.Context, claude anthropic.Client, systemPrompt, user
 		}
 	}
 	return "", fmt.Errorf("no text content in response")
+}
+
+// publishHandlerAnnouncement advertises this DVM per NIP-89/NIP-90's
+// service-provider-discoverability appendix: a single kind:31990 event
+// listing every job kind this DVM handles, so a generic NIP-90-aware
+// client or marketplace can find and pay it directly. Content is static
+// (kind:0-style JSON), deliberately not a live price — the actual price
+// is dynamic per job (see estimateJobCostSats), so the description gives
+// a representative price band instead of a number that would go stale.
+func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk string) {
+	content, err := json.Marshal(struct {
+		Name    string `json:"name"`
+		About   string `json:"about"`
+		Picture string `json:"picture"`
+		Website string `json:"website"`
+	}{
+		Name:    "NOSTRAS DVM",
+		About:   "Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes.",
+		Picture: "https://app.nostras.app/pwa-512x512.png",
+		Website: "https://nostras.app",
+	})
+	if err != nil {
+		fmt.Println("handler announcement marshal error:", err)
+		return
+	}
+
+	evt := nostr.Event{
+		Kind:      kindHandlerAnnouncement,
+		CreatedAt: nostr.Now(),
+		Content:   string(content),
+		Tags: nostr.Tags{
+			{"d", dvmHandlerDTag},
+			{"k", strconv.Itoa(kindJobRequestSummarize)},
+			{"k", strconv.Itoa(kindJobRequestTranslate)},
+			{"k", strconv.Itoa(kindJobRequestGenerate)},
+		},
+	}
+	signAndPublish(ctx, relay, sk, evt)
 }
 
 func publishFeedback(ctx context.Context, relay *nostr.Relay, sk string, req *nostr.Event, status, message string) {
