@@ -3579,6 +3579,46 @@ production CSS bundle at `app.nostras.app` contains
 `relay-result-success` and `relay-result-pending`, and the JS bundle
 contains `relay:publish:failed`.
 
+## Ask Claude nav icon redesigned, card avatar dropped, real explainer
+copy added (2026-08-08)
+
+User feedback on the Ask Claude card: the nav rail's single-star
+`SparkleIcon` read too much like a generic decoration rather than a
+feature affordance, the card's own circular avatar (same icon, right
+next to the nav rail one) was redundant and added nothing, and the
+card's copy never actually explained what it was or what it cost —
+just "Ask anything…" and a bare model name.
+
+**Icon**: `SparkleIcon` (single eight-point burst) replaced everywhere
+by a new `SparklesIcon` (a two-star cluster — one large star plus a
+smaller companion) in `icons.tsx`, matching the visual shorthand most
+AI products use and staying distinct at nav-rail size from a plain
+single burst. `NavRail.tsx` updated to use it; `AskClaudeCard.tsx`'s
+`.ask-claude-avatar` circle removed entirely (and its now-dead CSS)
+rather than swapped, since `composer-body` alone in the flex row
+already fills the space correctly with no layout change needed.
+
+**Copy**: added a short explainer above the textarea naming the actual
+mechanism and value prop for this audience — "Powered by a NIP-90 Data
+Vending Machine — a Claude worker that takes jobs over Nostr and gets
+paid in sats, per question. No account, no subscription, nothing
+retained beyond your prompt. Job doesn't finish, you don't pay." Chosen
+over two longer alternatives drafted first (a more audience-value-
+forward paragraph, and a one-line tagline) as the best balance of
+teaching the NIP-90 mechanic by name while staying short enough to fit
+above the existing "Model: claude-opus-5" line rather than replacing it.
+
+**Verified live in local dev**: `tsc -b`, `vite build`, `oxlint` all
+clean; confirmed in a real browser that the nav icon renders crisply as
+a genuine two-star cluster at actual nav-rail size (zoomed screenshot,
+not just eyeballed at full size), and that the card renders the new
+copy with no layout issues. Deployed via the usual CI path; confirmed
+live via the production bundle containing the new explainer string and
+zero remaining occurrences of the old `ask-claude-avatar` class (a
+first grep check was a false positive from broken shell-pipeline exit-
+code logic — `head -1` on empty input still exits 0 — caught and
+re-verified with a proper `grep -c` count before trusting the result).
+
 ## DVM outage: alive but unable to mint invoices — NWC connection to the
 wallet's relay dropped, not the usual "process silently exited" pattern
 (2026-08-08)
