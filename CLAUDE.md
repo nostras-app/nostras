@@ -3938,6 +3938,31 @@ now that the local identity can be a real user-imported key — updated
 to reference Settings > Identities instead. Deployed via the usual CI
 path; confirmed live via a clean `deploy-client.yml` run.
 
+## Known future idea, not started: video/voice calls (2026-08-08)
+
+Prompted by the user asking to research a Nostr+Lightning video-calling
+app (HiveTalk, `honey.hivetalk.org`) and whether NOSTRAS could build
+something similar. **Research only — no code, no roadmap slot, nothing
+scheduled.** Full feasibility writeup lives in
+`nostr-client-node-strategy.md`'s "Exploratory: video/voice calls"
+section (gitignored, local-only file — see the strategy doc itself for
+the complete reasoning, options, and stack-fit analysis).
+
+**The one-line takeaway worth remembering here**: unlike every service
+this project has actually shipped (DVMs, zaps, search, NIP-65
+aggregation), there is no ratified NIP for WebRTC call signaling — and
+even HiveTalk, the most Nostr-forward video app researched, doesn't
+attempt Nostr-native signaling. Its actual call engine
+(`hivetalksfu`, an AGPL-3.0 fork/collaboration with MiroTalk SFU) is a
+conventional Node.js/mediasoup SFU; Nostr is layered on only for login
+and Lightning payment. If this is ever picked up, the strategy doc's
+recommendation is to follow that same shape (Nostr for identity/NWC,
+reusing infrastructure NOSTRAS already has, a dedicated SFU for the
+actual media) rather than inventing Nostr-native signaling from
+scratch — and to evaluate **LiveKit** (Go + `pion/webrtc`) over
+mediasoup specifically because `server/` is otherwise 100% Go and
+mediasoup would fork the runtime.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
