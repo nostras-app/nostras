@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { requestDvmJob, type DvmJobUpdate } from '../lib/dvm'
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
-import { SparkleIcon } from './icons'
 
 const KIND_JOB_REQUEST_GENERATE = 5050
 const KIND_JOB_RESULT_GENERATE = 6050
@@ -80,10 +79,13 @@ export function AskClaudeCard() {
 
   return (
     <div className="ask-claude">
-      <span className="ask-claude-avatar">
-        <SparkleIcon />
-      </span>
       <div className="composer-body">
+        <p className="field-hint">
+          Powered by a NIP-90 Data Vending Machine — a Claude worker that
+          takes jobs over Nostr and gets paid in sats, per question. No
+          account, no subscription, nothing retained beyond your prompt.
+          Job doesn't finish, you don't pay.
+        </p>
         <textarea
           className="textarea"
           value={prompt}

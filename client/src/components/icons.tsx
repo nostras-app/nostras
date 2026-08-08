@@ -126,17 +126,16 @@ export function MoreIcon({ className }: IconProps) {
   )
 }
 
-// Generic AI-sparkle glyph — not a reproduction of any trademarked logo,
-// just an eight-point starburst (two overlaid four-point stars, 45°
-// apart) evoking the "ask the model" affordance.
-export function SparkleIcon({ className }: IconProps) {
+// Generic AI-sparkle-cluster glyph — not a reproduction of any
+// trademarked logo. A large four-point star plus a smaller companion
+// star, the same visual shorthand most AI product icons use (distinct
+// at nav-rail size from a plain single starburst, which read too much
+// like a generic decoration rather than a feature affordance).
+export function SparklesIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
-      <path d="M12 2 14 10 22 12 14 14 12 22 10 14 2 12 10 10Z" />
-      <path
-        d="M12 2 14 10 22 12 14 14 12 22 10 14 2 12 10 10Z"
-        transform="rotate(45 12 12)"
-      />
+      <path d="M9 8 10.8 13.2 16 15 10.8 16.8 9 22 7.2 16.8 2 15 7.2 13.2Z" />
+      <path d="M18 2.5 19.1 5.9 22.5 7 19.1 8.1 18 11.5 16.9 8.1 13.5 7 16.9 5.9Z" />
     </svg>
   )
 }

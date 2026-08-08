@@ -8,7 +8,7 @@ import {
   UserIcon,
   UsersIcon,
   BookmarkIcon,
-  SparkleIcon,
+  SparklesIcon,
   SettingsIcon,
   InfoIcon,
   PencilIcon,
@@ -114,7 +114,7 @@ export function NavRail({
         onClick={() => onSelect('ask-claude')}
         title="Ask Claude"
       >
-        <SparkleIcon />
+        <SparklesIcon />
       </button>
       <button
         type="button"
