@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ndk } from './lib/ndk'
 import { getDevSigner, hasStoredDevSigner } from './lib/signer'
 import { restoreSignerSession } from './lib/remoteSigner'
+import { resolveDeepLinkFromUrl } from './lib/deeplink'
 import { AuthGate } from './components/AuthGate'
 import { ComposeView } from './components/ComposeView'
 import { ArticleView } from './components/ArticleView'
@@ -38,6 +39,7 @@ function App() {
   // without prop-drilling a callback through every component that
   // renders one.
   const { view: activeView, profilePubkey, article, dmTarget } = useNavState()
+  const deepLinkResolved = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -88,6 +90,21 @@ function App() {
       cancelled = true
     }
   }, [])
+
+  // Resolves a `?nostr=<naddr1...>` deep link (the client half of the
+  // DVM's NIP-89 handler announcement — see deeplink.ts) once the relay
+  // pool is connected and a signer/identity is settled, so ndk.fetchEvent
+  // has something real to query against. Guarded by a ref rather than an
+  // empty dep array alone since this effect's own condition (state/
+  // authState both ready) can legitimately become true more than once
+  // across renders — the ref is what actually prevents re-resolving on
+  // every subsequent render once it's already run.
+  useEffect(() => {
+    if (deepLinkResolved.current) return
+    if (state !== 'connected' || authState !== 'ready') return
+    deepLinkResolved.current = true
+    resolveDeepLinkFromUrl()
+  }, [state, authState])
 
   function panelClass(view: View) {
     return `view-panel${activeView === view ? ' view-panel-active' : ''}`

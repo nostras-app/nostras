@@ -46,6 +46,17 @@ const (
 	kindHandlerAnnouncement = 31990
 	dvmHandlerDTag          = "nostras-dvm"
 
+	// A second, separate kind:31990 (same event kind, different `d` tag)
+	// advertising the NOSTRAS *client's* own NIP-23 article viewer, not
+	// the DVM's job kinds — the app-level "enabler" NIP alongside the
+	// DVM's service-provider one. Published by this same DVM identity
+	// since it's the one stable, always-on server-side process this
+	// project has; NOSTRAS itself has no single canonical identity (every
+	// end user brings their own key), so there's nothing else that could
+	// durably publish an app-level fact like this instead.
+	dvmClientHandlerDTag = "nostras-client"
+	kindArticle          = 30023
+
 	dvmModel     = "claude-opus-5"
 	dvmMaxTokens = 2048
 
@@ -194,6 +205,7 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk st
 	defer markRelayConnected(false)
 
 	publishHandlerAnnouncement(ctx, relay, sk)
+	publishClientHandlerAnnouncement(ctx, relay, sk)
 
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{
@@ -473,6 +485,46 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk stri
 			{"k", strconv.Itoa(kindJobRequestSummarize)},
 			{"k", strconv.Itoa(kindJobRequestTranslate)},
 			{"k", strconv.Itoa(kindJobRequestGenerate)},
+		},
+	}
+	signAndPublish(ctx, relay, sk, evt)
+}
+
+// publishClientHandlerAnnouncement advertises NOSTRAS the client (not the
+// DVM) as a NIP-23 (kind:30023) long-form article handler, per the same
+// NIP-89 mechanism — deliberately scoped to just this one kind, the
+// genuinely differentiated capability NOSTRAS adds (real compose + reading
+// view), rather than also claiming kind:0/kind:1, which every baseline
+// client already handles and isn't the "unknown event-kind" scenario
+// NIP-89 exists for. The `web` tag's <bech32> placeholder is filled in by
+// the discovering client per NIP-89 with a real naddr; client/src/lib/
+// deeplink.ts is what makes that URL actually resolve once someone lands
+// on it, via the same `?nostr=` query param.
+func publishClientHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk string) {
+	content, err := json.Marshal(struct {
+		Name    string `json:"name"`
+		About   string `json:"about"`
+		Picture string `json:"picture"`
+		Website string `json:"website"`
+	}{
+		Name:    "NOSTRAS",
+		About:   "A Nostr PWA client with real NIP-23 long-form article support — compose and read articles inline, not just plain text.",
+		Picture: "https://app.nostras.app/pwa-512x512.png",
+		Website: "https://app.nostras.app",
+	})
+	if err != nil {
+		fmt.Println("client handler announcement marshal error:", err)
+		return
+	}
+
+	evt := nostr.Event{
+		Kind:      kindHandlerAnnouncement,
+		CreatedAt: nostr.Now(),
+		Content:   string(content),
+		Tags: nostr.Tags{
+			{"d", dvmClientHandlerDTag},
+			{"k", strconv.Itoa(kindArticle)},
+			{"web", "https://app.nostras.app/?nostr=<bech32>", "naddr"},
 		},
 	}
 	signAndPublish(ctx, relay, sk, evt)
