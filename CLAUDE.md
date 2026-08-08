@@ -3661,6 +3661,65 @@ the new version, and a direct `nak req -k 31990 wss://nostras.app`
 against production confirmed the real DVM identity is publishing the
 announcement with the correct tags and content live.
 
+## NOSTRAS advertised as a NIP-23 handler too, plus a real client-side
+outbox bug found only by testing against production (2026-08-08)
+
+Direct follow-up, same session: a second kind:31990 (`server/cmd/dvm/
+main.go`, same DVM identity, `d` tag `nostras-client` instead of
+`nostras-dvm`) advertising NOSTRAS the *client* as a kind:30023
+(long-form article) handler — the genuinely differentiated view
+capability, deliberately not also claiming kind:0/1 which every
+baseline client already handles and isn't the "unknown event-kind"
+scenario NIP-89 exists for. Its `web` tag
+(`https://app.nostras.app/?nostr=<bech32>`) only has real value if that
+URL actually resolves, so `client/src/lib/deeplink.ts` (new) parses a
+`?nostr=<naddr1...>` query param on boot and turns it into a real
+`viewArticle()` navigation, wired into `App.tsx` once the relay pool is
+connected and a signer is settled.
+
+**Real bug caught only by testing against the actual deployed site, not
+local dev — worth remembering as a general lesson, not just this
+feature**: the naddr redirect worked perfectly in local dev (including
+local dev deliberately pointed at the real production relay via
+`VITE_RELAY_URL=wss://nostras.app`, to rule out a relay-side cause) but
+silently failed — no thrown error, just no navigation — on the actual
+deployed `app.nostras.app`, reproduced consistently across multiple
+fresh tabs. Root cause, found by reading NDK's own behavior rather than
+guessing: `deeplink.ts`'s query has `authors` set
+(`{kinds:[30023], authors:[pubkey], '#d':[identifier]}`), and an
+authors-filtered `fetchEvent` with no explicit relay set can trigger
+NDK's own client-side outbox-relay resolution — for a throwaway test
+key with no discoverable NIP-65 list, that resolution finds nothing,
+and returns null silently instead of falling back to the app's own
+configured relay pool. This is the same general class of NDK behavior
+already documented twice elsewhere in this file (the "Not Secure"
+private-relay bug, the DM recipient-relay-discovery security fix) —
+**any `authors`-filtered NDK query with no explicit relay set is a
+candidate for this**, not just this one call site.
+
+**Fixed by scoping the query to `localRelaySet` explicitly** (NOSTRAS's
+own relay) rather than leaving relay selection to NDK. This loses no
+real capability: `server/outbox.go` already fans out to an author's
+true write relays for any authors-filtered query the *relay* receives,
+so cross-relay discovery still happens — just through the server-side
+path already proven correct elsewhere in this project, instead of
+NDK's less reliable client-side equivalent.
+
+**Verified for real, end to end, against the actual deployed site three
+times** (not just re-trusting the fix from code review): published a
+real kind:30023 article directly to `wss://nostras.app` via `nak` with
+a throwaway key, encoded its naddr, and confirmed the *first* attempt
+against the live site failed (landed on the home feed, no article) —
+reproducing the real bug before fixing it. After deploying the fix,
+retested the identical URL against the exact same tab that had just
+failed, and separately against two more fresh tabs, and all three
+correctly resolved to the article. `tsc -b`, `vite build`, `oxlint`,
+`go build`, `go vet`, `gofmt -l` all clean throughout. Deployed relay +
+client via the usual CI path; `flyctl status` confirmed `web`/`dvm`
+both `started`, and `nak req -k 31990 -t d=nostras-client
+wss://nostras.app` confirmed the client handler announcement is live
+with the correct `k`/`web` tags.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
