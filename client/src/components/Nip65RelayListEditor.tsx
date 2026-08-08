@@ -4,7 +4,7 @@ import { isValidRelayUrl } from '../lib/customRelays'
 import { normalizeRelayUrl } from '@nostr-dev-kit/ndk'
 
 export function Nip65RelayListEditor() {
-  const { entries, save, busy } = useNip65RelayList()
+  const { entries, save, busy, error: saveError } = useNip65RelayList()
   const [draft, setDraft] = useState<Nip65Entry[] | null>(null)
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -45,8 +45,8 @@ export function Nip65RelayListEditor() {
 
   async function handleSave() {
     if (!draft) return
-    await save(draft)
-    setSaved(true)
+    const ok = await save(draft)
+    setSaved(ok)
   }
 
   return (
@@ -119,6 +119,7 @@ export function Nip65RelayListEditor() {
         </button>
         {saved && <span className="field-hint">Saved.</span>}
       </div>
+      {saveError && <p className="alert-error">{saveError}</p>}
     </div>
   )
 }
