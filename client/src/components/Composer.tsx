@@ -14,10 +14,16 @@ type Attachment = {
   error?: string
 }
 
+// NDKEvent.publish() defaults to a 2.5s per-relay timeout, tight given
+// this relay's demonstrated occasional latency under load (same fix
+// already applied to useFollowing.ts/etc for the identical bug class).
+const PUBLISH_TIMEOUT_MS = 8000
+
 export function Composer() {
   const [content, setContent] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [publishing, setPublishing] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
   const activeUser = useActiveUser()
   const profile = useProfile(activeUser?.pubkey)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -55,13 +61,16 @@ export function Composer() {
   async function handlePublish() {
     if (!hasContent || uploading) return
     setPublishing(true)
+    setPublishError(null)
     try {
       const mediaUrls = attachments.filter((a) => a.status === 'done').map((a) => a.url as string)
       const fullContent = [content.trim(), ...mediaUrls].filter(Boolean).join('\n\n')
       const event = new NDKEvent(ndk, { kind: 1, content: fullContent })
-      await event.publish(devPublishRelaySet)
+      await event.publish(devPublishRelaySet, PUBLISH_TIMEOUT_MS)
       setContent('')
       setAttachments([])
+    } catch (e) {
+      setPublishError(e instanceof Error ? e.message : 'Failed to publish')
     } finally {
       setPublishing(false)
     }
@@ -134,6 +143,7 @@ export function Composer() {
             {publishing ? 'Publishing…' : uploading ? 'Uploading…' : 'Publish'}
           </button>
         </div>
+        {publishError && <p className="alert-error composer-publish-error">{publishError}</p>}
       </div>
     </div>
   )
