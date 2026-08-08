@@ -3963,6 +3963,56 @@ scratch — and to evaluate **LiveKit** (Go + `pion/webrtc`) over
 mediasoup specifically because `server/` is otherwise 100% Go and
 mediasoup would fork the runtime.
 
+## Silent publish failures fixed in the composer and the NIP-65 editor
+(2026-08-08)
+
+Real, user-reported gap, hit twice in the same session in two
+different places: a note published through `Composer.tsx` never
+actually reached the relay (confirmed via direct `nak` query — no
+error shown, the composer just looked like it worked), and separately
+a NIP-65 relay-list save via `Nip65RelayListEditor.tsx` got stuck on
+"Saving…" indefinitely with no feedback. Both traced to the identical
+root cause: **`event.publish(devPublishRelaySet)` called with no
+explicit timeout and no `catch`** — the exact same bug class already
+found and fixed once before in `useFollowing.ts` ("Follow button
+worked inconsistently," logged earlier the same day), just never
+applied to these two call sites. A rejected or hung publish became a
+silent unhandled promise rejection: no error surfaced, and — in the
+composer's case — `setContent('')`/`setAttachments([])` sat *after*
+the `await` in the same `try`, so a real failure didn't even clear
+stale state to hint that something had gone wrong.
+
+**`Composer.tsx`** gained an explicit `PUBLISH_TIMEOUT_MS = 8000`
+(matching `useFollowing.ts`'s own fix) and a real `catch` that sets a
+`publishError` state, rendered via the standard `alert-error` class
+below the button row (not crammed into the right-aligned `.btn-row`
+itself, to avoid overflow on narrow viewports). Content/attachments
+now only clear on genuine publish success.
+
+**`useNip65RelayList.ts`** got the identical fix, plus one refinement:
+`save()` now returns a real `boolean` (true only on genuine success)
+instead of void, because `Nip65RelayListEditor.tsx`'s "Saved."
+confirmation needs a synchronous-with-await success signal — reading
+the hook's `error` state immediately after `await save(draft)` would
+risk a stale closure rather than the value the same call just set.
+**`useBookmark.ts` was already flagged as having the identical latent
+gap** in the earlier `useFollowing.ts` fix entry and still hasn't been
+fixed — noted again here as a real, not-yet-addressed follow-up rather
+than expanding scope in this pass.
+
+**Verified for real, not just code review, for both fixes** —
+reproducing the actual failure mode rather than trusting the diff:
+killed the local relay, confirmed each UI now shows a real error
+("Not enough relays received the event...") instead of hanging or
+failing silently, with input preserved for retry; restarted the relay
+and confirmed both success paths still work, independently verified
+against the relay directly via `nak` (not trusted from the UI alone —
+the composer's own failure was originally missed by the UI in exactly
+this way). `tsc -b`, `oxlint`, `vite build` all clean for both
+changes. Deployed via the usual CI path; confirmed live via the
+production bundle containing both fixes' error strings and the
+deploying commit's SHA.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
