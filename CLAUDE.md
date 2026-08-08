@@ -3617,6 +3617,50 @@ verification that actually distinguishes "healthy" from "running but
 broken," which is exactly why `uptime-check.yml` exercises one instead
 of a plain HTTP ping.
 
+## DVM advertised via NIP-89/NIP-90 handler announcements — a real
+distribution channel, not just an in-app feature (2026-08-08)
+
+Prompted by reviewing a strategy analysis identifying NIP-89 and NIP-90
+service-provider announcements as low-effort "enablers" for the DVM's
+distribution — independent of, and much smaller than, the still-open
+question of ever open-sourcing the client itself. `server/cmd/dvm/
+main.go` gained `publishHandlerAnnouncement`, called once per relay
+connection inside `runDVM` (so it also republishes — and self-heals —
+on every reconnect the DVM's own retry loop already performs). Per
+NIP-90's own "Service provider discoverability" appendix: a single
+kind:31990 event with one `k` tag per supported job kind (5001
+summarize, 5002 translate, 5050 ask) and kind:0-style JSON content
+(name/about/picture/website). This is the mechanism that turns the DVM
+from "a feature inside NOSTRAS" into a standalone protocol service any
+NIP-90-aware client or marketplace can discover and pay directly,
+without ever installing the app.
+
+**Real spec detail confirmed by fetching the actual NIP text before
+writing any code, not assumed from memory**: kind:31990's `d` tag is
+just a stable identifier for the handler event itself (used for `a`-tag
+addressing), not the job kind — that's what distinguishes it from
+kind:31989's `d` tag, which *is* the job kind. Content is deliberately
+static (a representative price band, "typically a few dozen sats") since
+the DVM's real price is computed dynamically per job from live token
+count + BTC/USD rate — a cached public announcement can't show a live
+number without risking it going stale.
+
+**Verified for real, twice**: locally, confirmed the event's exact tag
+shape via `nak req -k 31990 -a <dvm-pubkey>` against the local relay,
+then killed and restarted *just the relay* (keeping the same DVM process
+and identity running) to confirm the DVM's existing reconnect loop
+republishes it automatically — refetched and confirmed exactly one
+event still existed with a fresh `created_at`, no duplicate, proving the
+relay's parameterized-replaceable handling (kind 30000–39999 range)
+works correctly here. Cleaned up an unrelated stray local DVM process
+left running since 2026-08-06 (an old `go build` binary from much
+earlier in a prior session that never got killed) while at it. `go
+build`, `go vet`, `gofmt -l` all clean. Deployed via the usual CI path;
+`flyctl status` confirmed both `web` and `dvm` came back `started` at
+the new version, and a direct `nak req -k 31990 wss://nostras.app`
+against production confirmed the real DVM identity is publishing the
+announcement with the correct tags and content live.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
