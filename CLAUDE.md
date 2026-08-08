@@ -3847,6 +3847,97 @@ behavior, not just the visible transition. Deployed via the usual CI
 path; confirmed live via the production bundle containing the "Log
 off" string.
 
+## Key import + multi-identity switching, closing a real philosophical gap
+in the non-custodial manifesto (2026-08-08)
+
+User-raised inconsistency: NOSTRAS already generates and displays a raw
+nsec client-side for "Create new account" — so a user who saves that key
+safely, logs off, creates a second identity, and wants to switch back to
+the first one had no way to do it. The project's non-custodial stance
+("we don't keep anyone's nsec") holds regardless of whether a key was
+generated here or pasted in — the server never sees either — so the gap
+was purely a missing UI affordance, not a philosophy conflict. The real
+risk in adding key-paste is a UI-hygiene one: "paste your nsec into this
+website" is a known phishing pattern in the Nostr community, exactly why
+NIP-46/NIP-07 exist. User's explicit call: "Build both" — an import path
+*and* a genuine multi-identity switcher, not just an overwrite-the-
+current-key box.
+
+**`client/src/lib/identities.ts`** (new) replaces the old single-key
+`signer.ts` (deleted) with a real multi-identity store:
+`nostras:identities` (a `LocalIdentity[]` — npub, nsec, label,
+createdAt, `imported: boolean`) + `nostras:active-identity`. **Migrates
+the old single-key format forward**, lazily on first access
+(`migrateLegacyIfNeeded()`, guarded so it only runs once per page load)
+— real production users already had a real identity under the old
+`nostras:dev-signer-nsec` key, so this had to migrate, not just support
+fresh installs; the legacy key is left in place afterward, unused, as a
+safety net rather than deleted. `importIdentity()` relies on
+`NDKPrivateKeySigner`'s own constructor validation (confirmed by reading
+NDK's compiled source: it throws synchronously for a malformed key) to
+surface a real error rather than silently failing, and rejects
+re-importing a key already saved.
+
+**`AuthGate.tsx`**'s login step gained a collapsed-by-default "Import an
+existing key instead (advanced)" section — deliberately not a peer
+option to Log in/Create account, since normalizing key-paste as an
+equally-easy first choice would undercut the exact phishing-resistance
+NIP-46/07 exist for. Expanding it shows an explicit warning (a bunker/
+extension never exposes the key to the page at all; this path does,
+and only the user can judge whether the device is trustworthy) above a
+masked (`type="password"`) input.
+
+**`client/src/components/IdentitySettings.tsx`** (new), wired into
+Settings as "Identities" (placed directly above Signer, since the
+"created" step's copy points here as "Settings > Identities") — lists
+every saved identity with an editable label, truncated npub, an
+"imported" tag when applicable, and Switch/Active state; Create new
+identity (reveals the fresh nsec inline, same warn-and-copy pattern as
+AuthGate's own "created" step) and Import existing key (same masked-
+input-plus-warning pattern) at the bottom; Remove behind an inline
+confirm/cancel, never a native `confirm()`.
+
+**Switching always clears any active NIP-46/07 session first**
+(`clearSignerSession()`), not just cosmetic — `App.tsx`'s boot
+resolution checks for a saved remote-signer session *before* falling
+back to a local identity, so leaving one in place would mean a switch
+silently reverted back to the bunker/extension on the next reload
+instead of sticking. The label `<input>` is deliberately **not** fully
+controlled by the persisted identity list on every keystroke — typing
+updates local component state only, and the actual `renameIdentity()`
+persist-and-refresh happens on blur; an earlier version called
+`refresh()` (which re-reads from storage) on every keystroke, which
+meant clearing the field to type a new label would immediately snap
+back to the old one the instant the input became empty, since an empty
+label is deliberately ignored by `renameIdentity()`.
+
+**Verified live in local dev, every real path, not just built clean**:
+`tsc -b`, `vite build`, `oxlint` all clean (one pre-existing unrelated
+lint warning, untouched by this change). In a real browser with
+localStorage cleared: the malformed-key error path (NDK's own bech32
+decode error surfaces directly, not swallowed); a real hex-format key
+import (`NDKPrivateKeySigner` accepts hex or bech32) landing straight in
+the app; Settings > Identities showing it correctly tagged "imported"
+and Active; Create new identity revealing a fresh nsec and adding a
+second, now-active identity; Switch correctly flipping Active between
+the two; **persistence across a real reload** (confirmed via
+localStorage inspection, not just the UI) — reloading after a switch
+skipped AuthGate entirely and booted into the switched-to identity, the
+exact behavior `clearSignerSession()` exists to guarantee; rename (blur-
+commit, confirmed not fighting mid-edit); remove-with-confirm (inline
+Confirm/Cancel, then actual removal). **The legacy migration path was
+independently verified too**: cleared storage, hand-set only the old
+`nostras:dev-signer-nsec` key, reloaded, and confirmed it appeared as
+"My identity" (the correct derived npub, `imported: false`) already
+Active, booting straight past AuthGate — and confirmed via direct
+localStorage inspection that the legacy key was preserved untouched
+alongside the new `nostras:identities` array, not deleted. Also fixed a
+stale copy bug surfaced by this work: `SignerConnect.tsx`'s idle-state
+text still said "Signing with a temporary local dev key," misleading
+now that the local identity can be a real user-imported key — updated
+to reference Settings > Identities instead. Deployed via the usual CI
+path; confirmed live via a clean `deploy-client.yml` run.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
