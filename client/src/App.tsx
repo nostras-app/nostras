@@ -3,6 +3,7 @@ import { ndk } from './lib/ndk'
 import { getDevSigner, hasStoredDevSigner } from './lib/signer'
 import { restoreSignerSession } from './lib/remoteSigner'
 import { resolveDeepLinkFromUrl } from './lib/deeplink'
+import { setAuthState, useAuthState } from './lib/authState'
 import { AuthGate } from './components/AuthGate'
 import { ComposeView } from './components/ComposeView'
 import { ArticleView } from './components/ArticleView'
@@ -22,17 +23,17 @@ import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
 import { PushNotificationSettings } from './components/PushNotificationSettings'
 import { InstallPwaSettings } from './components/InstallPwaSettings'
 import { AboutSettings } from './components/AboutSettings'
+import { AccountSettings } from './components/AccountSettings'
 import { AboutView } from './components/AboutView'
 import { NavRail, type View } from './components/NavRail'
 import { setActiveView, useNavState } from './lib/navigation'
 import './App.css'
 
 type ConnectionState = 'connecting' | 'connected' | 'error'
-type AuthState = 'checking' | 'needs-choice' | 'ready'
 
 function App() {
   const [state, setState] = useState<ConnectionState>('connecting')
-  const [authState, setAuthState] = useState<AuthState>('checking')
+  const authState = useAuthState()
   // Shared module-level state (lib/navigation.ts), not local useState —
   // lets viewProfile() switch tabs and pick a specific profile pubkey
   // from anywhere (e.g. clicking an author's name deep inside FeedItem)
@@ -213,6 +214,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">About</span>
                 <AboutSettings />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Account</span>
+                <AccountSettings />
               </div>
             </section>
 

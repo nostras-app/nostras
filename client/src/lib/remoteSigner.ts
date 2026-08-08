@@ -35,7 +35,12 @@ function saveBunkerSession(uri: string, signer: NDKNip46Signer) {
   localStorage.setItem(LOCAL_KEY_KEY, signer.localSigner.privateKey)
 }
 
-function clearSession() {
+// Exported separately from disconnectSigner() below — logOff() (lib/
+// authState.ts) needs to clear a NIP-46/07 session WITHOUT falling back
+// to the dev key the way a plain "Disconnect" does, since logging off
+// should return to AuthGate's own choice screen, not silently swap to a
+// different identity.
+export function clearSignerSession() {
   localStorage.removeItem(MODE_KEY)
   localStorage.removeItem(URI_KEY)
   localStorage.removeItem(LOCAL_KEY_KEY)
@@ -153,6 +158,6 @@ export async function restoreSignerSession() {
 }
 
 export function disconnectSigner() {
-  clearSession()
+  clearSignerSession()
   ndk.signer = getDevSigner()
 }
