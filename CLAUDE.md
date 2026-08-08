@@ -3760,6 +3760,47 @@ both `started`, and `nak req -k 31990 -t d=nostras-client
 wss://nostras.app` confirmed the client handler announcement is live
 with the correct `k`/`web` tags.
 
+## Profile Following/Followers counts made clickable, with a follow-list
+modal (2026-08-08)
+
+User request: viewing someone's profile showed Following/Followers
+counts as plain text, with no way to see who's actually on either list
+or follow someone from it. `useFollowCounts.ts` was already fetching/
+subscribing to both lists to produce the counts, just discarding the
+actual pubkeys — now exposes `followingPubkeys`/`followerPubkeys`
+alongside the existing counts, so `FollowListModal.tsx` (new) costs no
+extra query when opened. The modal reuses the exact fixed-centered
+`.note-menu-panel` pattern already established for NoteMenu's raw/
+report/delete-confirm panels, widened to 360px for a comfortable list.
+
+Each row calls `useFollowing()` **once at the modal's top level**, not
+once per row — passed down as `isFollowing`/`toggle`/`busy` — matching
+this project's own standing lesson (from the DM conversation-list
+duplicate-subscription bug) about what happens when a hook that opens
+real state/subscriptions gets called once per list item instead of
+once per list. A row for the active user's own pubkey (which can
+legitimately appear in someone else's following or followers list)
+shows "You" instead of a Follow button, since following yourself isn't
+a real action. Clicking a row's avatar/name closes the modal and
+navigates to that person's profile via the existing `viewProfile()`.
+
+**Verified end-to-end in local dev with real relay state, not mocked**:
+four throwaway identities — a target profile following two accounts,
+and a third account following the target back — published directly to
+the local relay. Opening "Following" showed both real followed
+accounts with working Follow buttons; clicking Follow on one published
+a real `kind:3` event, confirmed via direct relay query, that correctly
+preserved the dev-key identity's existing follows *and* its legacy
+non-standard content field, adding only the one new `p` tag — the same
+tag-preservation behavior `useFollowing.ts` already guaranteed,
+now proven through this new entry point too. Opening "Followers"
+correctly showed the real following-back account (briefly showing a
+truncated pubkey before its profile finished fetching — expected cache
+behavior, not a bug, confirmed by re-checking after the fetch
+resolved). `tsc -b`, `vite build`, `oxlint` all clean. Deployed via the
+usual CI path; confirmed live via the production bundle containing the
+`follow-list-modal` class.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
