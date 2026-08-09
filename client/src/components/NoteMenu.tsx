@@ -5,9 +5,38 @@ import { ndk, devPublishRelaySet, localRelayUrl } from '../lib/ndk'
 import { makeRelayConnectionFilter } from '../lib/relayFilter'
 import { CURATED_RELAYS } from '../lib/curatedRelays'
 import { useActiveUser } from '../hooks/useActiveUser'
+import { requestDvmJob, type DvmJobUpdate } from '../lib/dvm'
+import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
 import { MoreIcon } from './icons'
 
 const isAllowedRelay = makeRelayConnectionFilter(localRelayUrl)
+
+const KIND_JOB_REQUEST_MODERATE = 5501
+const KIND_JOB_RESULT_MODERATE = 6501
+
+type CheckState = 'idle' | 'requesting' | 'payment-required' | 'done' | 'error'
+
+// The DVM's moderateSystemPrompt (server/cmd/dvm/main.go) asks for a
+// lightweight, prompted convention rather than a real structured-output
+// API feature: line 1 a strict JSON verdict, line 2+ a human-readable
+// reason. Tries to parse line 1 for a real badge; a malformed or missing
+// line 1 falls back to showing the raw content as plain text instead of
+// hard-failing, matching the same graceful-degrade posture the DVM's own
+// design already commits to.
+function parseCheckResult(content: string): { verdict?: string; confidence?: string; reason: string } {
+  const newlineIndex = content.indexOf('\n')
+  const firstLine = newlineIndex === -1 ? content : content.slice(0, newlineIndex)
+  const rest = newlineIndex === -1 ? '' : content.slice(newlineIndex + 1).trim()
+  try {
+    const parsed = JSON.parse(firstLine) as { verdict?: string; confidence?: string }
+    if (typeof parsed.verdict === 'string') {
+      return { verdict: parsed.verdict, confidence: parsed.confidence, reason: rest || content }
+    }
+  } catch {
+    // Falls through to the plain-text fallback below.
+  }
+  return { reason: content }
+}
 
 const REPORT_TYPES: { value: string; label: string }[] = [
   { value: 'spam', label: 'Spam' },
@@ -19,7 +48,7 @@ const REPORT_TYPES: { value: string; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-type Panel = 'menu' | 'raw' | 'report' | 'delete-confirm' | 'rebroadcast'
+type Panel = 'menu' | 'raw' | 'report' | 'delete-confirm' | 'rebroadcast' | 'check'
 
 export function NoteMenu({ event }: { event: NDKEventType }) {
   const activeUser = useActiveUser()
@@ -62,6 +91,22 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   const [relayResults, setRelayResults] = useState<Record<string, 'pending' | 'success' | 'failed'>>(
     {},
   )
+  // "Check this note" — the client-side consumer piece of the DVM's 4th
+  // job kind (server/cmd/dvm/main.go, kind 5501->6501, scoped and shipped
+  // 2026-08-09). Structurally simpler than TranslateButton: no picker
+  // step, since there's no parameter to choose — clicking the menu item
+  // fires the job directly. Only re-fires on an explicit "Check again"
+  // inside the done/error view, not on every reopen of the menu item,
+  // matching this component's existing idempotent-guard convention
+  // (report/mute/delete) so reopening the panel can't accidentally
+  // trigger a second paid job.
+  const [checkState, setCheckState] = useState<CheckState>('idle')
+  const [checkResult, setCheckResult] = useState('')
+  const [checkErrorMsg, setCheckErrorMsg] = useState('')
+  const [checkInvoice, setCheckInvoice] = useState('')
+  const [checkAmountSats, setCheckAmountSats] = useState(0)
+  const [checkPaying, setCheckPaying] = useState(false)
+  const checkCancelRef = useRef<(() => void) | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   // Every panel (menu/raw/report/delete-confirm) defaults to opening
@@ -84,6 +129,11 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [panel])
+
+  // Stops the underlying DVM-job subscription if this note scrolls out
+  // and unmounts mid-request — requestDvmJob's cancel function tears down
+  // its NDK subscription, same cleanup TranslateButton already does.
+  useEffect(() => () => checkCancelRef.current?.(), [])
 
   useLayoutEffect(() => {
     if (!panel || !panelRef.current) return
@@ -209,6 +259,58 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     }
   }
 
+  function runCheck() {
+    setCheckState('requesting')
+    setCheckErrorMsg('')
+    checkCancelRef.current = requestDvmJob({
+      requestKind: KIND_JOB_REQUEST_MODERATE,
+      resultKind: KIND_JOB_RESULT_MODERATE,
+      inputText: event.content,
+      onUpdate: (update: DvmJobUpdate) => {
+        if (update.status === 'processing') {
+          setCheckState('requesting')
+        } else if (update.status === 'payment-required') {
+          setCheckInvoice(update.invoice)
+          setCheckAmountSats(Math.round(update.amountMsat / 1000))
+          setCheckState('payment-required')
+        } else if (update.status === 'done') {
+          setCheckResult(update.result)
+          setCheckState('done')
+        } else if (update.status === 'error') {
+          setCheckErrorMsg(update.message)
+          setCheckState('error')
+        }
+      },
+    })
+  }
+
+  function handleCheck() {
+    setPanel('check')
+    // Only auto-fire on first open — reopening an already-run check just
+    // shows the existing result instead of silently starting a second
+    // paid job. "Check again" inside the done/error view is the only
+    // explicit re-trigger.
+    if (checkState === 'idle') runCheck()
+  }
+
+  async function handleCheckPayWithWallet() {
+    const nwcUri = getSavedNwcUri()
+    if (!nwcUri) return
+    setCheckPaying(true)
+    try {
+      await payInvoiceWithNwc(nwcUri, checkInvoice)
+      // The DVM publishes "processing" once it observes settlement, then
+      // the result — the onUpdate handler in runCheck moves us out of
+      // this state from there.
+      setCheckState('requesting')
+    } catch (e) {
+      setCheckErrorMsg(e instanceof Error ? e.message : 'Payment failed')
+      setCheckState('error')
+    } finally {
+      setCheckPaying(false)
+    }
+  }
+
   async function handleDelete() {
     if (busy || deleted) return
     setBusy(true)
@@ -280,6 +382,13 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
               ? `Rebroadcast ✓ (${rebroadcastCount})`
               : 'Rebroadcast to relays…'}
           </button>
+          <button
+            type="button"
+            onClick={handleCheck}
+            title="Runs a real NIP-90 DVM job (kind 5501) asking Claude to classify this note as spam, scam, or legit — you only pay if the job completes."
+          >
+            {checkState === 'done' ? 'Checked ✓' : 'Check for spam/scam…'}
+          </button>
           <button type="button" onClick={() => setPanel('report')} disabled={reported}>
             {reported ? 'Reported' : 'Report'}
           </button>
@@ -302,7 +411,8 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
       {(panel === 'raw' ||
         panel === 'report' ||
         panel === 'delete-confirm' ||
-        panel === 'rebroadcast') && <div className="note-menu-backdrop" onClick={() => setPanel(null)} />}
+        panel === 'rebroadcast' ||
+        panel === 'check') && <div className="note-menu-backdrop" onClick={() => setPanel(null)} />}
 
       {panel === 'raw' && (
         <div ref={panelRef} className="note-menu-panel">
@@ -403,6 +513,80 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
                 : rebroadcastState === 'done'
                   ? `Rebroadcast ✓ (${rebroadcastCount})`
                   : `Rebroadcast to ${selectedRelays.size} relay${selectedRelays.size === 1 ? '' : 's'}`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {panel === 'check' && (
+        <div ref={panelRef} className="note-menu-panel">
+          <span className="translate-panel-label">Content check</span>
+
+          {(checkState === 'idle' || checkState === 'requesting') && (
+            <p className="field-hint">Checking…</p>
+          )}
+
+          {checkState === 'payment-required' && (
+            <div className="stack">
+              <p className="field-hint">
+                Payment required to run this job — you are paying{' '}
+                <strong>{checkAmountSats} sats</strong>.
+              </p>
+              <textarea className="textarea" readOnly value={checkInvoice} rows={3} />
+              <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => navigator.clipboard.writeText(checkInvoice)}
+                >
+                  Copy invoice
+                </button>
+                {getSavedNwcUri() && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleCheckPayWithWallet}
+                    disabled={checkPaying}
+                  >
+                    {checkPaying ? 'Paying…' : 'Pay with connected wallet'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {checkState === 'done' &&
+            (() => {
+              const { verdict, confidence, reason } = parseCheckResult(checkResult)
+              return (
+                <div className="stack">
+                  {verdict && (
+                    <span
+                      className={`content-check-verdict content-check-verdict-${verdict}`}
+                    >
+                      {verdict}
+                      {confidence ? ` · ${confidence} confidence` : ''}
+                    </span>
+                  )}
+                  <p className="feed-item-content">{reason}</p>
+                </div>
+              )
+            })()}
+
+          {checkState === 'error' && <p className="alert-error">{checkErrorMsg}</p>}
+
+          <div className="btn-row">
+            {(checkState === 'done' || checkState === 'error') && (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={runCheck}>
+                Check again
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPanel(null)}
+            >
+              Close
             </button>
           </div>
         </div>
