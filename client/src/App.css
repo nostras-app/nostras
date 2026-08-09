@@ -1381,6 +1381,31 @@
   color: var(--danger);
 }
 
+/* Real bug caught during verification (2026-08-09): these two rules were
+   originally placed earlier in this file, before the .relay-result base
+   class above — since both have equal class-selector specificity, the
+   later-defined .relay-result (width: 16px) won the cascade tie and
+   squeezed both composer result items into a 16px-wide box, wrapping
+   their text into overlapping narrow columns. Moved here, after
+   .relay-result-failed, so these correctly win any future equal-
+   specificity conflict too, not just this one — same lesson already
+   documented once for .view-panel/.settings-panel. */
+.composer-relay-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.composer-relay-result-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: default;
+}
+
 /* Real reported bug (2026-08-07): the raw-event/report/delete-confirm
    panels are much taller than the plain menu (a full JSON textarea, a
    grid of report reasons) — anchoring them to the trigger like the menu

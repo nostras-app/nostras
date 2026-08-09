@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { NDKEvent } from '@nostr-dev-kit/ndk'
+import { NDKEvent, normalizeRelayUrl } from '@nostr-dev-kit/ndk'
+import type { NDKRelay } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useProfile } from '../hooks/useProfile'
@@ -14,6 +15,8 @@ type Attachment = {
   error?: string
 }
 
+type RelayResult = { status: 'pending' | 'success' | 'failed'; error?: string }
+
 // NDKEvent.publish() defaults to a 2.5s per-relay timeout, tight given
 // this relay's demonstrated occasional latency under load (same fix
 // already applied to useFollowing.ts/etc for the identical bug class).
@@ -24,6 +27,21 @@ export function Composer() {
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [publishing, setPublishing] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
+  // Real gap found (2026-08-09): NDKRelaySet.publish() only requires ONE
+  // relay to succeed by default — a note can silently miss several of the
+  // session's toggled publish targets (a relay disconnected, a relay
+  // rejecting the kind by its own policy — e.g. purplepag.es genuinely
+  // rejects kind:1 with "blocked: kind 1 is not allowed", confirmed via a
+  // raw test publish) while `publish()` still resolves with no error at
+  // all, since the overall threshold (1) was met. Same event-based
+  // per-relay tracking already used by NoteMenu's rebroadcast picker
+  // (NDKRelayPublisher emits "relay:published"/"relay:publish:failed" on
+  // the event itself as each relay resolves), but also keeps the real
+  // error text from the failure event — that's specifically what made the
+  // purplepag.es diagnosis possible, so it's surfaced here as a tooltip
+  // rather than a generic "failed" the way NoteMenu's simpler version
+  // does.
+  const [relayResults, setRelayResults] = useState<Record<string, RelayResult>>({})
   const activeUser = useActiveUser()
   const profile = useProfile(activeUser?.pubkey)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -62,16 +80,45 @@ export function Composer() {
     if (!hasContent || uploading) return
     setPublishing(true)
     setPublishError(null)
+
+    const targetUrls = Array.from(devPublishRelaySet.relays).map((r) => normalizeRelayUrl(r.url))
+    setRelayResults(Object.fromEntries(targetUrls.map((u) => [u, { status: 'pending' as const }])))
+
+    const event = new NDKEvent(ndk, {
+      kind: 1,
+      content: [content.trim(), ...attachments.filter((a) => a.status === 'done').map((a) => a.url as string)]
+        .filter(Boolean)
+        .join('\n\n'),
+    })
+
+    const onPublished = (relay: NDKRelay) => {
+      setRelayResults((prev) => ({ ...prev, [relay.url]: { status: 'success' } }))
+    }
+    const onFailed = (relay: NDKRelay, err: unknown) => {
+      setRelayResults((prev) => ({
+        ...prev,
+        [relay.url]: { status: 'failed', error: err instanceof Error ? err.message : String(err) },
+      }))
+    }
+    event.on('relay:published', onPublished)
+    event.on('relay:publish:failed', onFailed)
+
     try {
-      const mediaUrls = attachments.filter((a) => a.status === 'done').map((a) => a.url as string)
-      const fullContent = [content.trim(), ...mediaUrls].filter(Boolean).join('\n\n')
-      const event = new NDKEvent(ndk, { kind: 1, content: fullContent })
       await event.publish(devPublishRelaySet, PUBLISH_TIMEOUT_MS)
       setContent('')
       setAttachments([])
     } catch (e) {
       setPublishError(e instanceof Error ? e.message : 'Failed to publish')
     } finally {
+      // A relay that neither published nor explicitly failed (e.g. never
+      // connected in time) stays "pending" forever otherwise.
+      setRelayResults((prev) => {
+        const next = { ...prev }
+        for (const u of targetUrls) if (next[u]?.status === 'pending') next[u] = { status: 'failed', error: 'No response in time' }
+        return next
+      })
+      event.off('relay:published', onPublished)
+      event.off('relay:publish:failed', onFailed)
       setPublishing(false)
     }
   }
@@ -144,6 +191,26 @@ export function Composer() {
           </button>
         </div>
         {publishError && <p className="alert-error composer-publish-error">{publishError}</p>}
+        {Object.keys(relayResults).length > 0 && (
+          <div className="composer-relay-results">
+            {Object.entries(relayResults).map(([url, r]) => (
+              <span
+                key={url}
+                className={`relay-result relay-result-${r.status} composer-relay-result-item`}
+                title={
+                  r.status === 'pending'
+                    ? 'Waiting…'
+                    : r.status === 'success'
+                      ? 'Received it'
+                      : (r.error ?? 'Rejected, timed out, or unreachable')
+                }
+              >
+                {r.status === 'pending' ? '…' : r.status === 'success' ? '✓' : '✕'}{' '}
+                {url.replace('wss://', '').replace(/\/$/, '')}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
