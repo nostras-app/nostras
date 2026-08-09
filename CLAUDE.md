@@ -4065,6 +4065,82 @@ only assumed after a genuine resolved publish. Worth using as the
 reference pattern for any *future* hook with this same shape, rather
 than re-deriving it.
 
+## Per-relay publish result reporting added to the composer (2026-08-09)
+
+Direct follow-up to a real live investigation: the user noticed a note
+published through the composer never reached `relay.primal.net` or
+`purplepag.es` despite both showing "connected" and toggled on as
+session publish targets. Root-caused for real, not guessed: primal.net
+turned out to be a user-side toggle miss and damus.io was genuinely
+disconnected at the time, but **`purplepag.es` was a real, distinct
+finding** — a raw test publish directly to it returned `blocked: kind 1
+is not allowed`. It's a metadata-only discovery relay (profiles,
+contact lists, relay lists) by explicit policy, not a general note
+relay — valuable on a NIP-65 *list* for profile discoverability, useless
+as a note *publish target*, and this will never change regardless of
+connection state.
+
+Investigating this surfaced a bigger, generally-applicable fact about
+this app's whole publish model: **`NDKRelaySet.publish()` only requires
+ONE relay to succeed by default** (`requiredRelayCount = 1`) — confirmed
+by reading NDK's own source. It still attempts every relay in the set
+in parallel and tracks per-relay results internally, but the aggregate
+promise only rejects if *fewer than one* relay succeeds. So toggling
+several relays as publish targets specifically to widen distribution
+had no visibility into partial misses — as long as your own relay (or
+any one target) got it, `event.publish()` resolved with zero indication
+that other toggled targets were silently skipped.
+
+**Fixed by adding real per-relay result reporting to `Composer.tsx`**,
+reusing the exact `relay:published`/`relay:publish:failed` event
+pattern `NoteMenu.tsx`'s rebroadcast picker already established
+(`NDKRelayPublisher` emits these on the event itself as each relay
+resolves, independent of the aggregate promise) — but going one step
+further: the failure event's second argument is the actual error, and
+this is captured and surfaced as a tooltip on each failed result,
+rather than NoteMenu's simpler generic "failed" message. That real
+error text is specifically what made the purplepag.es diagnosis
+possible in the first place, so it's now visible on every future post
+without needing a manual investigation each time. Any relay still
+`pending` once the publish settles (never connected in time, no
+explicit ack or failure) is swept to `failed` with a `"No response in
+time"` fallback message, same safety-net pattern as the rebroadcast
+picker.
+
+**Real CSS bug caught during verification, not shipped**: the first
+version of `.composer-relay-result-item` was placed earlier in
+`App.css` than the base `.relay-result` class it's meant to override
+(`width: 16px`, defined for the rebroadcast picker's plain icon-only
+usage). Since both rules have equal class-selector specificity, the
+later-defined `.relay-result` won the cascade tie — every result item
+got squeezed into a 16px-wide box, wrapping its icon+URL text into a
+tall, narrow column that visually overlapped the item next to it.
+Confirmed via direct DOM inspection (`getBoundingClientRect()` showed
+`width: 16, height: 104` on both items) before touching the fix — this
+is the exact same cascade-ordering lesson already documented once for
+`.view-panel`/`.settings-panel`, now hit a second time in the same
+file. Fixed by moving the rule to right after `.relay-result-failed`,
+which guarantees it wins any future equal-specificity conflict here
+too.
+
+**Verified for real, twice — the feature and the CSS fix together, not
+separately**: rather than touch real public relay infrastructure again
+(this project's standing precedent from the publish-target-toggle
+verification), used the local relay for the success case and a
+deliberately nonexistent relay URL
+(`wss://nonexistent-test-relay-xyz123.invalid`, added as a real custom
+relay and toggled on) for the guaranteed-failure case. First pass
+reproduced the actual overlap bug live (confirmed via
+`getBoundingClientRect`, not just a screenshot). After the CSS fix,
+re-ran the identical test: `✓ ws://localhost:7777` (green) and `✕
+nonexistent-test-relay-xyz123.invalid` (red, tooltip "No response in
+time") rendered cleanly on one line with no overlap, and the actual
+published note was confirmed directly on the local relay via `nak` —
+matching content, correct pubkey. `tsc -b`, `oxlint`, `vite build` all
+clean. Deployed via the usual CI path; confirmed live via the
+production bundle containing the new `composer-relay-result` class and
+the deploying commit's SHA.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
