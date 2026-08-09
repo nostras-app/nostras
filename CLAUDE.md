@@ -4386,6 +4386,61 @@ count evidence, not a literal replay of SC's own session. `tsc -b`,
 confirmed live via the production bundle containing the deploying
 commit's SHA (`d00a7b4`).
 
+## Search could hang on "Searching…" forever, no error, no way out
+(2026-08-09)
+
+Direct follow-up: asked SC to reload and confirm the follow-state fix
+above, and got back a screenshot of a genuinely new, separate symptom —
+the search box stuck on "Searching…" indefinitely after pasting
+MMOnostr's npub, never resolving.
+
+**Real bug, independent of the fix above**: `SearchView.tsx`'s content
+search calls `ndk.fetchEvents()` (plural) with no timeout at all.
+Confirmed by reading NDK's own source: unlike `ndk.fetchEvent()`
+(singular — used by `useFollowing`/`useFollowCounts`/the deeplink
+resolver), which has a hard internal 10s `setTimeout` fallback,
+`fetchEvents()` has none whatsoever — it only ever resolves via the
+queried relay's `onEose` callback. If that relay connection never
+completes for any reason (a network hiccup, a slow handshake, the
+relay itself briefly unreachable), the promise never settles, `state`
+stays `'loading'` forever, and the UI gives zero feedback — no error,
+no retry affordance, nothing. This is a real robustness gap that
+existed independent of anything about SC's specific session; the
+npub-detection fast path (`resolvePubkeyInput` → `viewProfile()`,
+which never touches this code at all) is unaffected — this only hits
+the content-search fallback branch.
+
+**Fixed** by wrapping the `fetchEvents()` call in the same
+`withTimeout()` helper pattern already established in
+`lib/remoteSigner.ts` (10s), added directly in `SearchView.tsx` rather
+than extracting a shared utility for one additional call site. On
+timeout, `state` flips to `'error'` and the existing
+"Search failed — is the local relay running?" message renders — the
+same error path that already existed for a genuine fetch rejection,
+now also reachable from a timeout instead of an infinite hang.
+
+**Verified by reproducing the actual failure mode, not just reasoning
+about the code**: ran a local dev build with `VITE_RELAY_URL` pointed
+at a deliberately unreachable hostname (so `localRelaySet` — what
+`SearchView` queries — resolves to a relay that can never connect),
+confirmed the exact same stuck-"Searching…"-forever symptom live in a
+browser, then confirmed after the fix that it correctly un-stuck at
+the 10s mark with the real error message instead of hanging. `tsc -b`,
+`oxlint`, `vite build` all clean. Deployed via the usual CI path;
+confirmed live via the production bundle containing both the deploying
+commit's SHA (`dc9c0a0`) and the literal string `"Search timed out"`.
+
+**Still open**: whether this timeout fix is what SC was actually
+hitting (a real relay hiccup on their end) or whether their search was
+additionally affected by something session-specific (e.g. leftover
+text in the input field scrolled out of view — hit accidentally once
+by Claude earlier in this same investigation from reusing a
+non-empty field) hasn't been distinguished. Either way, the "stuck
+forever with zero feedback" failure mode is now closed regardless of
+which cause triggered it for SC specifically — worth having them
+retry with a freshly cleared field now that a hang can no longer
+persist past 10 seconds.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
