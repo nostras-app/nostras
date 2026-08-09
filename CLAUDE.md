@@ -4141,6 +4141,57 @@ clean. Deployed via the usual CI path; confirmed live via the
 production bundle containing the new `composer-relay-result` class and
 the deploying commit's SHA.
 
+## Manual "Check for updates" button added to Settings > About
+(2026-08-09)
+
+Prompted directly by the user hitting a real stale-tab bug earlier the
+same day (a Follow action failed with "Not enough relays received the
+event," fixed by a plain reload) and then asking specifically about
+installed PWAs: the existing `controllerchange`-triggered reload
+(`swUpdate.ts`, from the earlier "stuck blank page" fix) already
+handles *applying* an update once one's found, but browsers only
+*check* for a new service worker periodically (roughly daily) plus on
+fresh navigations — fine for a regular tab, which gets fresh
+navigations often just from normal use, but an installed PWA left open
+for days can sit on a stale version far longer before that automatic
+check even runs.
+
+`client/src/hooks/useServiceWorkerUpdate.ts` is a small hook that calls
+`registration.update()` on demand, tracks an `updatefound` listener to
+tell "a new version was found and is installing" apart from "nothing
+new," and reports one of `unsupported` / `idle` / `checking` /
+`updating` / `up-to-date` / `error`. Deliberately does **not** duplicate
+the reload logic — once an update is found, `sw.ts`'s own unconditional
+`skipWaiting()`+`clientsClaim()` (already established) takes over
+within a moment on its own, and the existing global `controllerchange`
+listener reloads the page exactly as it already did before this change.
+Wired into `AboutSettings.tsx`, next to the existing client-build/relay-
+version display, since that's the same "which version am I on" context
+and doubles as visible confirmation an update actually changed
+something.
+
+**Verified end-to-end against a real service worker, not just built
+clean** — `npm run dev` doesn't register one at all (only production
+builds do), so this reused the exact `vite preview` + in-place-rebuild
+technique already established for the original stuck-tab fix. First
+confirmed the "up-to-date" path correctly reports nothing new when
+nothing changed. **Then hit the identical dead-code-elimination gotcha
+already documented once for `sw.ts` comments, just via a different
+mechanism**: the first test change was a plain `const x = '...'; void
+x` with no observable side effect, and the bundler silently eliminated
+it — confirmed missing from the built `dist/sw.js` via a direct grep
+before assuming the feature was broken. Switched to a real
+side-effecting `console.log(...)` statement, rebuilt in place, and this
+time the change was confirmed present in the built file, detected by
+clicking "Check for updates" from the still-open tab, applied, and the
+page reloaded cleanly (not stuck) — confirmed by fetching the new
+active service worker's own script afterward and verifying the marker
+was actually there, not just that *a* reload happened. Test change
+fully reverted before finishing (`git diff` on `sw.ts` clean). `tsc -b`,
+`oxlint`, `vite build` all clean. Deployed via the usual CI path;
+confirmed live via the production bundle containing the button's text
+and the deploying commit's SHA.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
