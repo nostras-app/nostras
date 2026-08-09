@@ -4262,6 +4262,60 @@ than `TranslateButton` — no picker step). The DVM job itself is live
 and payable by any NIP-90-aware client today regardless; NOSTRAS
 becoming its own consumer is a separate, not-yet-started piece.
 
+## Client-side piece shipped: "Check for spam/scam" in NoteMenu
+(2026-08-09)
+
+Direct follow-up, same day: the client half of the 5501->6501
+classification DVM. Wired into `NoteMenu.tsx` (the "..." dropdown)
+rather than the main `EngagementBar` icon row — a less-frequently-
+needed action, matching how Rebroadcast/Report/raw-event already live
+in that menu, not the primary row. Structurally simpler than
+`TranslateButton.tsx`: no picker step, since there's no parameter to
+choose — clicking the menu item fires `requestDvmJob` (from
+`lib/dvm.ts`, reused completely unchanged) directly.
+
+**Only re-fires on an explicit "Check again" inside the done/error
+view, not on every reopen of the menu item** — matches this
+component's existing idempotent-guard convention (report/mute/delete
+already work this way), specifically so reopening the panel can't
+accidentally trigger a second *paid* job. The menu item itself shows
+"Checked ✓" once a check has run, and reopening it shows the existing
+result instantly rather than re-checking.
+
+**Parses the DVM's lightweight two-line convention** (a strict JSON
+verdict line, then a human-readable reason — see the server-side entry
+above) into a real color-coded badge: `scam` uses `--danger`/
+`--danger-bg`, `spam` uses `--accent`/`--accent-bg`, `legit` uses a
+border-only `--success` treatment since **no `--success-bg` token
+exists in the design system** — deliberately not inventing a new rgba
+value the rest of the app doesn't share. A malformed or missing JSON
+line falls back to showing the raw content as plain text rather than
+hard-failing, matching the DVM's own graceful-degrade posture.
+
+**Verified end-to-end against a real Claude API call, in a real
+browser, not just built clean**: same free-mode local DVM setup as the
+server-side verification. Seeded a genuine scam note (a fake-giveaway/
+advance-fee-fraud text) directly on the local relay via `nak`, found it
+through NOSTRAS's own Search (NIP-50, confirms the full real path — not
+a synthetic test harness), opened its menu, clicked "Check for
+spam/scam…", and confirmed a real `SCAM · HIGH CONFIDENCE` badge
+rendered with an accurate, specific reason. Clicked "Check again" and
+confirmed a genuinely fresh, independent Claude call ran (slightly
+different phrasing in the reason, same correct verdict) rather than
+replaying a cached result. Closed and reopened the menu and confirmed
+"Checked ✓" showed correctly and reopening instantly displayed the
+existing result with no re-fire. `tsc -b`, `oxlint`, `vite build` all
+clean. Deployed via the usual CI path; confirmed live via the
+production bundle containing the button's text and the deploying
+commit's SHA.
+
+**Both pieces of the on-demand spam/scam classification DVM are now
+fully shipped** — server (kind `5501`->`6501`, live and payable by any
+NIP-90-aware client) and NOSTRAS's own client consumer. The automatic/
+feed-filtering mode discussed in the strategy doc's scoping remains
+explicitly out of scope — a separate values-level decision, not a
+natural next step from this.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
