@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet, localRelaySet } from '../lib/ndk'
+import { ndk, devPublishRelaySet, authorQueryRelaySet } from '../lib/ndk'
 import { useActiveUser } from './useActiveUser'
 
 // kind:3 contact list — same fetch-then-republish pattern as useBookmark
@@ -49,7 +49,8 @@ export function useFollowing() {
     }
     let cancelled = false
     setLoading(true)
-    // Scoped to localRelaySet, not left to NDK's own client-side outbox
+    // Scoped to authorQueryRelaySet (local relay + public bootstrap
+    // relays, explicit), not left to NDK's own client-side outbox
     // resolution — an unscoped authors-filtered fetchEvent races against
     // real-time relay connection state (calculateRelaySetsFromFilter falls
     // back to pool.permanentAndConnectedRelays(), which only counts relays
@@ -59,13 +60,11 @@ export function useFollowing() {
     // of another user lived only on relay.damus.io, a day newer than the
     // stale copy already on our own relay — this fetchEvent silently
     // returned the stale one, showing "Follow" instead of "Unfollow".
-    // Same fix already proven for the NIP-23 deeplink bug: our own relay's
-    // server-side outbox aggregation (server/outbox.go) already fans out
-    // to the author's real write relays for any authors-filtered query it
-    // receives, so cross-relay discovery still happens — just through a
-    // single, already-connected, bounded-timeout server path instead of a
-    // multi-relay client-side race.
-    ndk.fetchEvent({ kinds: [3], authors: [activeUser.pubkey] }, undefined, localRelaySet).then((event) => {
+    // First fix scoped this to localRelaySet alone (correct, but slow for
+    // anyone not already on our own relay — see authorQueryRelaySet's own
+    // comment in lib/ndk.ts for why the explicit multi-relay set is both
+    // correct AND fast).
+    ndk.fetchEvent({ kinds: [3], authors: [activeUser.pubkey] }, undefined, authorQueryRelaySet).then((event) => {
       if (cancelled) return
       const nextTags = event?.tags ?? []
       setTags(nextTags)

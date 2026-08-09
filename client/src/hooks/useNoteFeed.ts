@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
-import { ndk, localRelaySet } from '../lib/ndk'
+import { ndk, authorQueryRelaySet } from '../lib/ndk'
 import { useRelayStatus } from './useRelayStatus'
 
 // Subscribes to kind:1 notes and kind:30023 long-form articles — either
@@ -27,8 +27,11 @@ export function useNoteFeed(authors?: string[]) {
     setLoading(true)
 
     // Author-scoped subscriptions (profile view, Following feed) are
-    // scoped to localRelaySet rather than left to NDK's own client-side
-    // outbox resolution — see useFollowing.ts for the full rationale.
+    // scoped to authorQueryRelaySet rather than left to NDK's own
+    // client-side outbox resolution — see useFollowing.ts and
+    // authorQueryRelaySet's own comment in lib/ndk.ts for the full
+    // rationale (a first fix scoped this to localRelaySet alone, which
+    // was correct but slow for anyone not already on our own relay).
     // The global feed (authors omitted) is unaffected: with no `authors`
     // in the filter, NDK already queries the full explicit relay list
     // unconditionally, not gated on which relays happen to be CONNECTED
@@ -37,7 +40,7 @@ export function useNoteFeed(authors?: string[]) {
       authors
         ? { kinds: [1, 30023], authors, limit: 50 }
         : { kinds: [1, 30023], limit: 50 },
-      authors ? { relaySet: localRelaySet } : undefined,
+      authors ? { relaySet: authorQueryRelaySet } : undefined,
     )
 
     sub.on('event', (event: NDKEvent) => {

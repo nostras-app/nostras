@@ -39,6 +39,34 @@ export const ndk = new NDK({
 // not guaranteed to be supported by the public bootstrap relays.
 export const localRelaySet = NDKRelaySet.fromRelayUrls([localRelayUrl], ndk)
 
+// Local relay + the public bootstrap relays, explicit and never mutated —
+// used for authors-filtered profile/feed queries (useFollowing,
+// useFollowCounts, useNoteFeed). Deliberately NOT the same as
+// localRelaySet: an earlier fix (2026-08-09) scoped those queries to
+// localRelaySet alone to kill a real correctness bug (an unscoped query
+// raced NDK's own CONNECTED-only relay fallback and could resolve on a
+// stale/partial answer) — but that traded correctness for speed. Real
+// user report, same day: a profile that isn't a NOSTRAS user (so has
+// nothing on our own relay directly) took many seconds to load, because
+// every such view now depended entirely on our relay's own bounded-but-
+// still-up-to-~10s server-side outbox fetch (server/outbox.go), with no
+// parallel path. Passing this explicit multi-relay set instead restores
+// that parallelism *without* reintroducing the original race: passing a
+// relaySet explicitly makes NDK actively connect every relay in it via
+// pool.useTemporaryRelay() regardless of prior connection status, unlike
+// the unscoped case, which only fell back to whatever happened to
+// already be CONNECTED at query time. Confirmed by reading NDK's own
+// eose logic (NDKSubscription.eoseReceived): once >=2 of the queried
+// relays have reported EOSE, it applies a short converging timeout
+// rather than waiting on every relay — so a well-known external user
+// already indexed on the public relays resolves almost immediately from
+// them, while our own relay's slower outbox fetch still runs as a
+// correctness backstop for anyone it's the only source for.
+export const authorQueryRelaySet = NDKRelaySet.fromRelayUrls(
+  [localRelayUrl, ...publicRelayUrls],
+  ndk,
+)
+
 // A SEPARATE instance from localRelaySet (same starting membership, but a
 // distinct Set) — this one backs actual publishing everywhere in the app
 // (event.publish(devPublishRelaySet), unchanged at every call site) and is

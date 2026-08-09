@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
-import { ndk, localRelaySet } from '../lib/ndk'
+import { ndk, authorQueryRelaySet } from '../lib/ndk'
 
 // Following: this pubkey's own kind:3 contact list, counted by its 'p'
 // tags. Followers: every kind:3 event anywhere in the pool that tags this
@@ -30,15 +30,19 @@ export function useFollowCounts(pubkey: string | undefined) {
     let cancelled = false
     setFollowingPubkeys(null)
 
-    // Scoped to localRelaySet — see the identical fix + full rationale in
-    // useFollowing.ts. Without this, an unscoped authors-filtered
+    // Scoped to authorQueryRelaySet — see the identical fix + full
+    // rationale in useFollowing.ts and in lib/ndk.ts's own comment on
+    // authorQueryRelaySet. Without this, an unscoped authors-filtered
     // fetchEvent can resolve on a stale/partial relay subset before a
     // newer kind:3 elsewhere finishes connecting (real bug, 2026-08-09:
     // this showed "0 Following" for a profile that actually follows 578).
+    // A first fix scoped this to localRelaySet alone, which was correct
+    // but slow for anyone not already on our own relay — the explicit
+    // multi-relay set restores speed without reintroducing the race.
     // The followers subscribe below is unaffected — it filters on `#p`,
     // not `authors`, so NDK never routes it through the same
     // connected-relays-only fallback and it already queries the full pool.
-    ndk.fetchEvent({ kinds: [3], authors: [pubkey] }, undefined, localRelaySet).then((event) => {
+    ndk.fetchEvent({ kinds: [3], authors: [pubkey] }, undefined, authorQueryRelaySet).then((event) => {
       if (cancelled) return
       const pubkeys = (event?.tags ?? [])
         .filter((t) => t[0] === 'p' && !!t[1])
