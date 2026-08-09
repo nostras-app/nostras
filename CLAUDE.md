@@ -4192,6 +4192,76 @@ fully reverted before finishing (`git diff` on `sw.ts` clean). `tsc -b`,
 confirmed live via the production bundle containing the button's text
 and the deploying commit's SHA.
 
+## A 4th DVM job kind: spam/scam classification, server-side piece
+shipped (2026-08-09)
+
+Real research → real scoping → real server-side shipping, all the same
+day. Prompted by "what real Nostr user pain could an AI prompt actually
+solve" — real web research (not brainstormed) found spam/scam content
+is the most consistently cited Nostr-specific complaint, and confirmed
+by reading the actual current NIP-90 job kind registry directly that no
+existing kind covers trust/safety classification. Full research write-
+up and the concrete build plan live in `nostr-client-node-strategy.md`
+(gitignored, local-only — see there for the sourced research, the
+kind-number reasoning, and the on-demand-vs-automatic scoping decision
+that's still deliberately unresolved).
+
+**Job kind `5501` → `6501`**, chosen adjacent to the community-
+registered `5500` "Malware Scanning" kind — a safety/trust judgment,
+not a content-discovery job, so it doesn't belong in the `53xx`
+discovery cluster it was first (and wrongly) grouped with during
+scoping. `server/cmd/dvm/main.go` gained this as a 4th job type
+alongside summarize/translate/Ask Claude, reusing every existing
+mechanism unchanged: the generic `i`-tag request parsing, payment
+gating, dynamic per-token pricing (`estimateJobCostSats`), and the
+NIP-89 handler announcement (now lists `5501` alongside the other
+three). The only genuinely new code is the constant pair, one
+`handleJob` switch case, and a system prompt (`moderateSystemPrompt`)
+— `callClaude` itself needed no changes.
+
+**Response format is a deliberately lightweight convention**, not a
+new Claude API feature this DVM hasn't used before: line 1 a strict
+single-line JSON object (`{"verdict":"spam"|"scam"|"legit",
+"confidence":"low"|"medium"|"high"}`), line 2+ a one-sentence
+human-readable reason. A future client can try to parse line 1 for a
+badge and always has the reason text as a fallback if parsing fails —
+degrades gracefully rather than hard-failing.
+
+**Verified for real, twice — locally and in production, not just built
+clean**. Locally: ran the DVM against a real Claude API call in free
+mode, deliberately without touching `nostras.env` or any real wallet —
+passed a syntactically-plausible but unreachable NWC URI as a
+process-only environment variable (the app's own existing
+graceful-degrade-to-free-mode behavior handled the rest). Published
+two real jobs directly via `nak`: a genuine crypto-scam note (`"send
+0.001 BTC... get 1 BTC back instantly"`) correctly came back
+`{"verdict":"scam","confidence":"high"}` with an accurate one-sentence
+reason, and a genuine benign personal note (a hike anecdote) correctly
+came back `{"verdict":"legit","confidence":"high"}` — confirming the
+prompt actually discriminates rather than defaulting to one verdict.
+Confirmed the NIP-89 announcement listed `5501` with the updated About
+text. `go build`/`go vet`/`gofmt -l` all clean.
+
+Deployed via the usual CI path (clean run, no false-negative this
+time). **Re-verified live in production** rather than trusting the
+local pass alone: published a real `kind:5501` job against
+`wss://nostras.app` for a genuine fake-giveaway scam text and got back
+a real `payment-required` feedback event with a valid invoice (not
+paid, standing rule) — confirms the new kind is correctly dispatched
+end-to-end in the payment-gated production path, not just the local
+free-mode one. Queried the live NIP-89 announcement by the DVM's
+*current* pubkey specifically (a first query without `-a` returned a
+stale announcement from an old, since-redeployed DVM identity — kind
+`31990` is only replaceable per-author, so old identities' announcements
+persist indefinitely; this is expected, not a bug) and confirmed it
+correctly lists `5501` with the updated About text.
+
+**Deliberately not yet done**: the client-side consumer UI (a "Check
+this note" button, scoped in the strategy doc as structurally simpler
+than `TranslateButton` — no picker step). The DVM job itself is live
+and payable by any NIP-90-aware client today regardless; NOSTRAS
+becoming its own consumer is a separate, not-yet-started piece.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
@@ -4262,10 +4332,14 @@ and the deploying commit's SHA.
 - **Phase 3 has started: a NIP-90 DVM (Data Vending Machine) is implemented**
   at `server/cmd/dvm/main.go` — a second binary in the same Go module as the
   relay (`go run ./cmd/dvm` from `server/`), not a separate module, since it
-  shares the relay's dependencies. Offers text summarization (job kind
-  `5001` -> result kind `6001`, per the NIP-90 kind registry — see
-  `github.com/nbd-wtf/go-nostr/nip90` for the full catalog). Listens on the
-  local relay only. Uses the real Claude API
+  shares the relay's dependencies. Offers four job kinds per the NIP-90
+  kind registry (see `github.com/nbd-wtf/go-nostr/nip90` for the full
+  catalog): text summarization (`5001`->`6001`), translation
+  (`5002`->`6002`), free-form text generation / Ask Claude
+  (`5050`->`6050`), and spam/scam classification (`5501`->`6501`,
+  chosen adjacent to the community-registered `5500` "Malware
+  Scanning" kind — see the dated entry for the full research/scoping
+  behind it). Listens on the local relay only. Uses the real Claude API
   (`github.com/anthropics/anthropic-sdk-go`, model `claude-opus-5`) for the
   actual summarization — this is not a placeholder/mock, per an explicit
   user decision to wire up a real LLM rather than a naive heuristic.
