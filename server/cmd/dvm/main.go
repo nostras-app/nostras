@@ -20,14 +20,18 @@ import (
 
 // NOSTRAS DVM: a NIP-90 Data Vending Machine offering text summarization
 // (job kind 5001 -> result kind 6001), translation (job kind 5002 ->
-// result kind 6002), and general text generation / Q&A (job kind 5050 ->
-// result kind 6050), per the NIP-90 kind registry. This is the
-// proof-of-concept DVM from the roadmap's Phase 3, listening on the local
-// relay only. Payment-gated (kind 7000 "payment-required" + a real
-// NWC-minted invoice) when NOSTRAS_DVM_NWC_URI is configured; free
-// otherwise — see loadPaymentConfig. The price itself is computed per job
-// from its actual expected API cost (see estimateJobCostSats) rather than
-// charged flat.
+// result kind 6002), general text generation / Q&A (job kind 5050 ->
+// result kind 6050), and spam/scam classification (job kind 5501 ->
+// result kind 6501, chosen adjacent to the community-registered 5500
+// "Malware Scanning" kind as the better semantic neighbor — a safety/
+// trust judgment, not a content-discovery job), per the NIP-90 kind
+// registry. This is the proof-of-concept DVM from the roadmap's Phase 3,
+// listening on the local relay only. Payment-gated (kind 7000
+// "payment-required" + a real NWC-minted invoice) when
+// NOSTRAS_DVM_NWC_URI is configured; free otherwise — see
+// loadPaymentConfig. The price itself is computed per job from its
+// actual expected API cost (see estimateJobCostSats) rather than charged
+// flat.
 const (
 	kindJobRequestSummarize = 5001
 	kindJobResultSummarize  = 6001
@@ -35,6 +39,8 @@ const (
 	kindJobResultTranslate  = 6002
 	kindJobRequestGenerate  = 5050
 	kindJobResultGenerate   = 6050
+	kindJobRequestModerate  = 5501
+	kindJobResultModerate   = 6501
 	kindJobFeedback         = 7000
 
 	// NIP-89 handler information event, reused by NIP-90 (Appendix 2:
@@ -101,6 +107,21 @@ var languageNames = map[string]string{
 const (
 	summarizeSystemPrompt = "You summarize text concisely and accurately in 2-3 sentences. Respond with only the summary, no preamble or labels."
 	generateSystemPrompt  = "You are a helpful, concise assistant answering a question asked through a Nostr client. Answer directly."
+	// moderateSystemPrompt asks for a lightweight, prompted structured
+	// convention (a strict JSON line, then a human-readable reason)
+	// rather than using a separate Claude structured-output/tool-use
+	// feature this DVM hasn't needed before — callClaude stays a plain
+	// text completion either way. The client tries to parse line 1 for a
+	// badge and always has the line-2+ reason as a fallback display, so a
+	// malformed line 1 degrades gracefully rather than hard-failing.
+	moderateSystemPrompt = `You are a content-safety classifier for a Nostr client. Given a single note's text, classify it as one of:
+- spam: low-effort repetitive promotional content unrelated to genuine discourse (crypto pump schemes, fake job/freelance offers, engagement bait)
+- scam: content designed to deceive for financial gain (phishing links, fake giveaways, impersonation, too-good-to-be-true investment offers)
+- legit: neither of the above
+
+Output exactly two lines, nothing else:
+Line 1: a strict single-line JSON object {"verdict":"spam"|"scam"|"legit","confidence":"low"|"medium"|"high"}
+Line 2: one sentence explaining why, in plain language.`
 )
 
 func translateSystemPrompt(targetLanguage string) string {
@@ -143,7 +164,7 @@ func main() {
 	// random one it has no reason to trust.
 	sk := nostr.GeneratePrivateKey()
 	pk, _ := nostr.GetPublicKey(sk)
-	fmt.Println("NOSTRAS DVM (NIP-90 summarization 5001->6001, translation 5002->6002, text generation 5050->6050) running as", pk)
+	fmt.Println("NOSTRAS DVM (NIP-90 summarization 5001->6001, translation 5002->6002, text generation 5050->6050, moderation 5501->6501) running as", pk)
 	if payment == nil {
 		fmt.Println("payment gating: OFF (set NOSTRAS_DVM_NWC_URI to enable)")
 	} else {
@@ -209,7 +230,7 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk st
 
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{
-		Kinds: []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate},
+		Kinds: []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate, kindJobRequestModerate},
 		Since: &since,
 	}})
 	if err != nil {
@@ -275,6 +296,9 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 	case kindJobRequestGenerate:
 		resultKind = kindJobResultGenerate
 		systemPrompt = generateSystemPrompt
+	case kindJobRequestModerate:
+		resultKind = kindJobResultModerate
+		systemPrompt = moderateSystemPrompt
 	default:
 		publishFeedback(ctx, relay, sk, req, "error", "unsupported job kind")
 		return
@@ -467,7 +491,7 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk stri
 		Website string `json:"website"`
 	}{
 		Name:    "NOSTRAS DVM",
-		About:   "Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes.",
+		About:   "Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes.",
 		Picture: "https://app.nostras.app/pwa-512x512.png",
 		Website: "https://nostras.app",
 	})
@@ -485,6 +509,7 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk stri
 			{"k", strconv.Itoa(kindJobRequestSummarize)},
 			{"k", strconv.Itoa(kindJobRequestTranslate)},
 			{"k", strconv.Itoa(kindJobRequestGenerate)},
+			{"k", strconv.Itoa(kindJobRequestModerate)},
 		},
 	}
 	signAndPublish(ctx, relay, sk, evt)
