@@ -4316,6 +4316,76 @@ feed-filtering mode discussed in the strategy doc's scoping remains
 explicitly out of scope — a separate values-level decision, not a
 natural next step from this.
 
+## Wrong follow state + hanging profile feed — a third occurrence of the
+"unscoped authors-filtered NDK query races real-time relay connection
+state" bug class (2026-08-09)
+
+User-reported, live, with a screenshot: a second real identity
+(SOVEREIGN_CITIZENS) opened MMOnostr's profile from a fresh Firefox
+session and saw three wrong things at once — the Follow button read
+"Follow" despite SC having already followed MMOnostr from a different
+client, MMOnostr's own "Following" stat read 0, and the notes list
+never left its loading skeleton.
+
+**Root cause, confirmed with real data, not assumed**: `useFollowing.ts`
+and `useFollowCounts.ts` both called `ndk.fetchEvent({kinds:[3],
+authors:[pubkey]})` with no explicit relay set, and `useNoteFeed.ts`
+called `ndk.subscribe({kinds:[1,30023], authors, limit:50})` the same
+way. Read NDK's own installed source to confirm the mechanism: an
+authors-filtered query with no relay set routes through
+`calculateRelaySetsFromFilter`, which — before the outbox tracker has
+resolved an author's real NIP-65 write relays — falls back to
+`pool.permanentAndConnectedRelays()`, filtered to relays already at
+`status >= CONNECTED` **at the exact moment the query starts**. This
+races real-time connection state: a one-shot `fetchEvent` (used by both
+hooks, `closeOnEose: true`) can resolve the instant its *initial*,
+possibly single-relay set reports EOSE — before a slower-to-connect
+relay carrying a newer copy of the same replaceable event ever joins
+the query, and a promise that's already resolved can't be corrected by
+`refreshRelayConnections()` picking up that relay later. Confirmed this
+was real, not theoretical, by querying SC's actual kind:3 directly
+across relays: the copy on `wss://nostras.app` (2026-08-06) predates SC
+actually following MMOnostr, while a genuinely newer copy — with
+MMOnostr's pubkey present — exists on `relay.damus.io` (2026-08-07,
+published from a different client). Cross-checked independently via a
+live browser test: MMOnostr's real "Following" count is **578**, not
+the **0** SC's session showed.
+
+This is the third occurrence of a bug class already documented once
+before (the NIP-23 deeplink naddr-redirect fix, 2026-08-08): *any*
+authors-filtered NDK query with no explicit relay set is a candidate,
+not just the one call site fixed there.
+
+**Fixed the same proven way**: all three hooks now pass `localRelaySet`
+explicitly (`ndk.fetchEvent(filter, undefined, localRelaySet)` /
+`ndk.subscribe(filter, {relaySet: localRelaySet})`), so the query goes
+to exactly one already-connected relay instead of racing a
+client-computed set. This loses no real capability — `server/outbox.go`
+already fans out to an author's true write relays for any
+authors-filtered query the *relay* receives, bounded by its own proven
+timeout + concurrency cap, so cross-relay discovery still happens
+server-side. `useFollowCounts.ts`'s *followers* subscribe
+(`{kinds:[3], '#p':[pubkey]}`) was deliberately left unscoped — it
+filters on `#p`, not `authors`, so NDK never routes it through the
+CONNECTED-only fallback in the first place; it already queries the full
+explicit relay list unconditionally and was never subject to this race.
+Likewise `useNoteFeed.ts`'s global feed (no `authors`) is unaffected for
+the same reason.
+
+**Verified for real, not just from static analysis**: rebuilt locally
+with `VITE_RELAY_URL=wss://nostras.app` (pointed at real production
+data, not local dev's empty store) and reloaded MMOnostr's profile in a
+live browser with the fix in place — correctly showed **578 Following,
+6 Followers**, and the notes list rendered immediately with no hang.
+**Not independently re-verified for the exact SC-specific Follow-button
+path** — that requires SC's own real signer, which this project never
+touches (see the standing key-custody rule) — so that specific half
+rests on the shared root-cause fix plus the corroborating Following-
+count evidence, not a literal replay of SC's own session. `tsc -b`,
+`oxlint`, `vite build` all clean. Deployed via the usual CI path;
+confirmed live via the production bundle containing the deploying
+commit's SHA (`d00a7b4`).
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
