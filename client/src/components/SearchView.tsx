@@ -8,6 +8,32 @@ import { SearchIcon } from './icons'
 
 type State = 'idle' | 'loading' | 'results' | 'empty' | 'error'
 
+// Real bug (2026-08-09): unlike ndk.fetchEvent() (singular), which has a
+// hard 10s internal fallback, ndk.fetchEvents() (plural, used below) only
+// ever resolves on the queried relay's EOSE — if that connection never
+// completes (a network hiccup, a slow/unreachable relay), the promise
+// never settles and the UI is stuck on "Searching…" forever with no
+// error and no way out. Reported live: a user's search hung indefinitely
+// with zero feedback. Wrapping in an explicit timeout, same withTimeout
+// pattern already used in lib/remoteSigner.ts.
+const SEARCH_TIMEOUT_MS = 10000
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Search timed out')), ms)
+    promise.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
 export function SearchView() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<NDKEvent[]>([])
@@ -37,10 +63,13 @@ export function SearchView() {
       // events that match on structural fields (kind) but not the actual
       // search term — bypass it entirely so results only reflect the
       // relay's real NIP-50 match.
-      const found = await ndk.fetchEvents(
-        { kinds: [1], search: trimmed, limit: 50 },
-        { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY, closeOnEose: true },
-        localRelaySet,
+      const found = await withTimeout(
+        ndk.fetchEvents(
+          { kinds: [1], search: trimmed, limit: 50 },
+          { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY, closeOnEose: true },
+          localRelaySet,
+        ),
+        SEARCH_TIMEOUT_MS,
       )
       const sorted = Array.from(found).sort(
         (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0),
