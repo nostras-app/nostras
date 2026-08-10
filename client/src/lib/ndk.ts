@@ -67,12 +67,46 @@ export const authorQueryRelaySet = NDKRelaySet.fromRelayUrls(
   ndk,
 )
 
-// A SEPARATE instance from localRelaySet (same starting membership, but a
-// distinct Set) — this one backs actual publishing everywhere in the app
-// (event.publish(devPublishRelaySet), unchanged at every call site) and is
-// deliberately local-only by default for dev safety, but its `.relays` Set
-// gets mutated in place by lib/publishTargets.ts when the user opts a note
-// into publishing to additional relays too (Settings > Relays). Sharing one
-// instance between this and localRelaySet would leak those opt-in targets
-// into search reads, which must stay local-only regardless.
-export const devPublishRelaySet = NDKRelaySet.fromRelayUrls([localRelayUrl], ndk)
+// A SEPARATE instance from localRelaySet (a distinct Set, never shared) —
+// this one backs actual publishing everywhere in the app
+// (event.publish(devPublishRelaySet), unchanged at every call site). Its
+// `.relays` Set gets mutated in place by lib/publishTargets.ts when the
+// user opts a note into publishing to additional relays too (Settings >
+// Relays). Sharing one instance between this and localRelaySet would leak
+// those opt-in targets into search reads, which must stay local-only
+// regardless.
+//
+// Starting membership is deliberately environment-split (2026-08-10),
+// not the same everywhere as it used to be. The name stays
+// "devPublishRelaySet" even though it's no longer local-only in
+// production — same reasoning as localRelayUrl keeping its name: the
+// actual invariant ("this project's own dev-safety / session-scoped
+// opt-in convention") is what matters, not the literal string "dev,"
+// and renaming would touch every call site for a cosmetic reason.
+//
+// Real product bug, not just a dev nicety: local-only-by-default was
+// built to stop *this project's own* dev/test sessions from ever
+// accidentally broadcasting to the real public network — a real concern
+// while iterating against a live production deployment. But the exact
+// same restriction, unconditionally applied to every real end user in
+// production too, meant a genuine new user's first note was invisible
+// to the rest of Nostr unless they discovered Settings > Relays and
+// manually opted in, every single session (it resets on reload, by
+// design, for the dev-safety case). Confirmed as a real, live incident
+// (2026-08-10): three real outreach replies published successfully by
+// every visible signal, and were invisible to their recipients, because
+// none of them ever left our own relay. A build-time split fixes this
+// at the root rather than relying on better UI alone to compensate for
+// a default that quietly works against the product's own purpose:
+// import.meta.env.PROD (set by Vite; true only for the real deployed
+// app.nostras.app build, never for local/dev testing, including this
+// project's own Claude-driven dev sessions) gets the same
+// general-purpose public relays already used elsewhere in this file for
+// reads (publicRelayUrls) as real default publish targets, in addition
+// to our own relay. Local/dev builds keep the original local-only
+// default unchanged — this project's own testing safety net is
+// untouched by this change.
+export const devPublishRelaySet = NDKRelaySet.fromRelayUrls(
+  import.meta.env.PROD ? [localRelayUrl, ...publicRelayUrls] : [localRelayUrl],
+  ndk,
+)

@@ -1,13 +1,27 @@
 import { normalizeRelayUrl } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet, localRelayUrl } from './ndk'
+import { ndk, devPublishRelaySet, localRelayUrl, publicRelayUrls } from './ndk'
 
 const normalizedLocalRelayUrl = normalizeRelayUrl(localRelayUrl)
 
 // Session-only (in-memory, never persisted) opt-in extra publish targets —
-// always resets to local-only on reload, deliberately, so a forgotten
-// selection from a past session can never silently broadcast dev/test
-// notes to the public network. See CLAUDE.md's publish-safety note.
-let selected: Set<string> = new Set()
+// always resets to this same starting point on reload, deliberately, so a
+// forgotten *manually-added* selection from a past session can never
+// silently broadcast dev/test notes to the public network. See CLAUDE.md's
+// publish-safety note.
+//
+// Seeded to match devPublishRelaySet's own real starting membership
+// (lib/ndk.ts) rather than always starting empty — production builds
+// construct devPublishRelaySet with the public relays already included,
+// and this Set exists purely to drive this UI's toggle state
+// (isPublishTarget/togglePublishTarget below), so it needs to agree with
+// reality from the very first render. Without this, Settings > Relays
+// would show the production-default public relays as "off" (and
+// re-toggling one back "on" after removing it would try to add a relay
+// that's already there) even though they're genuinely already active
+// publish targets underneath.
+let selected: Set<string> = import.meta.env.PROD
+  ? new Set(publicRelayUrls.map(normalizeRelayUrl))
+  : new Set()
 const listeners = new Set<() => void>()
 
 function setSelected(next: Set<string>) {

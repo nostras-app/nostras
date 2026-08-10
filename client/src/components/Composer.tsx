@@ -4,8 +4,10 @@ import type { NDKRelay } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useProfile } from '../hooks/useProfile'
+import { usePublishTargets } from '../hooks/usePublishTargets'
 import { uploadToBlossom } from '../lib/blossom'
 import { isSecureImageUrl } from '../lib/parseContent'
+import { setActiveView } from '../lib/navigation'
 import { ImageIcon, XIcon } from './icons'
 
 type Attachment = {
@@ -46,6 +48,16 @@ export function Composer() {
   const activeUser = useActiveUser()
   const profile = useProfile(activeUser?.pubkey)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Subscribes so the "Publishing to N relays" line below re-renders when
+  // the user changes their session's publish targets in Settings — makes
+  // the relay mechanic visible right where it matters (before hitting
+  // Publish), not just discoverable if someone happens to dig into
+  // Settings first. Prompted directly by a real incident: three real
+  // outreach replies published successfully by every visible signal and
+  // were invisible to their recipients, because the fact that publishing
+  // has a *scope* at all wasn't surfaced anywhere near the action itself.
+  usePublishTargets()
+  const publishTargetCount = devPublishRelaySet.relays.size
 
   function handleFilesSelected(files: FileList | null) {
     if (!files) return
@@ -161,6 +173,18 @@ export function Composer() {
             ))}
           </div>
         )}
+
+        <p className="composer-publish-scope">
+          Publishing to {publishTargetCount} relay{publishTargetCount === 1 ? '' : 's'}
+          {' — '}
+          <button
+            type="button"
+            className="composer-publish-scope-link"
+            onClick={() => setActiveView('settings')}
+          >
+            change
+          </button>
+        </p>
 
         <div className="btn-row">
           <input

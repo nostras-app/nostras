@@ -4,7 +4,7 @@ import { useRelayList } from '../hooks/useRelayList'
 import { relayStatusLabel, refreshRelayList } from '../lib/relayList'
 import { usePublishTargets } from '../hooks/usePublishTargets'
 import { isPublishTarget, togglePublishTarget } from '../lib/publishTargets'
-import { ndk, localRelayUrl } from '../lib/ndk'
+import { ndk, localRelayUrl, devPublishRelaySet } from '../lib/ndk'
 import {
   getCustomRelays,
   addCustomRelayUrl,
@@ -17,7 +17,8 @@ const normalizedLocalRelayUrl = normalizeRelayUrl(localRelayUrl)
 
 export function RelaySettings() {
   const relays = useRelayList()
-  usePublishTargets() // subscribes so publish-target toggles re-render this list
+  usePublishTargets() // subscribes so publish-target toggles re-render this list, including the summary below
+  const publishCount = devPublishRelaySet.relays.size
   const [customRelays, setCustomRelays] = useState(getCustomRelays)
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -49,6 +50,17 @@ export function RelaySettings() {
 
   return (
     <div className="stack">
+      <div className="relay-publish-summary">
+        <UploadIcon />
+        <span>
+          <strong>
+            Publishing to {publishCount} relay{publishCount === 1 ? '' : 's'}
+          </strong>{' '}
+          — this is where a note you write actually ends up. The upload icon
+          next to each relay below shows which ones are currently included;
+          click it to add or remove a relay from this list.
+        </span>
+      </div>
       <p className="field-hint">
         Includes relays discovered automatically while fetching content
         (NIP-65 outbox lookups), not just the ones configured at startup —
@@ -106,10 +118,9 @@ export function RelaySettings() {
         })}
       </div>
       <p className="field-hint">
-        The upload icon controls where new notes get published this session
-        (always includes the local relay). This choice is not saved —
-        it resets to local-only on reload, so nothing gets broadcast to the
-        public network without opting in again each time.
+        {import.meta.env.PROD
+          ? "This starts, every session, with NOSTRAS's own relay plus a couple of well-known public relays — so a note you publish reaches the wider Nostr network by default, not just this app. Any relay you add or remove above only applies for this session; it's not saved, so it resets back to that same default on reload rather than silently remembering a one-off choice."
+          : 'The upload icon controls where new notes get published this session (always includes the local relay). This choice is not saved — it resets to local-only on reload, so nothing gets broadcast to the public network without opting in again each time. (This is the local-dev build; the deployed app defaults to local + public relays instead.)'}
       </p>
       <div className="relay-add-row">
         <input
