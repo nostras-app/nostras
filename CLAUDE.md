@@ -4961,6 +4961,187 @@ the local relay with no status data, both locally (previewing without a
 running local relay backend) and on live production. Not introduced by
 this change — worth a look another time, not blocking here.
 
+## Communities — real NIP-29 relay-based groups, replacing the roadmap
+placeholder (2026-08-10)
+
+`client/src/components/CommunitiesView.tsx` used to be a static roadmap
+card ("Not built yet — infrastructure reliability comes first"), already
+wired into the nav rail and `App.tsx`'s view-panel slot but with no real
+functionality — a deliberate earlier choice to land relay capacity/
+reliability work first. That work shipped (dedicated CPU, memory tuning,
+connection caps, badger tuning — all documented earlier in this file);
+this entry is the actual feature, picked up per direct user request
+("regardless of grants or not, I want the app to be reliable and
+features rich for the users"), independent of the Geyser funding
+outcome. Scoped and built in three separately-verified pieces, mirroring
+the relay-management feature's own precedent (4 pieces, smallest useful
+slice first).
+
+**Scope, confirmed with the user before building**: public + open groups
+only for v1 — any authenticated pubkey can read and post kind:9 chat
+once a group exists; only admin actions (edit metadata, promote, demote)
+are permission-gated. Private groups (read-gating) and closed groups
+(join-approval before posting) are explicitly deferred to a later phase.
+
+### Piece 1 — server-side relay support (`server/nip29.go`)
+
+NIP-29 kinds, taken directly from `github.com/nbd-wtf/go-nostr@v0.52.3/
+kinds.go` (already a project dependency, no new `go.mod` entry needed):
+chat = 9, moderation = 9000 (put-user/promote) / 9001 (remove-user/
+demote) / 9002 (edit-metadata) / 9007 (create-group) / 9008
+(delete-group) / 9009 (create-invite), addressable group state = 39000
+(metadata) / 39001 (admins) / 39002 (members) / 39003 (roles). An
+in-memory, `sync.RWMutex`-guarded cache (`groupCache`) tracks per-group
+admin pubkeys, kept warm by a boot-time scan plus a live `OnEventSaved`
+hook — this exists because the hot-path `RejectEvent` check (confirmed
+via `internal/khatrufork/adding.go`: runs for *every* incoming event of
+*every* kind, before anything gets stored) can't afford a synchronous
+badger query per event, the same lesson the push-notification
+lock-contention outage taught earlier in this project. `relay.RejectEvent`
+and `relay.OnEventSaved` were both empty in this relay before this —
+confirmed by reading `main.go` in full first, not assumed.
+
+**Real, non-obvious design decision, found necessary during
+implementation, not planned upfront**: the relay does not mint or sign
+group metadata/admin-list events itself — the *client* publishes its own
+kind:39000/39001 immediately after kind:9007 succeeds (avoids the relay
+needing its own signing key). This raised a real question the original
+plan hadn't resolved: since kind:39001 is addressable per (kind, pubkey,
+d), different admins each publish their own copy under their own
+pubkey/address — what stops a random stranger from publishing a fake
+39001 claiming to be admin of a group they don't own? Fixed by making
+39000-39003 admin-gated writes too (only a pubkey the cache already
+recognizes as admin can get one accepted), so any 39001/39002 that *is*
+stored is inherently legitimate regardless of which admin authored it —
+a client-side reader merges every valid one rather than trusting a
+single canonical author.
+
+**Real bug found and fixed during Piece 1's own live `nak` verification,
+not theorized in advance**: the permission cache was originally designed
+to also treat kind:39001/39002 as authoritative (merging them via
+`nip29.Group`'s own `MergeInAdminsEvent`/`MergeInMembersEvent`, which
+have a `CreatedAt` staleness guard). This was wrong. Reproduced live: a
+promoted admin published their own real, legitimately-accepted kind:39001
+self-declaration while they genuinely were admin; a later kind:9001
+demotion updated the live cache correctly, but that self-declaration
+stayed in storage untouched (a different admin's self-declaration is a
+*different* address — nothing about a demotion supersedes or removes
+it). A relay restart's boot scan, trusting 39001 as cache-authoritative,
+re-merged the stale self-declaration and silently resurrected the
+revoked admin status — confirmed live: the demoted user could pass an
+admin-only check again immediately after a restart. **Fixed by making
+only kind:9007/9000/9001 — a single, unambiguous, already admin-gated
+event history — ever drive the permission cache**, both live and at
+boot (replayed in chronological `CreatedAt` order through one shared
+`applyNip29CacheEvent` function, so live and boot state can never
+diverge from each other by construction). kind:39001/39002 remain real,
+writable (admin-gated), freely queryable — informational snapshots a
+client can publish/read, just not something the relay's own enforcement
+trusts. Re-verified after the fix with the exact same repro (demote,
+restart, confirm still-rejected) — passed.
+
+Other real decisions: kind:9/10/11/12 chat messages are excluded from
+the NIP-50 bluge search index (`newGroupChatSearchIndexHook` wraps
+`searchIndex.SaveEvent`) — default-off since group chat is higher-volume/
+more casual than notes, and indexing it would risk a real content leak
+once private groups exist in a later phase. Group discovery
+(`REQ {"kinds":[39000]}`) needed zero new query code — confirmed live,
+not assumed, since `outbox.go`'s aggregation only special-cases
+`Authors`-filtered queries. `relay.Info.AddSupportedNIP(29)` added
+explicitly, matching the NIP-50 precedent (khatru doesn't auto-advertise
+this the way it does for a few built-in NIPs).
+
+**Verified end-to-end via `nak` against a local `go run .`**, entirely
+before any client UI existed: group creation, open posting from a
+different keypair, rejection for a nonexistent group, non-admin
+moderation attempts rejected and the real admin's own succeeding,
+newly-promoted admins gaining real write access, plain-kind discovery,
+NIP-11 advertising `29`, missing/duplicate `h`-tag rejection (fails
+closed, not "take the first"), demote-then-restart-then-still-rejected
+(the bug repro above), and confirmed kind:9 chat is genuinely excluded
+from search (`nak req --search` on planted unique content returned
+nothing). `go build`/`go vet`/`gofmt -l` all clean.
+
+### Piece 2 — client discovery + create + chat
+
+New: `client/src/hooks/useGroupList.ts` (live kind:39000 subscription
+scoped to `localRelaySet`, dedupes by group id keeping the newest
+`created_at` — multiple admins can each publish a valid copy),
+`client/src/hooks/useGroupChat.ts` (live kind:9 subscription filtered by
+`#h`, same subscribe/dedupe/eose/cleanup shape as `useDirectMessages.ts`
+minus decryption — v1 chat is plaintext, not gift-wrapped — including the
+same `generation`-keyed resubscribe-on-reconnect pattern), and
+`client/src/lib/groups.ts` (`publishCreateGroup` — sequential, not
+parallel, awaits: 9007 must actually land before 39000/39001 can pass
+the relay's admin check; `sendGroupMessage`). `CommunitiesView.tsx`'s
+placeholder body was replaced with a thin list/create router (calls
+`useGroupList()` exactly once, matching `MessagesView.tsx`'s own
+hook-once/props-down discipline — this project has hit the duplicate-
+subscription-per-row bug class twice already and this deliberately
+avoids a third instance); `GroupChatView.tsx` (new) is the header +
+message list + composer, reusing `MessagesView`'s `.dm-thread`/
+`.dm-bubble`/`.dm-compose` CSS directly rather than duplicating it.
+`lib/navigation.ts` gained a `groupTarget` field and `viewGroup(id)`,
+exact shape of the existing `dmTarget`/`startDmWith()`. **All group
+reads/writes use `localRelaySet`, never `devPublishRelaySet`** — the
+first deliberate exception to that default in this codebase, called out
+inline since `devPublishRelaySet` now includes public relays in
+production and would leak group state off NOSTRAS's own relay.
+
+**Verified live in-browser with two tabs sharing one real dev identity
+plus real throwaway `nak` keypairs for genuine cross-identity checks**
+(consistent with this project's established combined browser+nak
+testing precedent): the relay's own Piece-1 `nak`-created "Test Group"
+and its historical messages rendered correctly through the real
+`useGroupList`/`useGroupChat` subscriptions with zero client code
+written yet at that point in testing; sent a message from the real
+browser UI and confirmed it rendered as an own-bubble; published a
+message from a fresh third keypair via `nak` directly into the same
+group and confirmed it arrived live in the open tab with no reload
+(genuine cross-identity real-time delivery); created a brand-new group
+entirely through the real UI form (name/about) and confirmed the
+sequential 9007→39000→39001 publish succeeded, auto-navigated into the
+new chat, and the group appeared in a second tab's discovery list with
+no reload; restarted the local relay process while the chat view stayed
+open and confirmed a `nak`-published message afterward still arrived
+live (re-verifying the `generation` resubscribe pattern on this new
+code, not assumed from resemblance to `useDirectMessages`). Zero console
+errors throughout. `tsc -b`, `oxlint`, `vite build` all clean.
+
+### Piece 3 — client admin tools
+
+New: `client/src/hooks/useGroupMembership.ts` and
+`client/src/components/GroupAdminPanel.tsx`, wired into `GroupChatView`
+behind a gear icon shown only when `isAdmin(activeUser.pubkey)`.
+**Deliberately does not derive admin status from kind:39001** — same
+staleness hazard the server-side fix above already found and closed;
+the client replays the identical kind:9007/9000/9001 history (via one
+`deriveAdmins()` function mirroring `server/nip29.go`'s
+`applyNip29CacheEvent` exactly) so the client and server can never
+disagree about who's actually an admin. "Remove member" is scoped to
+admin demotion only (kind:9001 as the inverse of kind:9000), not a real
+kick/ban — v1 has no membership-gated posting, so a button implying a
+real ban would promise a capability this version doesn't have; real
+kick/ban is a closed-groups-phase feature. A last-admin guard disables
+the Demote button when only one admin remains, so a group can't be
+talked into a permanently adminless state through the UI.
+
+**Verified live, cross-checking client and server independently at each
+step, not just trusting the UI**: the gear icon correctly appeared only
+for the real creator (derived from the real kind:9007 history, not a
+hardcoded "you created this" flag); edited the group's name through the
+panel and confirmed it propagated live to the header (via the same
+`useGroupList` subscription `CommunitiesView` already owns); promoted a
+fresh `nak`-generated pubkey to admin through the UI and confirmed via a
+direct `nak` publish from that identity that the relay's own enforcement
+genuinely granted it real admin write access — not just that the UI
+*showed* them promoted; demoted the same identity through the UI and
+confirmed via a second `nak` publish that the relay now genuinely
+rejected them (`blocked: admin only`); confirmed the sole remaining
+admin's Demote button is actually `disabled` in the live DOM, not just
+styled to look that way. Zero console errors. `tsc -b`, `oxlint`,
+`vite build` all clean.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

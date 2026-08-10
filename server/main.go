@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -37,6 +38,7 @@ func main() {
 	relay.Info.Software = "https://github.com/fiatjaf/khatru"
 	relay.Info.Version = envOr("NOSTRAS_VERSION", "dev")
 	relay.Info.AddSupportedNIP(50) // search — khatru doesn't auto-detect this one
+	relay.Info.AddSupportedNIP(29) // groups — see nip29.go
 
 	badgerPath := envOr("NOSTRAS_BADGER_PATH", "./data")
 	blugePath := envOr("NOSTRAS_BLUGE_PATH", "./search-index")
@@ -100,6 +102,16 @@ func main() {
 		panic(err)
 	}
 
+	// NIP-29 groups — see nip29.go. Boot-time scan populates the
+	// permission cache from whatever's already stored, so a restart never
+	// requires a group to be recreated; panics on failure to match
+	// db.Init()/searchIndex.Init()'s existing posture just above.
+	nip29Cache := newGroupCache()
+	if err := nip29Cache.loadFromStore(context.Background(), &db); err != nil {
+		panic(err)
+	}
+	relay.RejectEvent = append(relay.RejectEvent, newNip29RejectEventHook(nip29Cache))
+
 	// Web Push subscriptions — see push.go/push_handlers.go/push_notify.go.
 	// A plain JSON file, not a Nostr event: unlike everything else this
 	// relay persists, a push subscription's endpoint/keys must stay
@@ -136,7 +148,7 @@ func main() {
 	}
 	relay.OnConnect = append(relay.OnConnect, newAnalyticsConnectHook(analytics), newHealthConnectHook())
 	relay.OnDisconnect = append(relay.OnDisconnect, newHealthDisconnectHook())
-	relay.OnEventSaved = append(relay.OnEventSaved, newHealthEventSavedHook())
+	relay.OnEventSaved = append(relay.OnEventSaved, newHealthEventSavedHook(), newNip29CacheUpdateHook(nip29Cache))
 
 	// See maxLiveConnections in health.go for why this exists — runs before
 	// the WebSocket upgrade, so a connection over the cap is refused
@@ -165,7 +177,7 @@ func main() {
 	// so a plain browser visit is the only thing that lands here.
 	relay.Router().HandleFunc("GET /{$}", handleLanding)
 
-	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent, searchIndex.SaveEvent,
+	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent, newGroupChatSearchIndexHook(&searchIndex),
 		newPushNotifyHook(pushSubs, vapidPublicKey, vapidPrivateKey, vapidSubscriber))
 	relay.DeleteEvent = append(relay.DeleteEvent, db.DeleteEvent, searchIndex.DeleteEvent)
 	relay.CountEvents = append(relay.CountEvents, db.CountEvents)

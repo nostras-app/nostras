@@ -8,9 +8,17 @@ type NavState = {
   article: NDKEvent | null
   note: NDKEvent | null
   dmTarget: string | null
+  groupTarget: string | null
 }
 
-let state: NavState = { view: 'home', profilePubkey: null, article: null, note: null, dmTarget: null }
+let state: NavState = {
+  view: 'home',
+  profilePubkey: null,
+  article: null,
+  note: null,
+  dmTarget: null,
+  groupTarget: null,
+}
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -22,14 +30,22 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener)
 }
 
-// Switching tabs via the nav rail always resets the profile/article/note/dm
-// panels back to their defaults — distinct from viewProfile()/viewArticle()/
-// viewNote()/startDmWith(), the only ways a specific pubkey/article/note/dm
-// target get shown there. Without this reset, clicking Home then back could
-// leave a previously-viewed stranger's profile, an old article, a stale
-// single-note view, or a stale DM thread still showing.
+// Switching tabs via the nav rail always resets the profile/article/note/
+// dm/group panels back to their defaults — distinct from viewProfile()/
+// viewArticle()/viewNote()/startDmWith()/viewGroup(), the only ways a
+// specific pubkey/article/note/dm/group target get shown there. Without
+// this reset, clicking Home then back could leave a previously-viewed
+// stranger's profile, an old article, a stale single-note view, a stale
+// DM thread, or a stale group chat still showing.
 export function setActiveView(view: View) {
-  state = { view, profilePubkey: null, article: null, note: null, dmTarget: null }
+  state = {
+    view,
+    profilePubkey: null,
+    article: null,
+    note: null,
+    dmTarget: null,
+    groupTarget: null,
+  }
   notify()
 }
 
@@ -38,7 +54,14 @@ export function setActiveView(view: View) {
 // every component that renders a FeedItem (Feed, SearchView,
 // BookmarksView, ProfileView's own notes list all share it).
 export function viewProfile(pubkey: string) {
-  state = { view: 'profile', profilePubkey: pubkey, article: null, note: null, dmTarget: null }
+  state = {
+    view: 'profile',
+    profilePubkey: pubkey,
+    article: null,
+    note: null,
+    dmTarget: null,
+    groupTarget: null,
+  }
   notify()
 }
 
@@ -46,7 +69,14 @@ export function viewProfile(pubkey: string) {
 // NDKEvent directly (from whatever feed/card the user clicked) rather than
 // an naddr + a fresh relay lookup, since the event is already in hand.
 export function viewArticle(event: NDKEvent) {
-  state = { view: 'article', profilePubkey: null, article: event, note: null, dmTarget: null }
+  state = {
+    view: 'article',
+    profilePubkey: null,
+    article: event,
+    note: null,
+    dmTarget: null,
+    groupTarget: null,
+  }
   notify()
 }
 
@@ -56,7 +86,14 @@ export function viewArticle(event: NDKEvent) {
 // deeplink.ts used to say "NOSTRAS has no dedicated single-note view to
 // redirect a plain nevent to" — this is that view.
 export function viewNote(event: NDKEvent) {
-  state = { view: 'note', profilePubkey: null, article: null, note: event, dmTarget: null }
+  state = {
+    view: 'note',
+    profilePubkey: null,
+    article: null,
+    note: event,
+    dmTarget: null,
+    groupTarget: null,
+  }
   notify()
 }
 
@@ -65,7 +102,30 @@ export function viewNote(event: NDKEvent) {
 // the exact same DM machinery MessagesView's own "start a new conversation
 // by npub" input already uses.
 export function startDmWith(pubkey: string) {
-  state = { view: 'messages', profilePubkey: null, article: null, note: null, dmTarget: pubkey }
+  state = {
+    view: 'messages',
+    profilePubkey: null,
+    article: null,
+    note: null,
+    dmTarget: pubkey,
+    groupTarget: null,
+  }
+  notify()
+}
+
+// Opens a specific group's chat view within Communities — used when
+// clicking a group card in the discovery list. Just an id (not an
+// already-fetched event, unlike viewArticle/viewNote): group state is a
+// live subscription (useGroupChat/useGroupList), not a one-off fetch.
+export function viewGroup(groupId: string) {
+  state = {
+    view: 'communities',
+    profilePubkey: null,
+    article: null,
+    note: null,
+    dmTarget: null,
+    groupTarget: groupId,
+  }
   notify()
 }
 

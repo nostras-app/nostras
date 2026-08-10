@@ -41,7 +41,7 @@ function App() {
   // from anywhere (e.g. clicking an author's name deep inside FeedItem)
   // without prop-drilling a callback through every component that
   // renders one.
-  const { view: activeView, profilePubkey, article, note, dmTarget } = useNavState()
+  const { view: activeView, profilePubkey, article, note, dmTarget, groupTarget } = useNavState()
   const deepLinkResolved = useRef(false)
 
   useEffect(() => {
@@ -177,7 +177,7 @@ function App() {
             </div>
 
             <section className={`card ${panelClass('communities')}`}>
-              <CommunitiesView />
+              <CommunitiesView groupTarget={groupTarget} />
             </section>
 
             <div className={panelClass('notifications')}>

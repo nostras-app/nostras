@@ -2235,8 +2235,7 @@
   margin: 0 0 12px;
 }
 
-/* ---------- Communities view (roadmap placeholder, not a shipped
-   feature yet) ---------- */
+/* ---------- Communities view (NIP-29 relay-based groups) ---------- */
 
 .communities-view {
   display: flex;
@@ -2269,72 +2268,95 @@
   margin: 0 0 6px;
 }
 
-.communities-status {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--zap);
-  margin: 0 0 16px;
-}
-
 .communities-lede {
   color: var(--text-muted);
   font-size: 14px;
   line-height: 1.6;
   max-width: 460px;
-  margin: 0 0 28px;
+  margin: 0 0 20px;
 }
 
-.communities-nips {
+.communities-create-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  width: 100%;
+  max-width: 360px;
+  text-align: left;
+  margin-top: 4px;
+}
+
+.communities-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
   max-width: 480px;
+  margin-top: 24px;
   text-align: left;
 }
 
-.communities-nip {
+.communities-group-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
   background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 14px 16px;
+  padding: 12px 14px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
 }
 
-.communities-nip-head {
+.communities-group-card:hover {
+  border-color: var(--accent);
+}
+
+.communities-group-card-body {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
-.communities-nip-badge {
-  flex: none;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-
-.communities-nip-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-h);
-}
-
-.communities-nip-desc {
+.communities-group-card-about {
   font-size: 13px;
   color: var(--text-muted);
-  line-height: 1.5;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-chat-header-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.group-chat-about {
+  font-size: 13px;
+  color: var(--text-muted);
   margin: 0;
 }
 
-.communities-nip-existing {
+.group-message-author {
+  display: block;
   font-size: 12px;
-  color: var(--success);
-  line-height: 1.5;
-  margin: 8px 0 0;
+  margin-bottom: 2px;
+}
+
+.group-admin-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--code-bg);
 }
 
 .about-essay h4 {
