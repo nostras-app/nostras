@@ -6,10 +6,11 @@ type NavState = {
   view: View
   profilePubkey: string | null
   article: NDKEvent | null
+  note: NDKEvent | null
   dmTarget: string | null
 }
 
-let state: NavState = { view: 'home', profilePubkey: null, article: null, dmTarget: null }
+let state: NavState = { view: 'home', profilePubkey: null, article: null, note: null, dmTarget: null }
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -21,14 +22,14 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener)
 }
 
-// Switching tabs via the nav rail always resets the profile/article/dm
+// Switching tabs via the nav rail always resets the profile/article/note/dm
 // panels back to their defaults — distinct from viewProfile()/viewArticle()/
-// startDmWith(), the only ways a specific pubkey/article/dm target get
-// shown there. Without this reset, clicking Home then back could leave a
-// previously-viewed stranger's profile, an old article, or a stale DM
-// thread still showing.
+// viewNote()/startDmWith(), the only ways a specific pubkey/article/note/dm
+// target get shown there. Without this reset, clicking Home then back could
+// leave a previously-viewed stranger's profile, an old article, a stale
+// single-note view, or a stale DM thread still showing.
 export function setActiveView(view: View) {
-  state = { view, profilePubkey: null, article: null, dmTarget: null }
+  state = { view, profilePubkey: null, article: null, note: null, dmTarget: null }
   notify()
 }
 
@@ -37,7 +38,7 @@ export function setActiveView(view: View) {
 // every component that renders a FeedItem (Feed, SearchView,
 // BookmarksView, ProfileView's own notes list all share it).
 export function viewProfile(pubkey: string) {
-  state = { view: 'profile', profilePubkey: pubkey, article: null, dmTarget: null }
+  state = { view: 'profile', profilePubkey: pubkey, article: null, note: null, dmTarget: null }
   notify()
 }
 
@@ -45,7 +46,17 @@ export function viewProfile(pubkey: string) {
 // NDKEvent directly (from whatever feed/card the user clicked) rather than
 // an naddr + a fresh relay lookup, since the event is already in hand.
 export function viewArticle(event: NDKEvent) {
-  state = { view: 'article', profilePubkey: null, article: event, dmTarget: null }
+  state = { view: 'article', profilePubkey: null, article: event, note: null, dmTarget: null }
+  notify()
+}
+
+// Opens a single-note view (SearchView pasting a note/nevent reference,
+// or a future nevent deep link) — same "already-fetched event in hand"
+// shape as viewArticle. Closes a real, previously-documented gap:
+// deeplink.ts used to say "NOSTRAS has no dedicated single-note view to
+// redirect a plain nevent to" — this is that view.
+export function viewNote(event: NDKEvent) {
+  state = { view: 'note', profilePubkey: null, article: null, note: event, dmTarget: null }
   notify()
 }
 
@@ -54,7 +65,7 @@ export function viewArticle(event: NDKEvent) {
 // the exact same DM machinery MessagesView's own "start a new conversation
 // by npub" input already uses.
 export function startDmWith(pubkey: string) {
-  state = { view: 'messages', profilePubkey: null, article: null, dmTarget: pubkey }
+  state = { view: 'messages', profilePubkey: null, article: null, note: null, dmTarget: pubkey }
   notify()
 }
 

@@ -1,21 +1,44 @@
-import { nip19 } from '@nostr-dev-kit/ndk'
-import { ndk, localRelaySet } from './ndk'
-import { viewArticle } from './navigation'
+import { NDKRelaySet, nip19 } from '@nostr-dev-kit/ndk'
+import { ndk, localRelaySet, localRelayUrl, publicRelayUrls } from './ndk'
+import { makeRelayConnectionFilter } from './relayFilter'
+import { resolveNoteReference } from './resolvePubkey'
+import { viewArticle, viewNote } from './navigation'
+
+const isAllowedRelayUrl = makeRelayConnectionFilter(localRelayUrl)
 
 // Resolves a `?nostr=<naddr1...>` deep link on load into a real in-app
 // navigation — the client half of the kind:31990 NIP-89 handler
 // announcement's `web` redirect tag (server/cmd/dvm/main.go publishes the
 // server side). Without this, that announcement would advertise a URL
 // another Nostr client could send a user to for "open this article in
-// NOSTRAS" that didn't actually go anywhere once they arrived. Only
-// naddr/kind:30023 is handled — NOSTRAS has no dedicated single-note view
-// to redirect a plain nevent to, so that case is deliberately left alone
-// rather than redirecting somewhere misleading.
+// NOSTRAS" that didn't actually go anywhere once they arrived.
+//
+// naddr/kind:30023 and note/nevent are both handled now — a plain nevent
+// used to be deliberately left alone ("NOSTRAS has no dedicated
+// single-note view to redirect a plain nevent to, so that case is
+// deliberately left alone rather than redirecting somewhere misleading")
+// until SearchView.tsx's own note/nevent resolution (2026-08-10) gave it
+// somewhere real to go — see lib/navigation.ts's viewNote.
 export async function resolveDeepLinkFromUrl(): Promise<boolean> {
   const raw = new URLSearchParams(window.location.search).get('nostr')
   if (!raw) return false
 
   try {
+    const noteRef = resolveNoteReference(raw)
+    if (noteRef) {
+      const hintUrls = noteRef.relays.filter(isAllowedRelayUrl)
+      const relaySet = NDKRelaySet.fromRelayUrls(
+        Array.from(new Set([localRelayUrl, ...publicRelayUrls, ...hintUrls])),
+        ndk,
+      )
+      const event = await ndk.fetchEvent({ ids: [noteRef.id] }, undefined, relaySet)
+      if (event) {
+        viewNote(event)
+        return true
+      }
+      return false
+    }
+
     const decoded = nip19.decode(raw)
     if (decoded.type === 'naddr' && decoded.data.kind === 30023) {
       // Explicitly scoped to localRelaySet (NOSTRAS's own relay) rather

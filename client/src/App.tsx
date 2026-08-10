@@ -7,6 +7,7 @@ import { setAuthState, useAuthState } from './lib/authState'
 import { AuthGate } from './components/AuthGate'
 import { ComposeView } from './components/ComposeView'
 import { ArticleView } from './components/ArticleView'
+import { SingleNoteView } from './components/SingleNoteView'
 import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
 import { ProfileView } from './components/ProfileView'
@@ -40,7 +41,7 @@ function App() {
   // from anywhere (e.g. clicking an author's name deep inside FeedItem)
   // without prop-drilling a callback through every component that
   // renders one.
-  const { view: activeView, profilePubkey, article, dmTarget } = useNavState()
+  const { view: activeView, profilePubkey, article, note, dmTarget } = useNavState()
   const deepLinkResolved = useRef(false)
 
   useEffect(() => {
@@ -153,6 +154,10 @@ function App() {
 
             <div className={panelClass('article')}>
               {article && <ArticleView event={article} />}
+            </div>
+
+            <div className={panelClass('note')}>
+              {note && <SingleNoteView event={note} />}
             </div>
 
             <section className={`card ${panelClass('ask-claude')}`}>

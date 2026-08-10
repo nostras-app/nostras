@@ -18,3 +18,25 @@ export function resolvePubkeyInput(input: string): string | null {
   }
   return null
 }
+
+export type NoteReference = { id: string; relays: string[] }
+
+// Same idea as resolvePubkeyInput but for a specific note — `note`
+// (bare id) or `nevent` (id + optional relay hints, e.g. from another
+// client's "copy note link"). deeplink.ts's own comment used to say
+// "NOSTRAS has no dedicated single-note view to redirect a plain nevent
+// to" — this is what closes that gap, for both search-box paste and
+// (via lib/deeplink.ts) a real nostr: deep link.
+export function resolveNoteReference(input: string): NoteReference | null {
+  const trimmed = input.trim()
+  try {
+    const decoded = nip19.decode(trimmed)
+    if (decoded.type === 'note') return { id: decoded.data, relays: [] }
+    if (decoded.type === 'nevent') {
+      return { id: decoded.data.id, relays: decoded.data.relays ?? [] }
+    }
+  } catch {
+    // Not a valid bech32-encoded note reference — falls through to null.
+  }
+  return null
+}

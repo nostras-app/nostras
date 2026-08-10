@@ -28,6 +28,7 @@ export type View =
   | 'messages'
   | 'communities'
   | 'article'
+  | 'note'
 
 export function NavRail({
   activeView,

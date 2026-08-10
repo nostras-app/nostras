@@ -1965,6 +1965,14 @@
   -webkit-box-orient: vertical;
 }
 
+.single-note-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
 .article-view {
   display: flex;
   flex-direction: column;
