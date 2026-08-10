@@ -4441,6 +4441,93 @@ which cause triggered it for SC specifically — worth having them
 retry with a freshly cleared field now that a hang can no longer
 persist past 10 seconds.
 
+## External profiles too slow — the localRelaySet fix from the day
+before traded correctness for speed (2026-08-10)
+
+Direct follow-up: asked SC to reload and confirm the follow-state fix,
+got back a screenshot of a *different* real profile (Derek Ross, not a
+NOSTRAS user) with "Unfollow" correctly showing this time (the original
+fix working) but "Following: —" stuck and the notes list still stuck
+in its loading skeleton — reported plainly as "very bad" user
+experience.
+
+**Root cause: the previous day's fix was correct but incomplete.**
+Scoping `useFollowing`/`useFollowCounts`/`useNoteFeed` to `localRelaySet`
+alone (2026-08-09) killed the real staleness/wrong-answer race, but it
+also meant *every* authors-filtered query — for any profile that isn't
+a NOSTRAS user, so has nothing on our own relay directly — now depended
+entirely on our relay's own server-side outbox fetch
+(`server/outbox.go`, bounded but still up to ~10s: an 8s fetch timeout
+plus up to a 2s semaphore wait), with no parallel path anymore. Before
+that fix, the old unscoped client-side query could (when it worked)
+pull from whichever of the local/damus/primal relays connected first —
+often fast, just unreliable. The fix removed the unreliability and the
+speed together.
+
+**Fixed by adding `authorQueryRelaySet`** (`lib/ndk.ts`) — local relay +
+the two public bootstrap relays, explicit — used by all three hooks
+instead of `localRelaySet`. This is not a reversion to the original bug:
+passing an *explicit* relay set makes NDK actively connect every relay
+in it via `pool.useTemporaryRelay()` regardless of prior connection
+status, unlike the original unscoped case, which only ever used whatever
+happened to already be `CONNECTED` at query time — that gap (not
+multi-relay querying itself) was the actual race. Confirmed by reading
+NDK's own `NDKSubscription.eoseReceived` logic: once ≥2 of the queried
+relays have reported EOSE, it applies a short converging timeout instead
+of waiting on every relay — so a well-known external user already
+indexed on the public relays resolves almost immediately from them,
+while our own relay's slower outbox fetch still runs in parallel as a
+correctness backstop for anyone it's the only source for.
+
+**Found and fixed the same issue one layer deeper while verifying this**:
+`useProfile.ts` (the profile name/avatar/bio cache used everywhere,
+not just `ProfileView`) calls `NDKUser.fetchProfile()`, which internally
+runs the identical unscoped `ndk.fetchEvent({kinds:[0], authors:[pubkey]})`
+— same bug class, one call NDK ships itself rather than code in this
+repo. `fetchProfile()`'s options type doesn't document a `relaySet`
+field, but reading NDK's source confirmed it spreads `opts` into its
+internal `subscribeOpts` before checking the (here-unused) third
+positional relay-set argument — so `fetchProfile({relaySet:
+authorQueryRelaySet})` genuinely takes effect, verified by outcome, not
+assumed from the type signature alone. **Also found and fixed a real,
+separate latent bug while adding this**: the original code had no
+`.catch()` on the fetch promise — a rejection would have left that
+pubkey stuck in the in-flight set forever, silently blocking any retry
+for the rest of the session. Neither of these needed the day-before's
+bug to exist; both were always there.
+
+**Verified for real, not just from reasoning about NDK's source**:
+temporarily added debug logging to trace exact fetch timing, then hit a
+real methodology mistake worth recording honestly — a browser-automation
+mixup (DOM state not re-checked between coordinate-based actions) meant
+an early test run was actually checking a random unrelated profile, not
+Derek Ross, and looked stuck when it was just a different, genuinely
+unfindable pubkey. Caught this by checking the rendered npub against the
+one actually searched for, not assumed from screenshots alone. Redid the
+test driving the search through direct DOM manipulation (setting the
+input's value via its native setter, dispatching a real `input` event,
+clicking the actual Search button) rather than coordinate clicks, and
+confirmed against Derek Ross's real pubkey specifically: `following`
+correctly resolved to 1307 (matching his real count), 21 real notes
+rendered, and his real name/avatar resolved (through a single confirmed
+local case that took ~14s under a synthetic worst case — many other
+profile fetches racing for the same relays at once, from a busy Global
+feed's ~90 other avatars all live-fetching simultaneously; not the
+scenario SC actually reported, whose screenshot already showed the name/
+avatar resolved correctly, only Following/notes stuck). Debug logging
+removed before shipping. `tsc -b`, `oxlint`, `vite build` all clean.
+Deployed via the usual CI path; confirmed live via the production bundle
+containing the deploying commit's SHA (`a69d5bb`).
+
+**Honest state as of this entry**: the two symptoms SC's actual
+screenshot showed (Following stuck at "—", notes stuck loading) are
+fixed and verified against real production data for a real external
+identity. The one thing not independently re-confirmed from SC's own
+browser specifically (same standing limitation as the follow-button fix
+the day before — this project doesn't touch other people's signers) is
+whether their exact session now loads within a UX-acceptable window;
+worth having them reload once more to confirm.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
