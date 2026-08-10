@@ -5267,6 +5267,25 @@ and the new reposter's pubkeys — proving the fix holds in the exact
 scenario it was built for, not just structurally in the diff. `tsc -b`,
 `oxlint`, `vite build` all clean; zero console errors.
 
+**Real, user-reported follow-up the same day (2026-08-11)**: the count
+was clickable but had zero visual cue distinguishing it from the action
+icon right next to it — no different color, no underline, nothing. The
+user couldn't find it on a real note with genuine engagement; worth
+noting this had already bitten testing itself, not just users — even
+automated verification with direct DOM element references mis-clicked
+between the icon and count more than once while building the feature.
+Fixed in `App.css`: `.engage-count` now carries a persistent (not
+hover-only) dotted underline so it reads as clickable text on sight,
+plus a negative-margin trick that gives it a real tap target a few
+pixels larger than the glyph itself without visually growing it —
+matters most on mobile, where the icon and count sit close together.
+`.engage-btn`'s icon-to-count gap widened slightly (6px → 9px) so the
+enlarged tap target doesn't encroach on the icon's own space. Verified
+live: zoomed screenshot confirmed the dotted underline is genuinely
+visible under each count (reply/repost/like/zap), and a real click on
+the enlarged target still opened the correct modal. `tsc -b`, `oxlint`,
+`vite build` all clean; zero console errors.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

@@ -1186,7 +1186,7 @@
 .engage-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 9px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-muted);
@@ -1261,18 +1261,30 @@
   cursor: default;
 }
 
+/* Real, user-reported gap (2026-08-11): the count has always been its
+   own clickable element (see EngagementListModal), but with zero
+   visual cue that it's distinct from the action icon next to it —
+   easy to miss entirely, and easy to mis-click even knowing it's
+   there (even automated testing with direct DOM access hit this).
+   A persistent (not hover-only) dotted underline plus real padding
+   makes it read as "clickable text" on sight and gives it an actual
+   tap target, not just the glyph's own tiny bounding box — matters
+   most on mobile, where the icon and count sit close together. */
 .engage-count {
   background: none;
   border: none;
-  padding: 0;
-  margin: 0;
+  padding: 4px 3px;
+  margin: -4px -3px;
   color: inherit;
   font: inherit;
   cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
 }
 
 .engage-count:hover {
-  text-decoration: underline;
+  text-decoration: underline solid;
+  color: var(--accent);
 }
 
 .reply-composer {
