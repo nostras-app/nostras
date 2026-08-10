@@ -4586,6 +4586,71 @@ planned right now, so the specific rapid-succession trigger that caused
 this shouldn't recur even without the fix — but the fix closes the
 underlying gap regardless of deploy cadence going forward.
 
+## Bookmarks silently disappearing — a full codebase audit found two more
+instances of the unscoped-authors-filter bug class (2026-08-10)
+
+Real user report: bookmarks the user had definitely set before were
+gone — "No bookmarks yet." Correctly guessed by the user that this
+might be a browser-storage issue and asked directly; the real answer
+is no — bookmarks are a real NIP-51 kind:10003 event stored on the
+relay, never in browser storage, so a cache clear can't touch them.
+
+**Root cause: the same bug already fixed four times this session,
+just never audited for every remaining instance.** `BookmarksView.tsx`
+called `ndk.fetchEvent({kinds:[10003], authors:[pubkey]})` with no
+relay set — same unscoped-authors-filter race as
+useFollowing/useFollowCounts/useNoteFeed/useProfile. Confirmed against
+real production data before fixing: this user's actual bookmark list
+(9 real bookmarked notes) lives **only** on `wss://nostras.app`, not on
+either public bootstrap relay — so if that one relay hadn't yet reached
+`CONNECTED` status at the exact moment the unscoped query fired (e.g.
+switching to the Bookmarks tab quickly after a fresh page load), the
+computed relay set could exclude it entirely and the query would
+resolve genuinely empty, not stale — matching the reported symptom
+exactly.
+
+**Grepped the entire client codebase for every remaining
+`ndk.fetchEvent`/`ndk.subscribe`/`ndk.fetchEvents` call** rather than
+assuming the four already-fixed call sites were the only ones, and
+classified each one:
+- **Safe, no change needed**: anything tag-filtered (`#e`/`#p`) rather
+  than `authors`-filtered — `useDirectMessages.ts`, `useNotifications.ts`,
+  `useZapTotal.ts`, `useEventCount.ts`, `useFollowCounts.ts`'s own
+  followers subscribe, `lib/dvm.ts` — none of these route through NDK's
+  CONNECTED-only fallback in the first place, confirmed by the same
+  source-level reasoning already used for the original fix. Also safe:
+  `useReferencedNote.ts` (an id-only lookup, no authors filter) and
+  `BookmarksView.tsx`'s own second fetch (`fetchEvents({ids})`, also
+  id-only) — the latter deliberately stays unscoped, matching its
+  documented intent that a bookmarked note "can be anywhere," not just
+  the local relay.
+- **Already correctly scoped**: `lib/deeplink.ts` (fixed 2026-08-08, the
+  original instance of this bug class) and `lib/nwc.ts` (its
+  authors-filtered wallet-response subscribe already takes an explicit
+  relay set as a 3rd argument).
+- **Found genuinely vulnerable, not yet fixed**: `NoteMenu.tsx`'s
+  `handleMute` (`kind:10000`, authors-filtered — same
+  replaceable-event data-loss risk already fixed once for
+  `useFollowing`: publishing from a falsely-empty mute list would wipe
+  the real one) and `lib/dm.ts`'s `discoverRecipientDmRelays`
+  (`kind:10050`/`kind:10002`, authors-filtered — a race here would
+  silently fall back to local-only DM delivery, the exact failure mode
+  that function exists to prevent).
+
+**Fixed all three the same way**: scoped to `authorQueryRelaySet`
+instead of left unscoped, identical to the four prior fixes. `tsc -b`,
+`oxlint`, `vite build` all clean. Deployed via the usual CI path;
+confirmed live via the production bundle containing the deploying
+commit's SHA (`b357837`).
+
+**Not independently re-verified against the user's own live session**
+for the bookmarks fix specifically (same standing limitation as every
+fix in this thread) — but the mechanism is the same one already proven
+correct via live testing against real external-identity data earlier
+this session, and the real-data placement check above (bookmarks
+existing only on our own relay) directly explains the reported symptom
+rather than leaving it a coincidence.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
