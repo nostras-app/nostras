@@ -1474,6 +1474,75 @@ Security tab directly (Chrome's own authoritative, specific reason for
 the flag, not the generic summary bubble) as the next concrete step,
 rather than continue guessing. Not yet answered as of this entry.
 
+**Actually resolved, same day, real root cause found** (2026-08-10):
+the user's DevTools Security tab named it precisely: "active mixed
+content," and the console showed the exact trigger —
+`Mixed Content: The page at 'https://app.nostras.app/' was loaded over
+HTTPS, but requested an insecure element 'http://newlay.relay.tools/
+...png'`. A real stranger's note contained a plain-`http://` image URL,
+and NOSTRAS's own media-embedding code rendered it as a genuine
+`<img src="http://...">` — an actual insecure subresource fetch from
+this HTTPS page. Before reaching this, two more concrete hypotheses
+were tested live and ruled out with the user's direct participation,
+not assumed: disabling the "Claude in Chrome" extension alone (still
+not secure) and disabling Alby too, extensions fully off (still not
+secure) — together proving it wasn't a browser extension at all,
+correcting an intermediate wrong guess from earlier the same
+conversation. The actual mechanism was content-dependent and
+non-deterministic (it depends on which strangers' posts happen to be
+in the global feed at a given moment), which is exactly why it read as
+"always there" despite passing every earlier code-level check — those
+checks happened not to catch a feed containing an offending URL at the
+moment they ran, not because the bug wasn't real.
+
+**Root cause**: `parseContent.ts`'s `URL_SPLIT_RE` classifier matched
+both `http://` and `https://` URLs and classified either scheme by file
+extension into inline image/video/audio segments — no scheme check at
+all. **Fixed** by only classifying `https://` URLs as embeddable media;
+a plain `http://` URL now renders as an ordinary clickable link instead
+(same as any other non-media link), not auto-embedded, so the browser
+never issues the insecure fetch in the first place. Note content is
+untrusted third-party input by design, same category as an
+outbox-discovered relay URL from the original (correctly-fixed, and
+confirmed still active) 2026-08-05 bug — this is that identical "don't
+let untrusted data make the browser do something insecure" principle,
+just applied to rendering instead of networking.
+
+**Audited for the same unguarded pattern everywhere else in the
+codebase while fixing this**, rather than patching only the one
+confirmed instance — found and fixed nine more real, not hypothetical,
+sites: every `profile.picture`/`profile.banner` `<img>` (`ProfileView`,
+`NavRail`, `Feed`, `NotificationsView`, `MessagesView`, `Composer`,
+`ArticleView`, `FollowListModal`), plus `ProfileEditor`'s own preview of
+the active user's *existing* profile fields (which could themselves
+predate this fix if set by another client), plus both NIP-23 article
+cover-image renders (`ArticleCard`, `ArticleView`). kind:0 profile
+fields are exactly as untrusted as note content and never had a scheme
+check either — arguably a more frequent trigger than the note-content
+case, since an avatar renders on nearly every screen in the app, not
+just when scrolling past one specific offending note. Added a shared
+`isSecureImageUrl()` helper in `parseContent.ts` and reused it at every
+site instead of duplicating the check. `NoteContent.tsx` needed no
+separate change — it only ever renders segments already gated by the
+fixed classifier, so the fix there was transitive.
+
+**Verified**: `tsc -b`, `oxlint`, `vite build` all clean. **Not
+verified live in a real browser this pass** — the Claude in Chrome
+extension was disconnected at the time (the user had just disabled it
+as part of the diagnostic process a few messages earlier), a real
+tooling constraint, not skipped by choice. Confidence instead rests on
+direct evidence already in hand (the user's own real Chrome console
+warning, naming the exact URL and exact mechanism) plus the fix being a
+small, mechanically obvious scheme-gate on the exact code path that
+produced that warning — a meaningfully lower-risk change than the
+relay-scoping fixes earlier this session that did get full live
+verification. Deployed via the usual CI path; confirmed live via the
+production bundle containing the deploying commit's SHA (`1d88a16`).
+Worth a real visual confirmation from the user once they re-enable
+the extension or just reload the actual affected page — the underlying
+mixed-content trigger is now structurally impossible, but the "Not
+secure" label itself may need one more page load to actually clear.
+
 **Header connection-status pill removed (2026-08-05)**: user-requested —
 the pill was redundant with Settings > Relays (which already shows live
 per-relay status), and on narrow/mobile viewports it visually overlapped
