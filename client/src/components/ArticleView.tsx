@@ -7,6 +7,24 @@ import { setActiveView, viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { ArrowLeftIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
+import type { Components } from 'react-markdown'
+
+// react-markdown's own `![alt](url)` image syntax renders a real <img>
+// regardless of scheme by default — a separate gap from meta.image above
+// (that only guards the article's own cover-image field, not the body
+// content, which is arbitrary author-controlled markdown). Same
+// mixed-content principle as parseContent.ts's isSecureImageUrl: an
+// insecure src falls back to a plain link instead of a real <img> element.
+const markdownComponents: Components = {
+  img: ({ src, alt }) =>
+    isSecureImageUrl(src) ? (
+      <img src={src} alt={alt ?? ''} />
+    ) : (
+      <a href={typeof src === 'string' ? src : undefined} target="_blank" rel="noopener noreferrer">
+        {alt || src}
+      </a>
+    ),
+}
 
 export function ArticleView({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
@@ -38,7 +56,7 @@ export function ArticleView({ event }: { event: NDKEvent }) {
       </div>
 
       <div className="article-view-content">
-        <ReactMarkdown>{event.content}</ReactMarkdown>
+        <ReactMarkdown components={markdownComponents}>{event.content}</ReactMarkdown>
       </div>
     </div>
   )
