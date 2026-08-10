@@ -7,6 +7,7 @@ import { useDirectMessages, type Conversation } from '../hooks/useDirectMessages
 import { sendDirectMessage } from '../lib/dm'
 import { formatRelativeTime } from '../lib/time'
 import { ArrowLeftIcon, MessageSquareIcon } from './icons'
+import { isSecureImageUrl } from '../lib/parseContent'
 
 function peerLabel(peerPubkey: string, name: string | null | undefined) {
   return name || `${nip19.npubEncode(peerPubkey).slice(0, 12)}…`
@@ -67,7 +68,7 @@ function ConversationRow({
         className="dm-conversation-item"
         onClick={() => onSelect(conversation.peerPubkey)}
       >
-        {profile?.picture ? (
+        {isSecureImageUrl(profile?.picture) ? (
           <img className="avatar" src={profile.picture} alt="" />
         ) : (
           <span className="avatar-fallback">{label.charAt(0)}</span>
@@ -126,7 +127,7 @@ function Thread({
         <button type="button" className="dm-back-btn" onClick={onBack} title="Back">
           <ArrowLeftIcon />
         </button>
-        {profile?.picture ? (
+        {isSecureImageUrl(profile?.picture) ? (
           <img className="avatar" src={profile.picture} alt="" />
         ) : (
           <span className="avatar-fallback">{label.charAt(0)}</span>

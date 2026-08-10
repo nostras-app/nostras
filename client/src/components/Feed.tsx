@@ -7,6 +7,7 @@ import { useReferencedNote } from '../hooks/useReferencedNote'
 import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
 import { getReplyToEventId } from '../lib/nip10'
+import { isSecureImageUrl } from '../lib/parseContent'
 import { NoteContent } from './NoteContent'
 import { EngagementBar } from './EngagementBar'
 import { ArticleCard } from './ArticleCard'
@@ -77,7 +78,7 @@ export function FeedItem({ event }: { event: NDKEvent }) {
         onClick={() => viewProfile(event.pubkey)}
         title={`View ${label}'s profile`}
       >
-        {profile?.picture ? (
+        {isSecureImageUrl(profile?.picture) ? (
           <img className="avatar" src={profile.picture} alt="" />
         ) : (
           <span className="avatar-fallback">{label.charAt(0)}</span>

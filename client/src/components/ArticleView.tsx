@@ -4,6 +4,7 @@ import { useProfile } from '../hooks/useProfile'
 import { parseArticleMeta } from '../lib/article'
 import { formatRelativeTime } from '../lib/time'
 import { setActiveView, viewProfile } from '../lib/navigation'
+import { isSecureImageUrl } from '../lib/parseContent'
 import { ArrowLeftIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
 
@@ -19,13 +20,13 @@ export function ArticleView({ event }: { event: NDKEvent }) {
         <ArrowLeftIcon />
       </button>
 
-      {meta.image && <img className="article-view-image" src={meta.image} alt="" />}
+      {isSecureImageUrl(meta.image) && <img className="article-view-image" src={meta.image} alt="" />}
 
       <h1 className="article-view-title">{meta.title}</h1>
 
       <div className="article-view-author-row">
         <button type="button" className="article-view-author" onClick={() => viewProfile(event.pubkey)}>
-          {profile?.picture ? (
+          {isSecureImageUrl(profile?.picture) ? (
             <img className="avatar" src={profile.picture} alt="" />
           ) : (
             <span className="avatar-fallback">{authorLabel.charAt(0)}</span>

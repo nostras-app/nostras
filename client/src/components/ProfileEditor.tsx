@@ -4,6 +4,7 @@ import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { useProfile, setCachedProfile } from '../hooks/useProfile'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { uploadToBlossom } from '../lib/blossom'
+import { isSecureImageUrl } from '../lib/parseContent'
 import { ImageIcon, UserIcon } from './icons'
 
 type ImageField = 'picture' | 'banner'
@@ -94,7 +95,7 @@ export function ProfileEditor() {
     <div className="stack">
       <div className="profile-header profile-editor-header">
         <div className="profile-editor-banner-wrap">
-          {banner ? (
+          {isSecureImageUrl(banner) ? (
             <img className="profile-banner" src={banner} alt="" />
           ) : (
             <div className="profile-banner profile-editor-banner-empty" />
@@ -121,7 +122,7 @@ export function ProfileEditor() {
         </div>
         <div className="profile-header-body">
           <div className="profile-editor-avatar-wrap">
-            {picture ? (
+            {isSecureImageUrl(picture) ? (
               <img className="profile-avatar" src={picture} alt="" />
             ) : (
               <span className="profile-avatar profile-avatar-fallback">

@@ -10,7 +10,7 @@ import { useWalletBalance } from '../hooks/useWalletBalance'
 import { FeedItem, FeedSkeleton } from './Feed'
 import { FollowListModal } from './FollowListModal'
 import { UserIcon, CheckCircleIcon, ZapCircleIcon } from './icons'
-import { parseContentSegments, shortenUrl } from '../lib/parseContent'
+import { parseContentSegments, shortenUrl, isSecureImageUrl } from '../lib/parseContent'
 
 // Same URL-detection parseContentSegments already uses for note content —
 // reused here just for linkification (a bio doesn't get inline media
@@ -75,12 +75,12 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
 
   return (
     <div className="profile-view">
-      <div className={`profile-header${profile?.banner ? ' has-banner' : ''}`}>
-        {profile?.banner && (
+      <div className={`profile-header${isSecureImageUrl(profile?.banner) ? ' has-banner' : ''}`}>
+        {isSecureImageUrl(profile?.banner) && (
           <img className="profile-banner" src={profile.banner} alt="" />
         )}
         <div className="profile-header-body">
-          {profile?.picture ? (
+          {isSecureImageUrl(profile?.picture) ? (
             <img className="profile-avatar" src={profile.picture} alt="" />
           ) : (
             <span className="profile-avatar profile-avatar-fallback">

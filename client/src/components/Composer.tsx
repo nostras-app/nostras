@@ -5,6 +5,7 @@ import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useProfile } from '../hooks/useProfile'
 import { uploadToBlossom } from '../lib/blossom'
+import { isSecureImageUrl } from '../lib/parseContent'
 import { ImageIcon, XIcon } from './icons'
 
 type Attachment = {
@@ -125,7 +126,7 @@ export function Composer() {
 
   return (
     <div className="composer">
-      {profile?.picture ? (
+      {isSecureImageUrl(profile?.picture) ? (
         <img className="avatar" src={profile.picture} alt="" />
       ) : (
         <span className="avatar-fallback">

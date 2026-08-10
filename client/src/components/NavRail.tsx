@@ -1,5 +1,6 @@
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useProfile } from '../hooks/useProfile'
+import { isSecureImageUrl } from '../lib/parseContent'
 import {
   HomeIcon,
   BellIcon,
@@ -51,7 +52,7 @@ export function NavRail({
         onClick={() => onSelect('profile')}
         title={label}
       >
-        {profile?.picture ? (
+        {isSecureImageUrl(profile?.picture) ? (
           <img className="nav-rail-avatar" src={profile.picture} alt="" />
         ) : (
           <span className="nav-rail-avatar nav-rail-avatar-fallback">

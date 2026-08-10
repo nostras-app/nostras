@@ -2,6 +2,7 @@ import { useActiveUser } from '../hooks/useActiveUser'
 import { useFollowing } from '../hooks/useFollowing'
 import { useProfile } from '../hooks/useProfile'
 import { viewProfile } from '../lib/navigation'
+import { isSecureImageUrl } from '../lib/parseContent'
 import { XIcon } from './icons'
 
 function FollowListRow({
@@ -30,7 +31,7 @@ function FollowListRow({
         onClick={onNavigate}
         title={`View ${label}'s profile`}
       >
-        {profile?.picture ? (
+        {isSecureImageUrl(profile?.picture) ? (
           <img className="avatar" src={profile.picture} alt="" />
         ) : (
           <span className="avatar-fallback">{label.charAt(0)}</span>

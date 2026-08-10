@@ -3,6 +3,7 @@ import { useProfile } from '../hooks/useProfile'
 import { parseArticleMeta } from '../lib/article'
 import { formatRelativeTime } from '../lib/time'
 import { viewArticle } from '../lib/navigation'
+import { isSecureImageUrl } from '../lib/parseContent'
 import { FileTextIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
 
@@ -24,7 +25,7 @@ export function ArticleCard({ event }: { event: NDKEvent }) {
         <NoteMenu event={event} />
       </div>
       <button type="button" className="article-card-btn" onClick={() => viewArticle(event)}>
-        {meta.image ? (
+        {isSecureImageUrl(meta.image) ? (
           <img className="article-card-image" src={meta.image} alt="" />
         ) : (
           <span className="article-card-image article-card-image-fallback">

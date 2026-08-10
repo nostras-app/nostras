@@ -3,6 +3,7 @@ import { useProfile } from '../hooks/useProfile'
 import { useNotifications } from '../hooks/useNotifications'
 import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
+import { isSecureImageUrl } from '../lib/parseContent'
 import { NoteContent } from './NoteContent'
 import { NoteMenu } from './NoteMenu'
 import { FeedSkeleton } from './Feed'
@@ -57,7 +58,7 @@ function NotificationItem({ event }: { event: NDKEvent }) {
         onClick={() => viewProfile(actor)}
         title={`View ${label}'s profile`}
       >
-        {profile?.picture ? (
+        {isSecureImageUrl(profile?.picture) ? (
           <img className="avatar" src={profile.picture} alt="" />
         ) : (
           <span className="avatar-fallback">{label.charAt(0)}</span>
