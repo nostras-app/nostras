@@ -1410,6 +1410,33 @@ forward; it does not retroactively clear the flag already stored in the
 profiles that hit the original bug. Worth the user confirming a reset
 actually clears it on one already-affected profile, to close the loop.
 
+**Loop closed, 5 days later (2026-08-10)**: user reported the "Not
+Secure" flag had genuinely persisted the entire time on both a desktop
+and a laptop Chrome install, but confirmed it never showed in Firefox —
+exactly the pattern this sticky-permission theory predicts (Firefox
+doesn't implement Chrome's Local Network Access warning the same way,
+so it was never going to show there regardless of the underlying cause;
+a stored per-profile Chrome flag from the original bug window would
+independently persist on every Chrome install that visited during that
+window, explaining "always, on both machines, Chrome-only"). Verified
+this wasn't a live regression before pointing at stale permissions as
+the explanation, not just assumed: constructed a real
+`new WebSocket('ws://127.0.0.1:9999/')` directly in a live production
+tab and confirmed `wsGuard.ts` still throws a `SecurityError` and
+blocks it correctly, checked the live console for zero `[wsGuard]
+Blocked` warnings during 8s of normal app use (nothing being blocked
+right now, consistent with no live private-relay discovery happening in
+that session), and checked network requests for any plain-`http://`
+mixed content (Chrome's other common "Not Secure" trigger) — none
+found. The fix is confirmed still correctly active in production; the
+remaining flag is Chrome's own stored per-origin state from before it
+shipped. Resolution is a one-time manual step per already-affected
+Chrome profile, not a code change: click the icon left of the address
+bar → Site settings (or permissions) for `app.nostras.app` → Reset
+permissions, then reload. Not yet confirmed by the user as actually
+clearing it on a real affected profile — that's the one part of this
+still open.
+
 **Header connection-status pill removed (2026-08-05)**: user-requested —
 the pill was redundant with Settings > Relays (which already shows live
 per-relay status), and on narrow/mobile viewports it visually overlapped
