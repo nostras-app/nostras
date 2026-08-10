@@ -5142,6 +5142,42 @@ admin's Demote button is actually `disabled` in the live DOM, not just
 styled to look that way. Zero console errors. `tsc -b`, `oxlint`,
 `vite build` all clean.
 
+### Member list view (2026-08-10, same session)
+
+Direct follow-up after shipping/deploying the three pieces above, closing
+one of the gaps flagged in that status recap. New:
+`client/src/components/GroupMemberList.tsx`. **v1 has no formal
+membership concept** (open groups — nothing gates posting on being a
+"member," and nothing in this app ever publishes kind:39002) — so
+"members" here means everyone actually visible in a given group:
+every current admin (from `useGroupMembership`'s 9007/9000/9001-derived
+state, not a kind:39002 snapshot) unioned with every distinct pubkey
+that's posted a chat message, computed via one `useMemo` in
+`GroupChatView.tsx` from data both hooks already fetch — no new
+subscription, no new relay query. `GroupChatView`'s header gained a
+clickable `"N members"` stat (reusing `.profile-stat-btn`/`.profile-stats`
+from `ProfileView.tsx`'s Following/Followers pattern directly, zero new
+CSS needed for it) that opens the modal; the modal itself mirrors
+`FollowListModal.tsx`'s exact shell (`.note-menu-backdrop` +
+`.note-menu-panel follow-list-modal`, `.follow-list`/`.follow-list-row`),
+with an "Admin" badge (`.relay-badge`, already-generic small pill,
+reused as-is) shown only for pubkeys `useGroupMembership` currently
+recognizes as admin — a demoted former admin correctly shows as a plain
+member, not admin, since the badge reflects live derived state, not
+whether they were ever promoted historically.
+
+**Verified live against real local data spanning this whole session's
+testing, not synthetic**: a group with a single admin and zero chat
+messages correctly showed "1 member" (just the admin); "Test Group"
+(five distinct real pubkeys across this session's `nak`/browser testing:
+the creator, an identity promoted-then-demoted during Piece 1, and three
+more from cross-identity chat tests) correctly showed "5 members," and
+opening the modal confirmed only the genuine current admin carried the
+`ADMIN` badge — the previously-demoted identity, despite having posted
+messages and once held admin, correctly showed as a plain member.
+`tsc -b`, `oxlint`, `vite build` all clean; zero console errors observed
+during live verification.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

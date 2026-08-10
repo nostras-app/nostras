@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { nip19 } from '@nostr-dev-kit/ndk'
 import type { Group } from '../hooks/useGroupList'
 import { useGroupChat } from '../hooks/useGroupChat'
@@ -9,6 +9,7 @@ import { sendGroupMessage } from '../lib/groups'
 import { formatRelativeTime } from '../lib/time'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { GroupAdminPanel } from './GroupAdminPanel'
+import { GroupMemberList, type GroupParticipant } from './GroupMemberList'
 import { ArrowLeftIcon, UsersIcon, SettingsIcon } from './icons'
 
 function authorLabel(pubkey: string, name: string | null | undefined) {
@@ -51,8 +52,22 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [adminPanelOpen, setAdminPanelOpen] = useState(false)
+  const [memberListOpen, setMemberListOpen] = useState(false)
 
   const viewerIsAdmin = !!activeUser && membership.isAdmin(activeUser.pubkey)
+
+  // v1 has no formal membership concept (open groups — see
+  // server/nip29.go), so "members" is everyone actually visible here:
+  // every current admin plus every distinct pubkey that's posted a
+  // message. Derived from data both hooks already fetched — no new
+  // subscription, no kind:39002 involved (nothing in this app ever
+  // publishes that).
+  const participants = useMemo<GroupParticipant[]>(() => {
+    const seen = new Map<string, boolean>()
+    for (const admin of membership.admins) seen.set(admin, true)
+    for (const msg of messages) if (!seen.has(msg.pubkey)) seen.set(msg.pubkey, false)
+    return Array.from(seen.entries()).map(([pubkey, isAdmin]) => ({ pubkey, isAdmin }))
+  }, [membership.admins, messages])
 
   async function handleSend() {
     const trimmed = draft.trim()
@@ -85,6 +100,16 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
         <div className="group-chat-header-body">
           <span className="feed-item-name">{group.name}</span>
           {group.about && <p className="group-chat-about">{group.about}</p>}
+          <div className="profile-stats">
+            <button
+              type="button"
+              className="profile-stat-btn"
+              onClick={() => setMemberListOpen(true)}
+              disabled={participants.length === 0}
+            >
+              <strong>{participants.length}</strong> {participants.length === 1 ? 'member' : 'members'}
+            </button>
+          </div>
         </div>
         {viewerIsAdmin && (
           <button
@@ -110,6 +135,10 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
           onDemote={membership.demote}
           onEditMetadata={membership.editMetadata}
         />
+      )}
+
+      {memberListOpen && (
+        <GroupMemberList participants={participants} onClose={() => setMemberListOpen(false)} />
       )}
 
       <div className="dm-thread-messages">
