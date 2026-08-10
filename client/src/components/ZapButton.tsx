@@ -2,17 +2,19 @@ import { useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { createZapInvoice } from '../lib/zap'
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
-import { useZapTotal } from '../hooks/useZapTotal'
+import { useZapList } from '../hooks/useZapTotal'
+import { EngagementListModal } from './EngagementListModal'
 import { ZapIcon } from './icons'
 
 type State = 'idle' | 'open' | 'fetching' | 'invoice' | 'paying' | 'paid' | 'error'
 
 export function ZapButton({ event }: { event: NDKEvent }) {
-  const total = useZapTotal(event.id)
+  const { total, zaps } = useZapList(event.id)
   const [state, setState] = useState<State>('idle')
   const [amount, setAmount] = useState('21')
   const [invoice, setInvoice] = useState('')
   const [error, setError] = useState('')
+  const [listOpen, setListOpen] = useState(false)
 
   async function handleGetInvoice() {
     const sats = Number(amount)
@@ -47,17 +49,39 @@ export function ZapButton({ event }: { event: NDKEvent }) {
     navigator.clipboard.writeText(invoice)
   }
 
+  const zapListModal = listOpen && (
+    <EngagementListModal
+      title="Zapped by"
+      entries={zaps.map((z) => ({ pubkey: z.pubkey, meta: `${z.amountSats.toLocaleString()} sats` }))}
+      onClose={() => setListOpen(false)}
+    />
+  )
+
   if (state === 'idle') {
     return (
-      <button
-        type="button"
-        className="engage-btn engage-btn-zap"
-        onClick={() => setState('open')}
-        title="Zap"
-      >
-        <ZapIcon filled />
-        {total > 0 ? <span>{total}</span> : null}
-      </button>
+      <>
+        <span className="engage-btn engage-btn-zap">
+          <button
+            type="button"
+            className="engage-btn-icon"
+            onClick={() => setState('open')}
+            aria-label="Zap"
+          >
+            <ZapIcon filled />
+          </button>
+          {total > 0 && (
+            <button
+              type="button"
+              className="engage-count"
+              onClick={() => setListOpen(true)}
+              title="See who zapped"
+            >
+              {total}
+            </button>
+          )}
+        </span>
+        {zapListModal}
+      </>
     )
   }
 
@@ -65,62 +89,65 @@ export function ZapButton({ event }: { event: NDKEvent }) {
     state === 'invoice' || state === 'paying' || state === 'paid'
 
   return (
-    <div className="zap-panel">
-      <div className="zap-amount-row">
-        <input
-          className="input"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="sats"
-          inputMode="numeric"
-        />
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          onClick={handleGetInvoice}
-          disabled={state === 'fetching'}
-        >
-          {state === 'fetching' ? 'Fetching…' : 'Get invoice'}
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={() => setState('idle')}
-        >
-          Cancel
-        </button>
-      </div>
+    <>
+      <div className="zap-panel">
+        <div className="zap-amount-row">
+          <input
+            className="input"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="sats"
+            inputMode="numeric"
+          />
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={handleGetInvoice}
+            disabled={state === 'fetching'}
+          >
+            {state === 'fetching' ? 'Fetching…' : 'Get invoice'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setState('idle')}
+          >
+            Cancel
+          </button>
+        </div>
 
-      {showInvoice && (
-        <div className="stack">
-          <textarea className="textarea" readOnly value={invoice} rows={3} />
-          <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={handleCopyInvoice}
-            >
-              Copy invoice
-            </button>
-            {getSavedNwcUri() && (
+        {showInvoice && (
+          <div className="stack">
+            <textarea className="textarea" readOnly value={invoice} rows={3} />
+            <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
               <button
                 type="button"
-                className="btn btn-primary btn-sm"
-                onClick={handlePayWithWallet}
-                disabled={state === 'paying' || state === 'paid'}
+                className="btn btn-secondary btn-sm"
+                onClick={handleCopyInvoice}
               >
-                {state === 'paid'
-                  ? 'Paid ✓'
-                  : state === 'paying'
-                    ? 'Paying…'
-                    : 'Pay with connected wallet'}
+                Copy invoice
               </button>
-            )}
+              {getSavedNwcUri() && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={handlePayWithWallet}
+                  disabled={state === 'paying' || state === 'paid'}
+                >
+                  {state === 'paid'
+                    ? 'Paid ✓'
+                    : state === 'paying'
+                      ? 'Paying…'
+                      : 'Pay with connected wallet'}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {error && <p className="alert-error">{error}</p>}
-    </div>
+        {error && <p className="alert-error">{error}</p>}
+      </div>
+      {zapListModal}
+    </>
   )
 }

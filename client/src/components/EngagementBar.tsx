@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
 import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
-import { useEventCount } from '../hooks/useEventCount'
+import { useEventCount, useReactionList } from '../hooks/useEventCount'
 import { useBookmark } from '../hooks/useBookmark'
+import { viewNote } from '../lib/navigation'
 import { ZapButton } from './ZapButton'
 import { TranslateButton } from './TranslateButton'
 import { NoteMenu } from './NoteMenu'
+import { EngagementListModal } from './EngagementListModal'
 import {
   ReplyIcon,
   RepostIcon,
@@ -16,9 +18,9 @@ import {
 } from './icons'
 
 export function EngagementBar({ event }: { event: NDKEventType }) {
-  const likeCount = useEventCount(event.id, 7)
-  const repostCount = useEventCount(event.id, 6)
   const replyCount = useEventCount(event.id, 1)
+  const { count: likeCount, pubkeys: likePubkeys } = useReactionList(event.id, 7)
+  const { count: repostCount, pubkeys: repostPubkeys } = useReactionList(event.id, 6)
   const {
     isBookmarked,
     toggle: toggleBookmark,
@@ -32,6 +34,7 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
   const [replying, setReplying] = useState(false)
   const [replyText, setReplyText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [listModal, setListModal] = useState<'likes' | 'reposts' | null>(null)
 
   async function handleLike() {
     if (liked || busy) return
@@ -94,32 +97,68 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
   return (
     <div className="engagement-bar">
       <div className="engagement-row">
-        <button
-          type="button"
-          className="engage-btn engage-btn-reply"
-          onClick={() => setReplying((v) => !v)}
-        >
-          <ReplyIcon />
-          {replyCount > 0 ? <span>{replyCount}</span> : null}
-        </button>
-        <button
-          type="button"
-          className={`engage-btn engage-btn-repost${reposted ? ' engage-btn-active' : ''}`}
-          onClick={handleRepost}
-          disabled={reposted || busy}
-        >
-          <RepostIcon />
-          {repostCount > 0 ? <span>{repostCount}</span> : null}
-        </button>
-        <button
-          type="button"
-          className={`engage-btn engage-btn-like${liked ? ' engage-btn-active' : ''}`}
-          onClick={handleLike}
-          disabled={liked || busy}
-        >
-          <HeartIcon filled={liked} />
-          {likeCount > 0 ? <span>{likeCount}</span> : null}
-        </button>
+        <span className="engage-btn engage-btn-reply">
+          <button
+            type="button"
+            className="engage-btn-icon"
+            onClick={() => setReplying((v) => !v)}
+            aria-label="Reply"
+          >
+            <ReplyIcon />
+          </button>
+          {replyCount > 0 && (
+            <button
+              type="button"
+              className="engage-count"
+              onClick={() => viewNote(event)}
+              title="See who replied"
+            >
+              {replyCount}
+            </button>
+          )}
+        </span>
+        <span className={`engage-btn engage-btn-repost${reposted ? ' engage-btn-active' : ''}`}>
+          <button
+            type="button"
+            className="engage-btn-icon"
+            onClick={handleRepost}
+            disabled={reposted || busy}
+            aria-label="Repost"
+          >
+            <RepostIcon />
+          </button>
+          {repostCount > 0 && (
+            <button
+              type="button"
+              className="engage-count"
+              onClick={() => setListModal('reposts')}
+              title="See who reposted"
+            >
+              {repostCount}
+            </button>
+          )}
+        </span>
+        <span className={`engage-btn engage-btn-like${liked ? ' engage-btn-active' : ''}`}>
+          <button
+            type="button"
+            className="engage-btn-icon"
+            onClick={handleLike}
+            disabled={liked || busy}
+            aria-label="Like"
+          >
+            <HeartIcon filled={liked} />
+          </button>
+          {likeCount > 0 && (
+            <button
+              type="button"
+              className="engage-count"
+              onClick={() => setListModal('likes')}
+              title="See who liked"
+            >
+              {likeCount}
+            </button>
+          )}
+        </span>
         <ZapButton event={event} />
         <button
           type="button"
@@ -159,6 +198,14 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
             </button>
           </div>
         </div>
+      )}
+
+      {listModal && (
+        <EngagementListModal
+          title={listModal === 'likes' ? 'Liked by' : 'Reposted by'}
+          entries={(listModal === 'likes' ? likePubkeys : repostPubkeys).map((pubkey) => ({ pubkey }))}
+          onClose={() => setListModal(null)}
+        />
       )}
     </div>
   )

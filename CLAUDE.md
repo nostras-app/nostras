@@ -5178,6 +5178,95 @@ messages and once held admin, correctly showed as a plain member.
 `tsc -b`, `oxlint`, `vite build` all clean; zero console errors observed
 during live verification.
 
+## "Who engaged" — likes/reposts/zaps show who, replies show a real
+thread (2026-08-10)
+
+Real, user-reported gap, unrelated to Communities: engagement counts
+(reply/repost/like/zap) were just numbers — no way to see *who* liked,
+reposted, or zapped a note, and no threaded view of actual replies, only
+a count. `client/src/components/EngagementBar.tsx`'s reply composer and
+per-action publish logic are unchanged; what's new is making each
+count clickable.
+
+**New hooks**: `useReactionList(eventId, kind)`
+(`hooks/useEventCount.ts`) — like `useEventCount` but dedupes by
+*pubkey*, not event id, since "who liked this" showing the same person
+twice would be confusing even though two separate replies from the same
+author genuinely are two distinct comments (that original event-based
+`useEventCount` stays unchanged, still used for the reply count).
+`useZapList` (replacing `useZapTotal` in `hooks/useZapTotal.ts`) —
+every kind:9735 zap receipt individually, *not* deduped per sender
+(unlike likes/reposts, a repeat zap is a separate real contribution
+worth its own line), parsed via NDK's own `zapInvoiceFromEvent` for the
+real sender pubkey (`invoice.zappee` — `event.pubkey` on a 9735 is the
+zapper *service's* key, not the person who paid) and amount.
+`useReplies(eventId)` (new) — direct replies via `#e`, filtered to
+tags without an explicit "mention" marker (NIP-10), oldest-first.
+
+**New component**: `EngagementListModal.tsx` — one generic "who did
+this" modal (same shell as `FollowListModal`/`GroupMemberList`, this
+codebase's established pattern) reused for likes, reposts, and zaps
+(with a sats-amount badge) instead of three near-identical components.
+`SingleNoteView.tsx` (already existed, for opening a single note) now
+also renders the note's replies underneath via `useReplies`, each as
+its own `FeedItem` — a real threaded view, not just a count. One level
+deep only (direct replies, not a recursive tree): clicking a reply's
+own reply-count re-navigates here for *that* note, a reasonable way to
+drill further rather than a materially bigger nested-thread renderer
+this wasn't asking for.
+
+**Real bug found and fixed before shipping, not theoretical**: the
+first version nested each count as a `<span>` inside the existing
+action `<button>` (repost/like/zap), using `stopPropagation()` to keep
+the two clicks independent. This breaks the moment the button becomes
+`disabled` (e.g. `disabled={liked || busy}` right after liking) —
+browsers suppress pointer-events on a disabled button's *entire
+subtree*, so the nested count would silently stop being clickable
+exactly when someone would most want to check who else engaged, right
+after engaging themselves. Confirmed by direct DOM inspection, not
+assumed from reading the code: `disabled=""` on the icon button, and a
+click event on a still-nested count sibling simply not firing. Fixed by
+restructuring each action into a plain `<span class="engage-btn-*">`
+wrapper (no longer itself a `<button>`, so it has no `:disabled` state
+to suppress anything) containing two independent sibling `<button>`s —
+`.engage-btn-icon` (the real action, still real `disabled` semantics)
+and `.engage-count` (always clickable, regardless of the icon's state).
+Reply's button was restructured the same way for consistency even
+though it never had a `disabled` state today, so the pattern doesn't
+silently break again if one gets added later. CSS: three hover-color
+rules (`.engage-btn-repost/-like/-zap:hover`) had their
+`:not(:disabled)` guard dropped, since the element they're on is no
+longer disableable — documented inline why, so it doesn't look like an
+accidental regression later.
+
+**Verified end-to-end against real seeded data on the local relay, not
+mocked**: published a real test note via `nak`, then genuinely liked
+(2 distinct keys), reposted (1 key), replied (1 key), and zapped it
+(1 real bolt11 invoice reused from this same session's own earlier DVM
+verification, decoded for a real 20-sat amount via NDK's actual
+`zapInvoiceFromEvent`, not a fabricated number) — all real, separate
+events, found via NOSTRAS's own NIP-50 search. Confirmed each modal
+("Liked by," "Reposted by," "Zapped by") showed the exact right distinct
+pubkeys (and, for zaps, the exact right amount, correctly decoded from
+a real invoice rather than trusted from a tag). Confirmed the reply
+thread view: clicking the reply count opened `SingleNoteView` with the
+real reply rendered underneath a "1 reply" heading, as a fully
+interactive `FeedItem`.
+
+**The disabled-button fix specifically re-verified live, not just
+reasoned through**: reposted the test note through the UI via a
+precise element-reference click (a coordinate click first
+mis-clicked and genuinely didn't fire — caught this by directly
+querying the relay afterward and finding no new event, not by assuming
+the visual "active" state meant it worked), confirmed via direct DOM
+inspection that the icon button carried a real `disabled=""` attribute
+afterward, then clicked the count button specifically and confirmed
+(via DOM query, since a screenshot happened to race the paint) the
+"Reposted by" modal genuinely opened in the DOM with both the original
+and the new reposter's pubkeys — proving the fix holds in the exact
+scenario it was built for, not just structurally in the diff. `tsc -b`,
+`oxlint`, `vite build` all clean; zero console errors.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

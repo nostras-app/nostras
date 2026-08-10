@@ -1208,12 +1208,21 @@
   cursor: default;
 }
 
-.engage-btn-reply:hover:not(:disabled) {
+.engage-btn-reply:hover {
   background: var(--accent-bg);
   color: var(--accent);
 }
 
-.engage-btn-repost:hover:not(:disabled) {
+/* .engage-btn-repost/-like/-zap are spans, not buttons, when they carry a
+   count (see .engage-btn-icon/.engage-count below) — a real <button
+   disabled> suppresses pointer-events on its whole subtree in browsers,
+   which would silently break the nested "who reacted" count-click right
+   after liking/reposting, exactly when it'd most likely get clicked.
+   Splitting the icon (real disableable button) from the count (its own
+   always-clickable button) inside a plain span wrapper avoids that; the
+   span itself has no :disabled state, so these hover rules don't gate on
+   it the way .engage-btn-reply's still does. */
+.engage-btn-repost:hover {
   background: rgba(74, 222, 128, 0.12);
   color: var(--success);
 }
@@ -1222,7 +1231,7 @@
   color: var(--success);
 }
 
-.engage-btn-like:hover:not(:disabled) {
+.engage-btn-like:hover {
   background: rgba(244, 63, 94, 0.12);
   color: #f43f5e;
 }
@@ -1231,9 +1240,39 @@
   color: #f43f5e;
 }
 
-.engage-btn-zap:hover:not(:disabled) {
+.engage-btn-zap:hover {
   background: var(--zap-bg);
   color: var(--zap);
+}
+
+.engage-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.engage-btn-icon:disabled {
+  cursor: default;
+}
+
+.engage-count {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.engage-count:hover {
+  text-decoration: underline;
 }
 
 .reply-composer {
@@ -2009,6 +2048,14 @@
   gap: 14px;
   max-width: 720px;
   margin: 0 auto;
+}
+
+.single-note-replies-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 0;
+  padding-left: 4px;
 }
 
 .article-view {
