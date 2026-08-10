@@ -1433,9 +1433,46 @@ remaining flag is Chrome's own stored per-origin state from before it
 shipped. Resolution is a one-time manual step per already-affected
 Chrome profile, not a code change: click the icon left of the address
 bar → Site settings (or permissions) for `app.nostras.app` → Reset
-permissions, then reload. Not yet confirmed by the user as actually
-clearing it on a real affected profile — that's the one part of this
-still open.
+permissions, then reload.
+
+**Correction, same day: the sticky-permission theory was wrong.** The
+user actually did the reset-and-reload test — real evidence, not
+hypothetical. Chrome's own permission bubble showed exactly one
+resettable entry ("Pop-ups and redirects," left at its default), no
+separate Local Network Access permission to reset at all; clicking
+"Reset permission" and reloading did not clear the flag. If the
+original private-relay bug were still the live cause, Chrome would
+show a dedicated Local Network Access toggle here — its absence is
+real evidence against that theory, not just an inconclusive test.
+
+Chased three more concrete hypotheses live, each directly tested
+rather than assumed, each ruled out: (1) mixed HTTP content — grepped
+the live DOM for any `http://` `src`/`href` on img/video/audio/
+script/link elements, zero found, and captured 17 real network
+requests during 8s of normal use, all HTTPS, all legitimate hosts
+(nostr.build, primal.net CDNs, satellite.earth, the app's own origin).
+(2) Insecure `ws://` connections to *public* (non-private) hosts — a
+real gap `wsGuard.ts` doesn't cover, since it only checks for
+private/local hostnames, not scheme; but tested directly and Chrome's
+own browser-level mixed-content policy blocks any `ws://` construction
+from an `https://` page synchronously, before the page's own code (or
+`wsGuard`) ever runs — so this can't be the cause either, structurally
+impossible. (3) A CA-distrust issue some Chrome versions have for
+Entrust/AffirmTrust-issued certs — checked the real chain via
+`openssl s_client`: Let's Encrypt end-to-end (`YE1` → `ISRG Root
+X2`), not an affected CA. (4) A broken HTTP→HTTPS redirect — checked
+directly with `curl`, correctly 301s to `https://app.nostras.app/`.
+
+**Genuinely unresolved as of this entry** — every mechanism this
+project's own history would predict has now been checked and ruled
+out. Hit a real limitation of the available tooling: browser
+automation here only observes page content, not Chrome's own address
+bar/security UI, so what the user's Chrome is actually flagging
+can't be independently observed from this side, only inferred by
+testing hypotheses one at a time. Asked the user to open DevTools'
+Security tab directly (Chrome's own authoritative, specific reason for
+the flag, not the generic summary bubble) as the next concrete step,
+rather than continue guessing. Not yet answered as of this entry.
 
 **Header connection-status pill removed (2026-08-05)**: user-requested —
 the pill was redundant with Settings > Relays (which already shows live
