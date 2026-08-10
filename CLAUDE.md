@@ -4833,6 +4833,63 @@ this session, and the real-data placement check above (bookmarks
 existing only on our own relay) directly explains the reported symptom
 rather than leaving it a coincidence.
 
+## Search now resolves note/nevent references, and a new /engage skill
+(2026-08-10)
+
+Direct follow-up to actually using the growth plan's long-flagged
+reciprocity lever: drafted three real replies to genuinely substantive
+Nostr threads (a NIP-46 PHP bunker library, an LNURL-auth debugging
+writeup, a NIP-52 calendar-privacy question), sourced by querying public
+relays directly for real discussion rather than random engagement. Hit
+a real practical wall doing this: njump.me is read-only, and NOSTRAS's
+own search only ever understood two kinds of input — plain text search,
+or an identity (npub/nprofile). Pasting a specific note's `nevent`/
+`note` reference did nothing useful.
+
+**Fixed**: `SearchView.tsx` now resolves `note1.../nevent1...` input to
+the real event and opens it in a new single-note view
+(`SingleNoteView.tsx`), which just reuses `FeedItem` directly — same
+reply/like/repost/zap/bookmark bar, same inline reply composer as a
+note encountered anywhere else in the app, nothing reimplemented.
+`lib/navigation.ts` gained a `note` slot and `viewNote()`, mirroring
+`viewArticle()`'s existing "already-fetched event in hand" shape.
+Untrusted `nevent` relay hints are filtered through the same private/
+local-address guard already used for outbox-discovered relays and DM
+recipient relay lists (`makeRelayConnectionFilter`), unioned with the
+app's own known-good relays (local + public bootstrap) rather than
+trusted alone — same standing pattern, not a new one.
+
+**Also closed a gap that was deliberately left open and documented
+inline two days earlier**: `lib/deeplink.ts`'s 2026-08-08 comment said
+plainly, "NOSTRAS has no dedicated single-note view to redirect a plain
+nevent to, so that case is deliberately left alone rather than
+redirecting somewhere misleading." A real `?nostr=nevent1...` deep link
+now resolves the same way search does, closing that gap for real
+instead of just noting it again.
+
+**New skill**: `.claude/skills/engage/SKILL.md` — finds genuinely
+substantive threads to engage with rather than random liking/zapping,
+helps draft honest replies grounded in this project's real shipped
+history (same sourcing discipline as `/build-in-public`), and logs the
+session to a new Engagement log in the strategy doc. Same
+never-send-without-sign-off rule as every other skill here — drafting
+and finding threads is automatable, the actual reply/zap is not.
+
+**Verified for real, catching a real mistake in my own test along the
+way**: seeded a genuine note on a local relay, encoded its real
+`nevent`, pasted it into search, and initially got back what looked
+like the *wrong* note's content in the live DOM — turned out to be an
+unscoped `document.querySelector` in my own test picking up a
+different, still-mounted view's content (every view stays mounted in
+this app, a real and previously-documented pattern), not an app bug.
+Rescoped the query, confirmed the correct note, and confirmed the
+Reply button opens a genuine working inline composer. Separately
+verified the "note genuinely doesn't exist on any known relay" error
+path with a real `nevent` built from a randomly generated event id.
+`tsc -b`, `oxlint`, `vite build` all clean. Deployed via the usual CI
+path; confirmed live via the production bundle containing the
+deploying commit's SHA (`74609d0`) and the new error string.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
