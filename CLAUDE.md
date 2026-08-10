@@ -1543,6 +1543,55 @@ the extension or just reload the actual affected page — the underlying
 mixed-content trigger is now structurally impossible, but the "Not
 secure" label itself may need one more page load to actually clear.
 
+**Real remaining gap found the same day**: user re-enabled Claude in
+Chrome and reloaded — still "Not secure." Confirmed the tab really was
+running the just-deployed fix (fetched the live bundle, checked for the
+commit SHA) before looking further, ruling out staleness. The actual
+gap: `ArticleView.tsx` renders article bodies via `react-markdown`,
+which supports its own `![alt](url)` image syntax — a completely
+different rendering path from `parseContentSegments` (which every other
+content surface in the app goes through), so the nine-call-site audit
+never touched it. The article's cover-image field (`meta.image`) was
+already guarded; the markdown *body* content was not.
+
+**Fixed** the same way as everywhere else — a `components` override on
+`ReactMarkdown` checks `isSecureImageUrl()` per image and falls back to
+a plain link for `http://` sources.
+
+**Also added the systemic guardrail the user asked for directly**,
+prompted by this exact miss: a `Content-Security-Policy` header
+(`upgrade-insecure-requests; block-all-mixed-content`) served by nginx
+for every response, so the browser itself refuses any insecure
+subresource this page ever tries to load — present or any future code
+path, not dependent on remembering to guard each one by hand. Same
+"guard the actual network/rendering boundary, not every call site"
+principle `wsGuard.ts` already established for WebSocket connections.
+
+**Caught a real nginx gotcha before shipping this, not after**:
+`add_header` does not inherit from the `server` block into a `location`
+block that defines its own `add_header` directives — nginx replaces the
+whole set rather than merging on top of it. Both existing `location`
+blocks in `nginx.conf` already set their own `Cache-Control`, so a
+single server-level CSP header would have been silently dropped for
+every real response. Fixed by setting the header explicitly in both
+locations instead of relying on inheritance.
+
+**Verified for real, both halves independently**: seeded a genuine
+NIP-23 article with an `http://` image in its actual markdown *body*
+(not just the cover-image field) to a local relay, loaded it via the
+app's own deeplink mechanism, and confirmed directly in the live DOM —
+zero `<img>` elements, the correct link fallback rendered instead.
+Separately verified the nginx config by actually running it (this
+sandbox can run `nginx` directly, unlike Docker, which stays
+unreachable here) — `curl -I` confirmed the CSP header is genuinely
+sent on both the SPA route and the `/assets/` route, each still
+carrying its own correct pre-existing `Cache-Control` value, proving
+the inheritance fix took effect and not just the header addition.
+`tsc -b`, `oxlint`, `vite build` clean. Deployed via the usual CI path;
+confirmed live via both the production bundle (commit `ddf38f2`) and a
+direct `curl -I` against the real production URL showing the CSP
+header genuinely present.
+
 **Header connection-status pill removed (2026-08-05)**: user-requested —
 the pill was redundant with Settings > Relays (which already shows live
 per-relay status), and on narrow/mobile viewports it visually overlapped
