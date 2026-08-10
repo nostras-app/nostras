@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NDKEvent, NDKRelaySet, normalizeRelayUrl } from '@nostr-dev-kit/ndk'
 import type { NDKEvent as NDKEventType, NDKRelay } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet, localRelayUrl } from '../lib/ndk'
+import { ndk, devPublishRelaySet, localRelayUrl, authorQueryRelaySet } from '../lib/ndk'
 import { makeRelayConnectionFilter } from '../lib/relayFilter'
 import { CURATED_RELAYS } from '../lib/curatedRelays'
 import { useActiveUser } from '../hooks/useActiveUser'
@@ -177,10 +177,18 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     if (busy || muted) return
     setBusy(true)
     try {
-      const existing = await ndk.fetchEvent({
-        kinds: [10000],
-        authors: [ndk.activeUser?.pubkey ?? ''],
-      })
+      // Scoped to authorQueryRelaySet — same unscoped-authors-filter bug
+      // class already found and fixed in useFollowing/useFollowCounts/
+      // useNoteFeed/useProfile/BookmarksView (see authorQueryRelaySet's
+      // own comment in lib/ndk.ts). Without this, a race against NDK's
+      // CONNECTED-only relay fallback could resolve to a stale/empty
+      // mute list, and since kind:10000 is replaceable, publishing from
+      // that empty list would silently wipe the user's real mute list.
+      const existing = await ndk.fetchEvent(
+        { kinds: [10000], authors: [ndk.activeUser?.pubkey ?? ''] },
+        undefined,
+        authorQueryRelaySet,
+      )
       const existingTags = existing?.tags ?? []
       const alreadyMuted = existingTags.some(
         (t) => t[0] === 'p' && t[1] === event.pubkey,

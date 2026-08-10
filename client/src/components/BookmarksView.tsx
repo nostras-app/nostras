@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
-import { ndk } from '../lib/ndk'
+import { ndk, authorQueryRelaySet } from '../lib/ndk'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { FeedItem, FeedSkeleton } from './Feed'
 
@@ -20,10 +20,20 @@ export function BookmarksView({ active }: { active: boolean }) {
       // mount — the view stays mounted (like every other tab here) so a
       // one-shot fetch would go stale after bookmarking/unbookmarking a
       // note elsewhere in the app.
-      const list = await ndk.fetchEvent({
-        kinds: [10003],
-        authors: [user.pubkey],
-      })
+      //
+      // Scoped to authorQueryRelaySet — same unscoped-authors-filter bug
+      // class already found and fixed in useFollowing/useFollowCounts/
+      // useNoteFeed/useProfile (see authorQueryRelaySet's own comment in
+      // lib/ndk.ts). Without an explicit relay set, this fetchEvent races
+      // NDK's own CONNECTED-only relay fallback and can resolve to an
+      // empty/stale answer — real bug, not hypothetical (2026-08-10): a
+      // user with a real, previously-confirmed bookmark list saw "No
+      // bookmarks yet" after a normal reload, not after any cache clear.
+      const list = await ndk.fetchEvent(
+        { kinds: [10003], authors: [user.pubkey] },
+        undefined,
+        authorQueryRelaySet,
+      )
       if (cancelled) return
 
       // Most-recently-bookmarked first — toggle appends new bookmarks to

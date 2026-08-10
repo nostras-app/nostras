@@ -1,6 +1,6 @@
 import { NDKEvent, NDKRelaySet, giftWrap, giftUnwrap } from '@nostr-dev-kit/ndk'
 import type { NDKUser } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet, localRelayUrl } from './ndk'
+import { ndk, devPublishRelaySet, localRelayUrl, authorQueryRelaySet } from './ndk'
 import { makeRelayConnectionFilter } from './relayFilter'
 
 // NIP-17 direct messages: an unsigned kind:14 "rumor" gets sealed (kind:13)
@@ -48,11 +48,27 @@ const isAllowedRelayUrl = makeRelayConnectionFilter(localRelayUrl)
 // alone in that case, just with the same local-only reach it always had.
 export async function discoverRecipientDmRelays(pubkey: string): Promise<string[]> {
   try {
-    const dmList = await ndk.fetchEvent({ kinds: [DM_RELAY_LIST_KIND], authors: [pubkey] })
+    // Scoped to authorQueryRelaySet — same unscoped-authors-filter bug
+    // class already found and fixed elsewhere in this app (see
+    // authorQueryRelaySet's own comment in ndk.ts). Without this, a race
+    // against NDK's CONNECTED-only relay fallback could make a real
+    // recipient relay list look empty, silently falling back to
+    // devPublishRelaySet's local-only reach — the exact "the message
+    // never actually reached the recipient's real client" failure mode
+    // this whole function exists to prevent in the first place.
+    const dmList = await ndk.fetchEvent(
+      { kinds: [DM_RELAY_LIST_KIND], authors: [pubkey] },
+      undefined,
+      authorQueryRelaySet,
+    )
     const dmRelays = dmList?.tags.filter((t) => t[0] === 'r' && !!t[1]).map((t) => t[1]) ?? []
     if (dmRelays.length > 0) return dmRelays.filter(isAllowedRelayUrl)
 
-    const relayList = await ndk.fetchEvent({ kinds: [RELAY_LIST_KIND], authors: [pubkey] })
+    const relayList = await ndk.fetchEvent(
+      { kinds: [RELAY_LIST_KIND], authors: [pubkey] },
+      undefined,
+      authorQueryRelaySet,
+    )
     const writeRelays =
       relayList?.tags
         .filter((t) => t[0] === 'r' && !!t[1] && t[2] !== 'read')
