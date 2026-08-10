@@ -4528,6 +4528,64 @@ the day before — this project doesn't touch other people's signers) is
 whether their exact session now loads within a UX-acceptable window;
 worth having them reload once more to confirm.
 
+## Continuous reload loop — the SW update guard was in-memory, reset on
+every reload it triggered (2026-08-10)
+
+Direct follow-up: asked SC to reload and confirm the profile-speed fix.
+First screenshot looked genuinely good — "Unfollow" correct, real name/
+avatar/banner, notes beginning to render. A few seconds later, a second
+screenshot showed the same profile back in its loading skeleton, and
+SC described it as looking like "a continuous loop for reloading."
+
+**Root cause, found by reading the one piece of code in this codebase
+that ever calls `location.reload()`**: `swUpdate.ts`'s reload-on-
+`controllerchange` guard (added 2026-08-06 to fix the original "stuck
+blank tab" bug) was a plain in-memory `let reloaded = false`. But
+`window.location.reload()` tears down the entire JS context — so that
+variable resets to `false` on the very page load it just triggered.
+This session shipped **four** client deploys in fairly quick succession
+(the search-timeout fix, the follow-state fix, the profile-speed fix,
+plus the spam/scam button the day before). A tab left open across that
+window would legitimately have a *new* service worker to chase after
+each one — and since the guard couldn't remember it had *already* just
+reloaded for this reason, it reloaded again for the next version, and
+again for the one after that. Each individual reload was "correct" in
+isolation; in rapid succession it reads exactly like an infinite loop
+to whoever's staring at the screen, which is exactly what was reported.
+
+**Fixed** by moving the guard from an in-memory flag to a `sessionStorage`
+timestamp with a 15s cooldown — `sessionStorage` survives
+`location.reload()` (cleared only when the tab actually closes), so a
+second `controllerchange` arriving within that window is suppressed
+instead of triggering another immediate reload. This is a debounce, not
+a permanent lock: a trigger after the cooldown elapses still reloads
+normally, so the tab still converges on the latest version, it just
+doesn't visibly thrash through every intermediate one.
+
+**Verified two ways, not just reasoned about**: (1) the exact guard
+logic, copied verbatim into a live browser console rather than
+re-derived, confirmed three rapid triggers reload only on the first and
+suppress the next two, and confirmed a trigger after the cooldown
+window elapses still reloads — precise and deterministic, sidestepping
+the fact that real service-worker activation timing isn't something
+this remote tooling can control to sub-15-second precision over several
+separate tool round-trips. (2) A real end-to-end run (the same
+`vite preview` + in-place-rebuild technique as the original stuck-tab
+fix) confirmed the `sessionStorage` timestamp genuinely persists across
+an actual triggered reload of a real page, not just in theory. `tsc -b`,
+`oxlint`, `vite build` all clean; the temporary sw.ts test markers used
+during verification were fully reverted (`git diff` clean) before
+committing. Deployed via the usual CI path; confirmed live via the
+production bundle containing both the deploying commit's SHA (`c5464de`)
+and the new `sessionStorage` guard key.
+
+**Not yet independently reconfirmed from SC's own browser** — same
+standing limitation as every fix in this thread, this project doesn't
+touch other people's signers or sessions. No further client deploys are
+planned right now, so the specific rapid-succession trigger that caused
+this shouldn't recur even without the fix — but the fix closes the
+underlying gap regardless of deploy cadence going forward.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
