@@ -4890,6 +4890,77 @@ path with a real `nevent` built from a randomly generated event id.
 path; confirmed live via the production bundle containing the
 deploying commit's SHA (`74609d0`) and the new error string.
 
+## Production default flipped: publish to local + public relays, not
+local-only — plus real UI to explain why (2026-08-10)
+
+Direct follow-up to rebroadcasting the three `/engage` replies: verified
+the rebroadcast against `relay.damus.io`/`relay.primal.net`/`nos.lol`
+directly rather than trusting the UI, and found only `relay.primal.net`
+had actually received them — `relay.damus.io`, where the target authors
+actually are, didn't. Raised directly with the user as a bigger issue
+than "which relay got missed": `devPublishRelaySet` was local-only by
+default *everywhere*, including production, which is a genuine
+first-impression/retention problem for any real new user, not just a
+one-off engagement-session inconvenience — a real note stays invisible
+to the rest of Nostr unless someone discovers Settings > Relays and
+manually opts in, every single session (resets on reload, by design).
+User's own framing, plainly worth remembering: a less technical user
+hitting this would reasonably conclude NOSTRAS is worse than other
+clients, not realize it's one settings toggle away.
+
+**User's explicit decision, not something changed unilaterally**: ship
+a production-only default split, plus real UI to make the relay
+mechanic legible rather than just technically correct — "is a proof of
+a professional tool."
+
+**The fix**: `devPublishRelaySet` (`lib/ndk.ts`) now branches on
+`import.meta.env.PROD` — local/dev builds (including this project's own
+Claude-driven testing sessions) keep the original local-only default
+untouched; the real deployed production build starts with local relay +
+`publicRelayUrls` (the same `relay.damus.io`/`relay.primal.net` already
+used elsewhere in this file for reads) as genuine default publish
+targets. `lib/publishTargets.ts`'s `selected` tracking Set — which
+drives the Settings > Relays toggle UI, entirely separate from
+`devPublishRelaySet.relays`'s own actual membership — had to be seeded
+to match this new starting point in production too, or the UI would
+have shown the production-default public relays as "off" while they
+were actually already active underneath, and re-toggling one back on
+after removing it would have tried to add a relay that was already
+there.
+
+**The UI half, addressing the user's own explicit ask directly**: a
+real "Publishing to N relays" line now sits right in the Composer
+(`Composer.tsx`), not buried in Settings, with a one-click link to
+adjust — the mechanic is visible exactly where and when it matters,
+before hitting Publish. Settings > Relays (`RelaySettings.tsx`) gained
+a plain-language summary card at the top explaining what "publish
+target" actually means and what the current count is, and the
+below-the-list field-hint text (which would have become factually
+wrong in production — it used to say "resets to local-only on reload")
+now correctly describes each environment's actual default.
+
+**Verified for real, deliberately without ever publishing to a public
+relay** — same standing precedent as every prior publish-target-toggle
+verification in this project: built in genuine production mode locally
+(not dev), served via `vite preview`, and confirmed via the app's own
+new UI (not a hidden debug hook, which no longer exists in this
+codebase by design) that a fresh session shows "Publishing to 3 relays"
+in both the Composer and the Settings summary, with `relay.damus.io`
+and `relay.primal.net` both showing as genuinely active *and*
+independently toggleable — not hardcoded on like the local relay,
+which stayed correctly non-toggleable throughout. Re-verified the exact
+same thing live against the real production deployment afterward:
+confirmed 3 active targets and confirmed the many other real,
+outbox-discovered relays already in the live pool correctly stayed
+opted-out by default, not swept in accidentally. `tsc -b`, `oxlint`,
+`vite build` all clean. Deployed via the usual CI path.
+
+**Known, pre-existing, unrelated cosmetic quirk noticed during this
+verification**: the relay list occasionally renders a duplicate row for
+the local relay with no status data, both locally (previewing without a
+running local relay backend) and on live production. Not introduced by
+this change — worth a look another time, not blocking here.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
@@ -4898,11 +4969,18 @@ deploying commit's SHA (`74609d0`) and the new error string.
   event caching, and signer abstraction. Bootstrap relay list lives in
   `client/src/lib/ndk.ts` (`ws://localhost:7777` for the local khatru node +
   a couple of public relays, read-only, so the dev feed isn't empty).
-  **Publishing is scoped to `devPublishRelaySet` (local relay only)** — do
-  not change this to publish to the public relays without deliberately
-  deciding to, since anything typed into the dev composer would otherwise
-  broadcast to the real public Nostr network. Run with `npm run dev` from
-  `client/`.
+  **Publishing is scoped to `devPublishRelaySet`, split by build
+  environment since 2026-08-10** — local/dev builds (`npm run dev`) stay
+  local-relay-only, unchanged: do not change this for local dev without
+  deliberately deciding to, since anything typed into the dev composer
+  would otherwise broadcast to the real public Nostr network during this
+  project's own testing. The **production build** is different on
+  purpose: it defaults to local relay + the public bootstrap relays
+  (`publicRelayUrls`) as real publish targets, not local-only — a real
+  user's first note needs to actually reach the rest of Nostr without
+  them first discovering Settings > Relays. See `lib/ndk.ts`'s own
+  comment on `devPublishRelaySet` for the incident that prompted this
+  and the full reasoning. Run with `npm run dev` from `client/`.
 - **`ndk.connect()` gotcha**: always call it with a timeout (e.g.
   `ndk.connect(5000)`). `NDKPool.connect()` waits for *every* relay in the
   set to reach `CONNECTED` and, with no timeout argument, its fallback
