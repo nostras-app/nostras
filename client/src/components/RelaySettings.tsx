@@ -35,6 +35,18 @@ export function RelaySettings() {
       return
     }
     ndk.pool.getRelay(added, true)
+    // Real user-reported friction (2026-08-11): a manually-added custom
+    // relay previously still needed its own separate publish-target
+    // toggle click every session — annoying for a relay the user just
+    // went out of their way to add on purpose. Auto-enabling here is
+    // safe and doesn't touch the underlying safety property (session-only,
+    // resets on reload): it only fires for this explicit "Add relay"
+    // action, never for a relay that merely appears in the pool on its
+    // own (NIP-65 outbox discovery still starts opted-out, exactly as
+    // before). `added` is always freshly off here (it can't already be a
+    // publish target — it didn't exist a moment ago), so this is always a
+    // plain on-toggle, never an accidental turn-off.
+    togglePublishTarget(added)
     refreshRelayList()
     setCustomRelays(getCustomRelays())
     setInput('')

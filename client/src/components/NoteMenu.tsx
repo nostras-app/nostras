@@ -242,7 +242,18 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
 
     try {
       const relaySet = NDKRelaySet.fromRelayUrls(urls, ndk)
-      const published = await event.publish(relaySet, 8000)
+      // Real user-reported gap (2026-08-11): this opens up to 15 relay
+      // connections concurrently from one browser tab, all racing a
+      // shared deadline — under real contention (a real device, a real
+      // network), several genuinely don't finish in time even though
+      // each one individually connects in well under a second when
+      // tested alone (confirmed live: nos.lol read+write both completed
+      // in ~0.4s in isolation, yet consistently showed "failed" here
+      // across repeated attempts). The composer/EngagementBar's 8s
+      // timeout is right for a single relay on the hot path; this is a
+      // deliberate, one-off, up-to-15-way concurrent action, so it gets
+      // a longer allowance instead of inheriting the same number.
+      const published = await event.publish(relaySet, 20000)
       setRebroadcastCount(published.size)
       // A relay that neither published nor explicitly failed (e.g. never
       // connected in time) stays "pending" forever otherwise — resolve
