@@ -2,7 +2,7 @@ import { NDKRelaySet, nip19 } from '@nostr-dev-kit/ndk'
 import { ndk, localRelaySet, localRelayUrl, publicRelayUrls } from './ndk'
 import { makeRelayConnectionFilter } from './relayFilter'
 import { resolveNoteReference } from './resolvePubkey'
-import { viewArticle, viewNote } from './navigation'
+import { viewArticle, viewNote, viewGroup } from './navigation'
 
 const isAllowedRelayUrl = makeRelayConnectionFilter(localRelayUrl)
 
@@ -19,8 +19,25 @@ const isAllowedRelayUrl = makeRelayConnectionFilter(localRelayUrl)
 // deliberately left alone rather than redirecting somewhere misleading")
 // until SearchView.tsx's own note/nevent resolution (2026-08-10) gave it
 // somewhere real to go — see lib/navigation.ts's viewNote.
+//
+// Groups use a separate `?group=<id>` param rather than being folded into
+// `?nostr=`, deliberately: NIP-29 has no ratified bech32 entity for a
+// group the way NIP-19 has naddr/nevent for articles/notes, and this
+// app's own groups only ever live on one relay (NOSTRAS's own — see
+// useGroupList's localRelaySet scoping), so the plain opaque group id
+// (already just a crypto.randomUUID() string, see lib/groups.ts) is both
+// sufficient and more honest than inventing a fake standards-shaped
+// encoding for something that isn't actually interoperable with other
+// clients the way the NIP-89 article handler link is.
 export async function resolveDeepLinkFromUrl(): Promise<boolean> {
-  const raw = new URLSearchParams(window.location.search).get('nostr')
+  const params = new URLSearchParams(window.location.search)
+  const groupId = params.get('group')
+  if (groupId) {
+    viewGroup(groupId)
+    return true
+  }
+
+  const raw = params.get('nostr')
   if (!raw) return false
 
   try {

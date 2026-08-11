@@ -5328,6 +5328,60 @@ pixel dimensions (200×150) exactly matched the original via a real
 `createImageBitmap` decode — re-encoding didn't corrupt or resize the
 image.
 
+## Group deep links (2026-08-11)
+
+Closes the gap flagged in the Communities status review earlier the
+same day — "probably the next most valuable" of the remaining
+not-yet-built pieces, after the member-list view landed the day
+before. `client/src/lib/deeplink.ts` gained a `?group=<id>` query
+param, handled separately from the existing `?nostr=<naddr/nevent>`
+scheme rather than folded into it — deliberately, since NIP-29 has no
+ratified bech32 entity for a group the way NIP-19 has naddr/nevent for
+articles/notes, and this app's groups only ever live on one relay
+(NOSTRAS's own), so the plain opaque group id (already just a
+`crypto.randomUUID()` string) is both sufficient and more honest than
+inventing a fake standards-shaped encoding for something that isn't
+actually interoperable with other clients the way the NIP-89 article
+handler link is. Resolution needs no fetch at all, unlike the article/
+note paths — `useGroupList()`'s existing subscription is already an
+unfiltered `{kinds:[39000]}` query against the local relay, so setting
+`groupTarget` via the new `viewGroup(id)` call is sufficient; the
+group's metadata arrives (or doesn't) through the subscription that's
+already running.
+
+`GroupChatView.tsx`'s header gained a link icon (new `LinkIcon` in
+`icons.tsx`, a standard two-link chain glyph — generic icon-library
+shape, not a reproduction of any specific product's logo, same posture
+as every other icon in this file) that copies
+`<origin>/?group=<id>` to the clipboard.
+
+**Real gap found and fixed while building this, not shipped as a
+loose end**: `CommunitiesView.tsx` previously showed "Loading group…"
+for a `groupTarget` with no match in the live list, with no fallback —
+harmless before deep links existed (a stale in-memory nav state was
+the only way to hit it), but a real, likely dead end once a shareable
+link exists: a bad or stale link would now hang on that message
+forever. Fixed by keying off `useGroupList()`'s own `loading` flag —
+once it goes `false` (the subscription has reached EOSE, so the full
+current group list has arrived) with still no match, render "This
+group doesn't exist, or hasn't reached this relay yet." with a working
+button back to the list, instead of an infinite spinner-less hang.
+
+**Verified live in a real browser, both paths, not just built clean**:
+`tsc -b`, `oxlint`, `vite build` all clean. Navigated straight to
+`?group=<a-fake-id>` on a fresh load — correctly landed on Communities
+(nav rail highlighted it) and, once the subscription reached EOSE,
+showed the new not-found state with a working "Back to Communities"
+button. Opened a real existing group ("Test Group"), clicked the new
+link icon, and read the clipboard directly via
+`navigator.clipboard.readText()` (not assumed from the UI's pressed
+state alone) — confirmed the exact copied URL
+(`http://localhost:5173/?group=testgroup-29012`). Pasted that exact
+URL into a brand-new tab (simulating a real recipient clicking a
+shared link) and confirmed it landed directly in that same group's
+chat view — correct name, correct 5-member count, full real message
+history — with zero manual navigation.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

@@ -10,7 +10,7 @@ import { formatRelativeTime } from '../lib/time'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { GroupAdminPanel } from './GroupAdminPanel'
 import { GroupMemberList, type GroupParticipant } from './GroupMemberList'
-import { ArrowLeftIcon, UsersIcon, SettingsIcon } from './icons'
+import { ArrowLeftIcon, UsersIcon, SettingsIcon, LinkIcon } from './icons'
 
 function authorLabel(pubkey: string, name: string | null | undefined) {
   return name || `${nip19.npubEncode(pubkey).slice(0, 12)}…`
@@ -53,8 +53,21 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
   const [error, setError] = useState<string | null>(null)
   const [adminPanelOpen, setAdminPanelOpen] = useState(false)
   const [memberListOpen, setMemberListOpen] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   const viewerIsAdmin = !!activeUser && membership.isAdmin(activeUser.pubkey)
+
+  // The group id alone is enough to deep-link back in — see deeplink.ts's
+  // own comment on why this doesn't reuse the `?nostr=` naddr/nevent
+  // scheme. Preserves the origin as-is rather than hardcoding a host, so
+  // this works unchanged across local dev and production.
+  function handleCopyLink() {
+    const url = new URL(window.location.href)
+    url.search = `?group=${encodeURIComponent(group.id)}`
+    navigator.clipboard.writeText(url.toString())
+    setLinkCopied(true)
+    setTimeout(() => setLinkCopied(false), 2000)
+  }
 
   // v1 has no formal membership concept (open groups — see
   // server/nip29.go), so "members" is everyone actually visible here:
@@ -111,6 +124,14 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
             </button>
           </div>
         </div>
+        <button
+          type="button"
+          className="dm-back-btn"
+          onClick={handleCopyLink}
+          title={linkCopied ? 'Link copied' : 'Copy link to this group'}
+        >
+          <LinkIcon />
+        </button>
         {viewerIsAdmin && (
           <button
             type="button"

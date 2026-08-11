@@ -118,10 +118,27 @@ export function CommunitiesView({ groupTarget }: { groupTarget?: string | null }
     // Metadata for a just-created (or deep-linked) group may not have
     // arrived through the live subscription yet — a brief loading state
     // here avoids flashing the full list+create UI before switching to
-    // the chat view a moment later.
+    // the chat view a moment later. But `loading` going false means
+    // useGroupList's subscription has already reached EOSE (the full
+    // current group list has arrived) with no match — a stale or bad
+    // group link (a real new failure mode once deep links exist, not
+    // hypothetical) would otherwise hang on "Loading group…" forever
+    // instead of ever telling the user anything.
+    if (loading) {
+      return (
+        <div className="communities-view">
+          <p className="field-hint">Loading group…</p>
+        </div>
+      )
+    }
     return (
       <div className="communities-view">
-        <p className="field-hint">Loading group…</p>
+        <p className="feed-empty-hint">
+          This group doesn't exist, or hasn't reached this relay yet.
+        </p>
+        <button type="button" className="btn btn-secondary" onClick={() => setActiveView('communities')}>
+          Back to Communities
+        </button>
       </div>
     )
   }
