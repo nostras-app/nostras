@@ -5286,6 +5286,48 @@ visible under each count (reply/repost/like/zap), and a real click on
 the enlarged target still opened the correct modal. `tsc -b`, `oxlint`,
 `vite build` all clean; zero console errors.
 
+## Strip EXIF from uploaded media (2026-08-11)
+
+Real, previously-flagged privacy gap: a real `/engage` session
+(2026-08-11) drafted an honest reply to someone else's question about
+whether Blossom uploads should have EXIF (location, device info)
+stripped automatically — the honest answer at the time was "it can't
+be the server's job structurally, and NOSTRAS doesn't do it client-side
+either." Logged as a backlog item, then fixed the same day rather than
+left open.
+
+`client/src/lib/blossom.ts` gained `stripExifFromImage()`, called from
+`uploadToBlossom()` itself (not each of the three call sites —
+`Composer`/`ArticleComposer`/`ProfileEditor` — so all three get the fix
+for free with zero changes needed there). Deliberately re-encodes via
+`createImageBitmap` + canvas rather than surgically parsing out just the
+EXIF segment: canvas pixel data carries no metadata at all, so this
+can't miss a field a hand-rolled binary parser might, at the cost of one
+extra JPEG compression pass — the same "simple and broad-compatibility
+over precise" tradeoff already made for media rendering in
+`parseContent.ts`. Scoped to `image/*` only, explicitly excluding
+`image/svg+xml` (XML, not raster — rasterizing it would destroy the
+vector content) and skipping video/audio entirely (metadata atoms in
+those containers are a genuinely separate, harder problem canvas
+re-encoding can't touch). Any decode failure (e.g. an image format the
+browser can't rasterize) falls back to uploading the original file
+rather than blocking the user — same degrade-gracefully posture as
+every other third-party-input path in this app.
+
+**Verified for real in a live browser, not just built clean**: `tsc -b`,
+`oxlint`, `vite build` all passed. Built a real test JPEG with genuine
+EXIF (`Camera Model Name: TestCam`, GPS coordinates via Python's PIL,
+confirmed present via `exiftool` before testing) and ran the *exact*
+`stripExifFromImage` logic against it live in Chrome via the running dev
+server — confirmed the original bytes contained the literal `Exif`
+marker string and `TestCam`, and the stripped output was a valid JPEG
+(`0xFFD8` SOI, `0xFFE0` JFIF second marker — not `0xFFE1` EXIF) with
+neither string present anywhere in the output bytes: the metadata is
+genuinely gone, not just relocated. Also confirmed the stripped image's
+pixel dimensions (200×150) exactly matched the original via a real
+`createImageBitmap` decode — re-encoding didn't corrupt or resize the
+image.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
