@@ -34,6 +34,35 @@ export const ndk = new NDK({
   relayConnectionFilter: makeRelayConnectionFilter(localRelayUrl),
 })
 
+// NIP-42: some relays (real example found 2026-08-12 — a DM recipient's
+// own declared kind:10050 relay, wss://auth.nostr1.com) require signing
+// an auth challenge before they'll accept reads or writes at all — with
+// no policy set, NDK just leaves those relays rejecting everything,
+// silently. This is exactly why that DM likely never reached its
+// recipient: discoverRecipientDmRelays (lib/dm.ts) correctly found and
+// targeted their relay, but the publish there had no way to complete the
+// auth handshake. Auto-signing needs no user confirmation: proving
+// pubkey ownership to a relay isn't a financial action and isn't
+// publishing anything publicly, unlike this project's standing invoice-
+// payment rule — it's the same background step every other real Nostr
+// client performs automatically, and is often what a relay uses
+// specifically to *protect* privacy (an auth-gated DM relay is what
+// stops any visitor from scanning #p tags to see who's messaging whom).
+//
+// Deliberately NOT NDKRelayAuthPolicies.signIn({ndk}), despite that
+// being NDK's own documented helper for exactly this — verified live,
+// with ndk:* debug logging on, that it resolves the auth challenge with
+// an NDKEvent, which drives this NDK version's relay-connectivity code
+// down a path that never reaches AUTHENTICATED or retries the queued
+// publish (confirmed via a real publish attempt hanging to its timeout,
+// no error, no "Authentication successful" log — traced into NDK's own
+// installed source, not assumed). A policy resolving with plain boolean
+// `true` instead drives the *other* internal path, which does complete
+// correctly (uses ndk.signer itself) — confirmed by the same debug log
+// showing "Authentication successful" and a real subsequent publish
+// (kind 1059, matching what NIP-17 DMs actually send) succeeding.
+ndk.relayAuthDefaultPolicy = async () => true
+
 // Scoped to the local relay only, and never mutated — used for NIP-50
 // search reads, which are only indexed on our own relay (server/search.go),
 // not guaranteed to be supported by the public bootstrap relays.

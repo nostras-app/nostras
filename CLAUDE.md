@@ -6101,6 +6101,79 @@ verified via the local mock-server round trip above, not against
 production — matching this project's standing practice of never
 initiating real payments during verification.
 
+## NIP-42 relay auth support added — real cross-client DM delivery gap
+found and fixed, plus a real NDK bug found along the way (2026-08-12)
+
+The user held the "paid articles are live" follow-up DM to a real
+`#asknostr` contact (timosolo) until his original message got any
+reaction, and asked whether it even reached him in the first place —
+worth checking directly rather than assuming disinterest. Investigated
+with his real npub: his kind:0 profile is real (a real Bitcoin/Nostr
+developer), and he has a real, deliberately narrow NIP-17 DM relay list
+(kind:10050) naming exactly **one** relay: `wss://auth.nostr1.com`.
+That relay requires **NIP-42 authentication for both reads and
+writes** — confirmed directly, not assumed: a plain `nak` publish
+attempt against it fails with `auth-required: you must auth`. NOSTRAS's
+NDK instance had no NIP-42 auth policy configured anywhere (grepped the
+whole `lib/` tree — the only auth-related code was passive UI status
+display in `relayList.ts`, never an actual challenge-response
+handshake). `discoverRecipientDmRelays` (`lib/dm.ts`) correctly found
+and targeted his relay, but the publish there almost certainly got
+rejected — a real, concrete, verifiable explanation, not just "he's not
+interested."
+
+**Fixed**: `client/src/lib/ndk.ts` now sets
+`ndk.relayAuthDefaultPolicy`, a pool-wide default NDK calls whenever any
+relay sends an `AUTH` challenge. Deliberately **not** gated behind user
+confirmation, unlike this project's standing invoice-payment rule —
+proving pubkey ownership to a relay isn't a financial action and isn't
+publishing anything publicly; it's the same background step every real
+Nostr client performs automatically, and is frequently what a relay
+uses specifically to *protect* privacy (an auth-gated DM relay is what
+stops a random visitor from scanning `#p` tags to enumerate who's
+messaging whom).
+
+**A real bug in NDK itself (v3.0.3) was found and worked around, not
+just configured around** — this took real live debugging with
+`ndk:*` debug logging enabled, not just reading the docs. NDK ships a
+documented, exported helper for exactly this,
+`NDKRelayAuthPolicies.signIn({ndk})` — assigning it looked correct and
+built clean, but a real publish attempt against `auth.nostr1.com` hung
+to its full timeout with **no** "Authentication successful" log and no
+error, just silence. Traced into NDK's own installed source
+(`node_modules/@nostr-dev-kit/ndk/dist/index.js`): `signIn()` resolves
+the auth policy promise with a *signed `NDKEvent`* — and the relay-
+connectivity code that receives that resolved value
+(`NDKRelayConnectivity.onAuthRequested`) sends it via `this.auth(res)`
+but then falls through directly to `this._status = 5 /* CONNECTED */`
+with no path back to `8 /* AUTHENTICATED */` and no call to
+`retryPendingAuthPublishes()` for that branch — the *other* branch
+(policy resolving with plain boolean `true`) has a complete,
+correctly-wired `authenticate()` helper with real success/failure
+logging and state transitions, but the `NDKEvent`-resolving branch
+(exactly what the library's own documented helper produces) never
+reaches it. **Verified this precisely, not guessed**: confirmed a raw,
+hand-constructed WebSocket connection completes the identical NIP-42
+handshake and gets accepted by the relay (`["OK", eventId, true, ""]`),
+proving the relay and the protocol are fine; confirmed
+`NDKRelayAuthPolicies.signIn` specifically hangs; confirmed a minimal
+custom policy (`async () => true`) reliably reaches "Authentication
+successful," retries the queued publish, and a real kind:1059 event
+(the actual kind NIP-17 DMs use) successfully lands on
+`auth.nostr1.com` — repeated with the *exact final committed*
+`ndk.relayAuthDefaultPolicy = async () => true` line, not just an
+inline variant, before treating this as done. Debugged via a temporary
+`window.__ndk` hook in `main.tsx` (same established pattern as prior
+debugging sessions in this file), removed before finalizing.
+
+**Not yet done, deliberately**: no test DM was (re-)sent to timosolo as
+part of this fix — the user is explicitly holding all further contact
+until his original message gets a reaction, and testing the fix live
+against his real relay would mean sending him a real message, which
+needs the same explicit go-ahead as any other DM in this project. The
+fix is verified against his real, actual declared relay directly
+(`auth.nostr1.com`), just not by sending him anything.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
