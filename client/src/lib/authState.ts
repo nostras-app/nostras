@@ -2,7 +2,11 @@ import { useSyncExternalStore } from 'react'
 import { ndk } from './ndk'
 import { clearSignerSession } from './remoteSigner'
 
-export type AuthState = 'checking' | 'needs-choice' | 'ready'
+// 'locked': the active identity is a real, saved one, but it's NIP-49
+// encrypted and this tab hasn't unlocked it yet — distinct from
+// 'needs-choice' (no identity at all / nothing to restore). Renders
+// UnlockIdentityGate instead of either AuthGate or the main app.
+export type AuthState = 'checking' | 'needs-choice' | 'locked' | 'ready'
 
 // Module-level shared state (same useSyncExternalStore pattern as
 // lib/navigation.ts) rather than App.tsx local useState — logOff() below

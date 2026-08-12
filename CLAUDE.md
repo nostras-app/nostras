@@ -6215,6 +6215,74 @@ kind:1 count against a pubkey that never posted correctly still returns
 a genuine `0`, proving the fix doesn't just make everything return
 nonzero. `go build`/`go vet`/`gofmt -l` all clean.
 
+## NIP-49 private key encryption added (`ncryptsec`) — real, opt-in
+password protection for local identities (2026-08-12)
+
+Direct follow-up to the NIP gap analysis: fixed the flagged NIP-49 gap.
+Local identities (`client/src/lib/identities.ts`) previously stored a
+raw `nsec` in `localStorage`, plaintext. Scoped with the user via
+AskUserQuestion first, all three recommended: (1) opt-in per identity,
+not mandatory — existing Create/Import/AuthGate flows stay completely
+unchanged; (2) unlock is in-memory only for the tab's session — a
+reload requires the password again, since anything that persisted the
+decrypted key would defeat the point; (3) offered only as an after-the-
+fact action in Settings, not inline at Create/Import time.
+
+**No hand-rolled crypto** — NDK's `NDKPrivateKeySigner` already ships
+real NIP-49 support (`encryptToNcryptsec(password, logn, ksb)` /
+static `fromNcryptsec(ncryptsec, password)`), backed by
+`nostr-tools/nip49`. Fetched the real NIP-49 spec text directly before
+building anything (scrypt KDF, XChaCha20-Poly1305 AEAD, bech32
+`ncryptsec` encoding, the three `KEY_SECURITY_BYTE` meanings) rather
+than assuming from memory. **KSB is always `0x00`** ("key known to have
+been handled insecurely"), not `0x01` — since encryption only ever
+happens after the fact here, every identity this feature touches has,
+by definition, already sat as plaintext in `localStorage` before being
+encrypted; `0x01` would be a false claim. Documented inline so a future
+"encrypt at creation time" addition doesn't blindly copy `0x00` without
+reconsidering it — that key genuinely never touches plaintext storage.
+
+`identities.ts`: `LocalIdentity.nsec` is now optional, a new
+`ncryptsec?` field holds the encrypted form (exactly one of the two is
+ever present), and a module-level `Map<npub, NDKPrivateKeySigner>`
+holds unlocked signers for the tab's lifetime only — never written to
+storage. New `encryptIdentity`/`unlockIdentity`/`isIdentityEncrypted`/
+`isIdentityLocked`, plus `getBootSignerState()` — a new `'signer' |
+'locked' | 'none'` result type App.tsx's boot sequence needs, since an
+encrypted-and-locked active identity can't produce a signer
+synchronously the way `getActiveIdentitySigner()`'s existing contract
+assumes (that function is kept unchanged for its one real caller,
+AuthGate's "Continue anonymously" path, which by construction never
+hits an encrypted identity). `authState.ts` gained a new `'locked'`
+value alongside the existing `'checking' | 'needs-choice' | 'ready'`.
+New `UnlockIdentityGate.tsx` renders when boot resolves to `'locked'` —
+names the identity, takes a password, and (mirroring this project's
+standing "don't hard-block the user" philosophy, same reasoning as
+`logOff()`) offers "Use a different identity instead" as a real
+fallback rather than trapping someone who's forgotten a password.
+`IdentitySettings.tsx` was restructured around a new `IdentityRow`
+subcomponent (per-row local state for its own encrypt-form/unlock-form,
+cleaner than threading keyed maps through the parent) — each row shows
+"Encrypt with password" when plaintext, an inline password field
+instead of "Switch" when encrypted-and-locked, and a plain "Switch"
+(no re-prompt) once already unlocked this session.
+
+**Verified in layers, not just built clean**: standalone Node script
+against the real installed `nostr-tools/nip49` (via NDK) confirmed a
+genuine `ncryptsec1...` bech32 round trip — correct password recovers
+the exact original pubkey, wrong password throws a clean `"invalid
+tag"` AEAD-authentication error rather than silently returning garbage.
+Full live-browser pass: created a real test identity, encrypted it
+through the actual Settings UI, confirmed via direct `localStorage`
+inspection that `nsec` was genuinely gone and `ncryptsec` was a real
+bech32 string; reloaded and confirmed `UnlockIdentityGate` rendered
+(not a silent sign-in) naming the right identity; tried the wrong
+password first (clean error, no crash) then the correct one (unlocked,
+proceeded into the app as that exact identity); switched to a different
+identity and back, confirming the already-unlocked-this-session
+identity showed a plain "Switch" with no re-prompt. `tsc -b`, `oxlint`,
+`vite build` clean.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

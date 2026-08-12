@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { ndk } from './lib/ndk'
-import { getActiveIdentitySigner, hasAnyLocalIdentity } from './lib/identities'
+import { hasAnyLocalIdentity, getBootSignerState } from './lib/identities'
 import { restoreSignerSession } from './lib/remoteSigner'
 import { resolveDeepLinkFromUrl } from './lib/deeplink'
 import { setAuthState, useAuthState } from './lib/authState'
 import { AuthGate } from './components/AuthGate'
+import { UnlockIdentityGate } from './components/UnlockIdentityGate'
 import { ComposeView } from './components/ComposeView'
 import { ArticleView } from './components/ArticleView'
 import { SingleNoteView } from './components/SingleNoteView'
@@ -36,6 +37,7 @@ type ConnectionState = 'connecting' | 'connected' | 'error'
 function App() {
   const [state, setState] = useState<ConnectionState>('connecting')
   const authState = useAuthState()
+  const [lockedIdentity, setLockedIdentity] = useState<{ npub: string; label: string } | null>(null)
   // Shared module-level state (lib/navigation.ts), not local useState —
   // lets viewProfile() switch tabs and pick a specific profile pubkey
   // from anywhere (e.g. clicking an author's name deep inside FeedItem)
@@ -70,17 +72,28 @@ function App() {
     // Resolution order: a previously-connected NIP-46/NIP-07 signer wins
     // (returning user with a real identity); else a previously-created
     // local key restores silently (returning "anonymous"/"created
-    // account" user — same underlying mechanism, see signer.ts); else
-    // this is a genuinely first-time visitor, so AuthGate renders instead
-    // of assuming a signer the way this app used to.
+    // account" user — same underlying mechanism, see signer.ts) UNLESS
+    // it's NIP-49 encrypted and this tab hasn't unlocked it yet, in
+    // which case UnlockIdentityGate renders instead of silently
+    // resolving (getBootSignerState's 'locked' case — see identities.ts);
+    // else this is a genuinely first-time visitor, so AuthGate renders
+    // instead of assuming a signer the way this app used to.
     restoreSignerSession()
       .then((restored) => {
         if (cancelled) return
         if (restored) {
           setAuthState('ready')
         } else if (hasAnyLocalIdentity()) {
-          ndk.signer = getActiveIdentitySigner()
-          setAuthState('ready')
+          const boot = getBootSignerState()
+          if (boot.kind === 'signer') {
+            ndk.signer = boot.signer
+            setAuthState('ready')
+          } else if (boot.kind === 'locked') {
+            setLockedIdentity({ npub: boot.npub, label: boot.label })
+            setAuthState('locked')
+          } else {
+            setAuthState('needs-choice')
+          }
         } else {
           setAuthState('needs-choice')
         }
@@ -140,6 +153,15 @@ function App() {
 
         {authState === 'needs-choice' && (
           <AuthGate onReady={() => setAuthState('ready')} />
+        )}
+
+        {authState === 'locked' && lockedIdentity && (
+          <UnlockIdentityGate
+            npub={lockedIdentity.npub}
+            label={lockedIdentity.label}
+            onUnlocked={() => setAuthState('ready')}
+            onUseDifferent={() => setAuthState('needs-choice')}
+          />
         )}
 
         {state === 'connected' && authState === 'ready' && (
