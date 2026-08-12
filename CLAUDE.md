@@ -5874,6 +5874,70 @@ verified locally.** Not yet deployed to production, and the DM already
 sent to the original requester (promising a ping once it's live) hasn't
 been followed up yet — both still pending as of this entry.
 
+## Paid long-form articles — deployed to production and verified
+end-to-end (2026-08-12)
+
+Pushed all three commits (Piece 1 server, Piece 2 compose, Piece 3
+unlock UI). Both `deploy-relay.yml` and `deploy-client.yml` triggered
+(server/** and client/** both changed) and completed clean — no
+false-negative this time. `flyctl status` confirmed `web`/`dvm` both
+came back `started` at the new version on their own.
+
+**A real, expected gap, not a bug**: `NOSTRAS_DVM_ARTICLE_KEY` was
+never set in production — the DVM correctly degraded by omission (no
+crash, simply didn't advertise `k=5904` in its kind:31990 announcement
+yet), exactly as designed. Unlike `NOSTRAS_DVM_NWC_URI` or
+`NOSTRAS_ANTHROPIC_API_KEY` (real external credentials that belong to
+the user), this key is just an internal keypair the DVM needs for
+article encryption — same category as the existing VAPID keys, not
+something requiring the user's own account/wallet. Generated a fresh
+one (`nak key generate`) and set it directly via `flyctl secrets set`.
+The resulting rolling restart completed cleanly with explicit
+wait-for-`started` confirmation on all three machines (`web`, `dvm`,
+the standby) — no crash-loop, no manual `flyctl machine start` needed,
+unlike several earlier incidents in this file's history.
+
+**Verified for real against live production infrastructure, not just
+`flyctl status`**: confirmed the DVM's live kind:31990 announcement now
+carries `k=5904` and the correct `articleEncryptionPubkey` (matching
+the newly-set secret's derived pubkey exactly). Then ran a full
+throwaway-key round trip directly against `wss://nostras.app`: NIP-44-
+encrypted a real article body to the DVM's real production key,
+published a real paid kind:30023 article (price 42 sats), sent a real
+kind:5904 unlock request from a separate throwaway reader identity, and
+got back a genuine `kind:7000` `payment-required` feedback event with a
+real bolt11 invoice from the real operator wallet — `amount` tag read
+exactly `42000` msat, matching the article's own author-set price
+precisely. Not paid, standing rule (Claude only ever requests/displays
+invoices, never pays). **One real mistake made and caught during this
+verification**: the first `nak event` publish attempt used `-d` (a
+shortcut for the `d` identifier tag) for `title`/`summary`/`encrypted`/
+`price` too, producing an article with garbled tags and empty content
+that will never render correctly in any client — caught immediately via
+`nak event --help`, fixed with `--tag key=value`, and republished
+correctly in a single shell invocation this time so the throwaway
+signing key stayed in scope across the whole test (an earlier attempt
+lost the key when it fell out of scope between separate Bash calls,
+since shell state doesn't persist across tool invocations here). The
+broken first article was left in place rather than chased down for
+deletion — empty content, tags that don't parse as a real title/summary
+in any NIP-23 client, from a throwaway pubkey with zero reputation, so
+it carries no real risk or visibility.
+
+**The client half was already verified locally in the browser (Piece 3's
+own entry above)** — payment-required screen and full free-mode decrypt-
+render both confirmed through the real UI, not just protocol-level `nak`
+checks. Combined with this production round trip, every layer of the
+feature (server crypto/payment gating, client compose/encrypt, client
+unlock/decrypt UI, and now live production dispatch) has real,
+independent verification.
+
+**Still pending, not done in this session**: the DM to the original
+`#asknostr` requester (already sent earlier, promising a ping once
+live) hasn't been followed up — that's a real message to a real person
+and needs the user's own review/send, same standing rule as every other
+DM in this project.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
