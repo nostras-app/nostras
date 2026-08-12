@@ -16,6 +16,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip44"
 )
 
 // NOSTRAS DVM: a NIP-90 Data Vending Machine offering text summarization
@@ -41,7 +42,20 @@ const (
 	kindJobResultGenerate   = 6050
 	kindJobRequestModerate  = 5501
 	kindJobResultModerate   = 6501
-	kindJobFeedback         = 7000
+	// Paid long-form article unlock — 5904/6904, chosen from the vendored
+	// NIP-90 kind registry (go-nostr's nip90/kinds.go, current through
+	// 5970/6970) with nothing else registered nearby; re-checked against
+	// the live upstream registry too, not just this vendored snapshot.
+	// Genuinely different from every other job kind here: request AND
+	// result payloads are meant to be private (NIP-90's own `["encrypted"]`
+	// convention, NIP-44 rather than the spec's literal NIP-04 — same
+	// deliberate deviation this project already made for NIP-17 DMs, for
+	// the same reason: stronger crypto, less metadata leakage, and this
+	// job kind is NOSTRAS-specific rather than depending on generic
+	// third-party NIP-90 tooling interop). See handleArticleUnlockJob.
+	kindJobRequestArticleUnlock = 5904
+	kindJobResultArticleUnlock  = 6904
+	kindJobFeedback             = 7000
 
 	// NIP-89 handler information event, reused by NIP-90 (Appendix 2:
 	// "Service provider discoverability") to advertise a DVM's supported
@@ -164,11 +178,40 @@ func main() {
 	// random one it has no reason to trust.
 	sk := nostr.GeneratePrivateKey()
 	pk, _ := nostr.GetPublicKey(sk)
+
+	// Deliberately a *separate* key from sk above, and — unlike sk — must
+	// be persisted (nostras.env), not regenerated per boot: sk only needs
+	// to be stable within one process's lifetime (jobs correlate by
+	// request id, not by a client trusting the DVM's pubkey across
+	// restarts), but articles are NIP-44-encrypted to this key at publish
+	// time and need to stay decryptable indefinitely — a fresh-per-boot
+	// key here would make every previously-published paid article
+	// permanently unreadable the next time this process restarts (which
+	// this project's own incident history shows happens often). Kept
+	// separate from sk rather than reusing+persisting it, so a bug in this
+	// still-new code path can't touch the four already-proven job kinds'
+	// signing identity.
+	articleKeySk := os.Getenv("NOSTRAS_DVM_ARTICLE_KEY")
+	var articleKeyPk string
+	if articleKeySk != "" {
+		var err error
+		articleKeyPk, err = nostr.GetPublicKey(articleKeySk)
+		if err != nil {
+			fmt.Println("warning: NOSTRAS_DVM_ARTICLE_KEY set but invalid, paid articles disabled:", err)
+			articleKeySk = ""
+		}
+	}
+
 	fmt.Println("NOSTRAS DVM (NIP-90 summarization 5001->6001, translation 5002->6002, text generation 5050->6050, moderation 5501->6501) running as", pk)
 	if payment == nil {
 		fmt.Println("payment gating: OFF (set NOSTRAS_DVM_NWC_URI to enable)")
 	} else {
 		fmt.Printf("payment gating: ON — priced per job from real token cost (fallback %d sats if pricing lookup fails)\n", payment.priceSats)
+	}
+	if articleKeySk == "" {
+		fmt.Println("paid articles (5904->6904): OFF (set NOSTRAS_DVM_ARTICLE_KEY to enable)")
+	} else {
+		fmt.Println("paid articles (5904->6904): ON, encryption key", articleKeyPk)
 	}
 
 	healthPort := os.Getenv("NOSTRAS_DVM_HEALTH_PORT")
@@ -195,7 +238,7 @@ func main() {
 	for {
 		fmt.Println("listening on", relayURL)
 		connectedAt := time.Now()
-		err := runDVM(ctx, relayURL, claude, sk, payment)
+		err := runDVM(ctx, relayURL, claude, sk, articleKeySk, articleKeyPk, payment)
 		if err != nil {
 			fmt.Println("relay connection lost, reconnecting:", err)
 		} else {
@@ -216,7 +259,7 @@ func main() {
 // channel closes. Returns nil for a clean subscription end, or the error
 // that caused the disconnect — either way, the caller's reconnection loop
 // decides what happens next, this function never terminates the process.
-func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk string, payment *paymentConfig) error {
+func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, articleKeySk, articleKeyPk string, payment *paymentConfig) error {
 	relay, err := nostr.RelayConnect(ctx, relayURL)
 	if err != nil {
 		return err
@@ -225,12 +268,16 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk st
 	markRelayConnected(true)
 	defer markRelayConnected(false)
 
-	publishHandlerAnnouncement(ctx, relay, sk)
+	publishHandlerAnnouncement(ctx, relay, sk, articleKeyPk)
 	publishClientHandlerAnnouncement(ctx, relay, sk)
 
+	kinds := []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate, kindJobRequestModerate}
+	if articleKeySk != "" {
+		kinds = append(kinds, kindJobRequestArticleUnlock)
+	}
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{
-		Kinds: []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate, kindJobRequestModerate},
+		Kinds: kinds,
 		Since: &since,
 	}})
 	if err != nil {
@@ -238,7 +285,7 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk st
 	}
 
 	for evt := range sub.Events {
-		go handleJob(ctx, relay, claude, sk, payment, evt)
+		go handleJob(ctx, relay, claude, sk, articleKeySk, payment, evt)
 	}
 	return nil
 }
@@ -270,7 +317,18 @@ func loadPaymentConfig(ctx context.Context) *paymentConfig {
 	return &paymentConfig{nwc: client, priceSats: price}
 }
 
-func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client, sk string, payment *paymentConfig, req *nostr.Event) {
+func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client, sk, articleKeySk string, payment *paymentConfig, req *nostr.Event) {
+	// Structurally separate path, not a case in the switch below:
+	// decrypting a paid article bears no resemblance to "prompt Claude
+	// with some text," which is the one thing every other job kind here
+	// shares. Keeping it fully outside handleJob's shared body means a
+	// bug in this still-new code can't touch the four already-proven,
+	// real-money job kinds' request handling at all.
+	if req.Kind == kindJobRequestArticleUnlock {
+		handleArticleUnlockJob(ctx, relay, sk, articleKeySk, payment, req)
+		return
+	}
+
 	markJobReceived()
 
 	var resultKind int
@@ -353,6 +411,157 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 	}
 
 	publishResult(ctx, relay, sk, req, resultKind, result)
+}
+
+// handleArticleUnlockJob decrypts a paid NIP-23 article for a paying
+// reader. Request encryption is optional per NIP-90's own spec ("if the
+// user wants to keep params secret, they can encrypt") — a plain,
+// unencrypted `i` tag is accepted too, mainly so this can be exercised
+// directly via `nak` without hand-rolling NIP-44, but the real client
+// always encrypts (see ArticleComposer/the unlock button). When the
+// request *is* encrypted, its payload tags were JSON-stringified into
+// `content` then NIP-44-encrypted by the sender (NDK's own
+// NDKDVMRequest.encryption() does exactly this) — decrypt and
+// JSON-unmarshal back into real tags before looking for `i`.
+//
+// The result, by contrast, is always a *direct* NIP-44 ciphertext of the
+// article's plaintext body straight in `content` (not the tag-JSON-
+// wrapping convention) — the spec's own literal wording for job results
+// ("output should be encrypted and placed in content field"), simplest
+// for a payload that's just one blob of text, not structured params. The
+// client decrypts it with a plain signer.decrypt(...) call, not NDK's
+// NDKDVMJobFeedback.dvmDecrypt() (that class's tag-wrapping convention is
+// for kind:7000 feedback events specifically, not kind:6xxx results).
+// hasTag checks for a tag's mere presence, unlike nostr.Tags.Find (which
+// requires len(tag) >= 2, "a key with at least one value" — real bug hit
+// while verifying this: NIP-90's own `["encrypted"]` marker convention,
+// and NDK's NDKDVMRequest.encryption() which produces that exact
+// single-element tag, are both length-1, so Find("encrypted") silently
+// never matches them and every encrypted request looked unencrypted.
+// Confirmed live with a real nak-constructed encrypted request before
+// this fix (wrongly treated as unencrypted, "missing i tag" error) and
+// after (correctly decrypted).
+func hasTag(tags nostr.Tags, key string) bool {
+	for _, t := range tags {
+		if len(t) >= 1 && t[0] == key {
+			return true
+		}
+	}
+	return false
+}
+
+func handleArticleUnlockJob(ctx context.Context, relay *nostr.Relay, sk, articleKeySk string, payment *paymentConfig, req *nostr.Event) {
+	markJobReceived()
+
+	tags := req.Tags
+	encryptedReq := hasTag(req.Tags, "encrypted")
+	if encryptedReq {
+		convKey, err := nip44.GenerateConversationKey(req.PubKey, articleKeySk)
+		if err != nil {
+			publishFeedback(ctx, relay, sk, req, "error", "could not derive decryption key")
+			return
+		}
+		decrypted, err := nip44.Decrypt(req.Content, convKey)
+		if err != nil {
+			publishFeedback(ctx, relay, sk, req, "error", "could not decrypt job request")
+			return
+		}
+		var restoredTags nostr.Tags
+		if err := json.Unmarshal([]byte(decrypted), &restoredTags); err != nil {
+			publishFeedback(ctx, relay, sk, req, "error", "malformed encrypted request payload")
+			return
+		}
+		tags = restoredTags
+	}
+
+	iTag := tags.Find("i")
+	if len(iTag) < 3 || iTag[2] != "event" {
+		publishFeedback(ctx, relay, sk, req, "error", `missing required i tag referencing the article (["i", "<article-event-id>", "event"])`)
+		return
+	}
+	articleID := iTag[1]
+
+	found, err := relay.QuerySync(ctx, nostr.Filter{IDs: []string{articleID}})
+	if err != nil || len(found) == 0 {
+		publishFeedback(ctx, relay, sk, req, "error", "could not find referenced article "+articleID)
+		return
+	}
+	article := found[0]
+
+	if !hasTag(article.Tags, "encrypted") {
+		publishFeedback(ctx, relay, sk, req, "error", "this article is not a paid article")
+		return
+	}
+	priceTag := article.Tags.Find("price")
+	if len(priceTag) < 2 {
+		publishFeedback(ctx, relay, sk, req, "error", "this article has no price set")
+		return
+	}
+	priceSats, err := strconv.ParseInt(priceTag[1], 10, 64)
+	if err != nil || priceSats <= 0 {
+		publishFeedback(ctx, relay, sk, req, "error", "this article has an invalid price")
+		return
+	}
+
+	articleConvKey, err := nip44.GenerateConversationKey(article.PubKey, articleKeySk)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", "could not derive article decryption key")
+		return
+	}
+	plaintext, err := nip44.Decrypt(article.Content, articleConvKey)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", "could not decrypt article content")
+		return
+	}
+
+	// Same operator wallet as every other job kind, not the article
+	// author's own — "author sets the price" means the author controls
+	// what NOSTRAS charges on their content's behalf, not that payment is
+	// automatically routed to them. Real, deliberate simplification, not
+	// an oversight: automatic revenue sharing is a separate business/
+	// product decision, not built here.
+	if payment != nil {
+		paid, err := requirePayment(ctx, relay, sk, payment, req, priceSats)
+		if err != nil {
+			publishFeedback(ctx, relay, sk, req, "error", err.Error())
+			return
+		}
+		if !paid {
+			return
+		}
+	}
+
+	publishFeedback(ctx, relay, sk, req, "processing", "")
+
+	requesterConvKey, err := nip44.GenerateConversationKey(req.PubKey, articleKeySk)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", "could not encrypt result")
+		return
+	}
+	ciphertext, err := nip44.Encrypt(plaintext, requesterConvKey)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", "could not encrypt result")
+		return
+	}
+
+	publishArticleUnlockResult(ctx, relay, sk, req, ciphertext, encryptedReq)
+}
+
+func publishArticleUnlockResult(ctx context.Context, relay *nostr.Relay, sk string, req *nostr.Event, ciphertext string, encrypted bool) {
+	tags := nostr.Tags{
+		{"e", req.ID},
+		{"p", req.PubKey},
+	}
+	if encrypted {
+		tags = append(tags, nostr.Tag{"encrypted"})
+	}
+	evt := nostr.Event{
+		Kind:      kindJobResultArticleUnlock,
+		CreatedAt: nostr.Now(),
+		Content:   ciphertext,
+		Tags:      tags,
+	}
+	signAndPublish(ctx, relay, sk, evt)
 }
 
 // estimateJobCostSats prices a job proportionally to its actual expected
@@ -483,17 +692,40 @@ func callClaude(ctx context.Context, claude anthropic.Client, systemPrompt, user
 // (kind:0-style JSON), deliberately not a live price — the actual price
 // is dynamic per job (see estimateJobCostSats), so the description gives
 // a representative price band instead of a number that would go stale.
-func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk string) {
+func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, articleKeyPk string) {
+	about := "Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes."
+	tags := nostr.Tags{
+		{"d", dvmHandlerDTag},
+		{"k", strconv.Itoa(kindJobRequestSummarize)},
+		{"k", strconv.Itoa(kindJobRequestTranslate)},
+		{"k", strconv.Itoa(kindJobRequestGenerate)},
+		{"k", strconv.Itoa(kindJobRequestModerate)},
+	}
+	if articleKeyPk != "" {
+		about += " Paid long-form article unlock (5904) — the author sets the price; decrypted content is NIP-44-encrypted back to you specifically, not published in the clear."
+		tags = append(tags, nostr.Tag{"k", strconv.Itoa(kindJobRequestArticleUnlock)})
+	}
+
+	// articleEncryptionPubkey, present only when paid articles are
+	// enabled, is a *separate* field from this event's own signing
+	// pubkey (evt.PubKey, set by signAndPublish below) — that key is only
+	// stable for this process's lifetime (see main()'s own comment on
+	// why), while this one is persisted and must stay constant for
+	// authors to encrypt articles against long-term. Clients that want to
+	// publish a paid article read this field, not the announcement
+	// event's own pubkey.
 	content, err := json.Marshal(struct {
-		Name    string `json:"name"`
-		About   string `json:"about"`
-		Picture string `json:"picture"`
-		Website string `json:"website"`
+		Name                    string `json:"name"`
+		About                   string `json:"about"`
+		Picture                 string `json:"picture"`
+		Website                 string `json:"website"`
+		ArticleEncryptionPubkey string `json:"articleEncryptionPubkey,omitempty"`
 	}{
-		Name:    "NOSTRAS DVM",
-		About:   "Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes.",
-		Picture: "https://app.nostras.app/pwa-512x512.png",
-		Website: "https://nostras.app",
+		Name:                    "NOSTRAS DVM",
+		About:                   about,
+		Picture:                 "https://app.nostras.app/pwa-512x512.png",
+		Website:                 "https://nostras.app",
+		ArticleEncryptionPubkey: articleKeyPk,
 	})
 	if err != nil {
 		fmt.Println("handler announcement marshal error:", err)
@@ -504,13 +736,7 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk stri
 		Kind:      kindHandlerAnnouncement,
 		CreatedAt: nostr.Now(),
 		Content:   string(content),
-		Tags: nostr.Tags{
-			{"d", dvmHandlerDTag},
-			{"k", strconv.Itoa(kindJobRequestSummarize)},
-			{"k", strconv.Itoa(kindJobRequestTranslate)},
-			{"k", strconv.Itoa(kindJobRequestGenerate)},
-			{"k", strconv.Itoa(kindJobRequestModerate)},
-		},
+		Tags:      tags,
 	}
 	signAndPublish(ctx, relay, sk, evt)
 }

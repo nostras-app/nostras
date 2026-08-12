@@ -5597,6 +5597,125 @@ several different, reasonably thorough attempts. `tsc -b`, `oxlint`,
 `vite build` all clean; all temporary test scripts removed before
 committing, none checked in.
 
+## Paid long-form articles, Piece 1 — server (2026-08-12)
+
+First piece of a real feature request: a genuine `#asknostr` question
+("Nostr alternatives to Substack?") surfaced via `/engage`, answered
+honestly (no native paywall today), and became a concrete build —
+paid NIP-23 articles where title/summary/cover stay public but the
+body is encrypted, unlockable only via a NIP-90 DVM job after Lightning
+payment. Full design writeup and the three-piece plan live in
+`/home/user/.claude/plans/crystalline-puzzling-gosling.md`. This entry
+covers Piece 1 (server) only — client compose/unlock UI is not built
+yet.
+
+**Real architectural finding that changed the design before writing
+any code**: the DVM's existing signing key (`sk` in
+`cmd/dvm/main.go`) is deliberately regenerated every process boot —
+fine for existing jobs (clients correlate by request id, not by a
+stable DVM pubkey), fatal for this feature, since an article encrypted
+to a key that vanishes on the next restart becomes permanently
+undecryptable. Fixed by introducing a **separate**, persisted keypair
+(`NOSTRAS_DVM_ARTICLE_KEY`, same `nostras.env` convention as
+`NOSTRAS_DVM_NWC_URI`) used only for article encryption — deliberately
+not reusing/persisting the existing signing key, so a bug in this
+still-new code path can't touch the four already-proven, real-money
+job kinds' identity. Unset → the DVM simply doesn't register or
+advertise the new job kind at all (omitted from the subscription
+filter and the NIP-89 handler announcement) — degrade by omission,
+not a hard boot requirement.
+
+**Job kind 5904→6904** (request→result), chosen after checking the
+real vendored NIP-90 registry (`go-nostr@v0.52.3/nip90/kinds.go`,
+current through 5970/6970 — nothing near "paywalled content" claimed)
+and cross-checking the live upstream `nostr-protocol/nips` repo, which
+also surfaced a real, worth-knowing fact: NIP-90 itself is now marked
+`unrecommended` upstream ("this got totally out of control, prefer
+use-case-specific microstandards"). Not a blocker — this project
+already has four real, shipped, revenue-generating job kinds on this
+exact pattern, and this new one is NOSTRAS-specific anyway, not
+depending on broad third-party interop — but worth recording as real,
+current information rather than silently building on a pattern whose
+own spec now waves people away from it.
+
+**Genuinely separate code path, not a new switch-string**: every
+existing job kind funnels through one shared `callClaude`-based body
+in `handleJob`; decrypting an article bears no resemblance to that, so
+`handleArticleUnlockJob` is dispatched from a branch at the very top of
+`handleJob`, before the existing switch, returning immediately —
+zero lines of the proven existing path touched. Reuses
+`requirePayment`/`publishPaymentRequired` and the NWC poll loop
+completely unchanged (the article's own author-set `price` tag plugs
+straight into `amountSats`, bypassing `estimateJobCostSats` entirely,
+since there's no Claude call to cost). Payment goes to the same
+operator wallet as every other job — "author sets the price" means the
+author controls what NOSTRAS charges on their content's behalf, not
+automatic revenue routing to them; that's a real, separate business
+decision, not built here, and worth being explicit about rather than
+implying more than what actually happens to the money.
+
+Request encryption follows NIP-90's own real, spec-documented
+`["encrypted"]` convention (job-payload tags JSON-stringified into
+`content`, NIP-44-encrypted to the DVM) — but NIP-44, not the spec's
+literal NIP-04, matching this project's own established deviation for
+NIP-17 DMs and for the same reason. Encryption is optional per request
+(spec: "if the user wants to keep params secret, they can encrypt") —
+an unencrypted `i` tag referencing the article by event id (reusing
+the *existing* `["i", id, "event"]` input-type convention the other
+job kinds already use) works too, mainly so this is directly testable
+via `nak` without hand-rolling NIP-44; the real client always
+encrypts. The **result**, by contrast, is a direct NIP-44 ciphertext
+of the article's plaintext straight in `content` — not the same tag-
+JSON-wrapping convention the request uses — matching the spec's own
+literal wording for job results ("output should be encrypted and
+placed in `content` field") and simpler for a payload that's one blob
+of text rather than structured params. The client will decrypt it
+with a plain `signer.decrypt(...)` call, not NDK's
+`NDKDVMJobFeedback.dvmDecrypt()` (that class's tag-wrapping convention
+is for kind:7000 feedback events specifically, confirmed by reading
+NDK's own source before assuming it'd apply here too).
+
+**Real bug found and fixed during verification, not shipped**:
+`nostr.Tags.Find(key)` requires `len(tag) >= 2` ("a key with at least
+one value") — but NIP-90's own `["encrypted"]` marker convention, and
+NDK's `NDKDVMRequest.encryption()` (which the real client will use)
+are both genuinely single-element tags. `Find("encrypted")` silently
+never matched either, so every encrypted request was wrongly treated
+as unencrypted — reproduced live before fixing it (a real nak-
+constructed encrypted request came back `"missing required i tag"`,
+since the code looked for `i` in the raw outer tags instead of
+decrypting first). Fixed with a small `hasTag()` helper that checks
+mere presence regardless of tag length, used for both the request's
+own marker and the article's own `["encrypted"]` marker tag.
+
+**Verified for real, end to end, with a throwaway test key — not just
+built clean**: `go build`/`go vet`/`gofmt -l` all clean. Ran a real
+local DVM instance with `NOSTRAS_DVM_ARTICLE_KEY` set to a throwaway
+key (confirmed the derived pubkey stays identical across a full
+process restart, proving the persistence design actually works, not
+just reasoned about). Published a real NIP-44-encrypted test article
+(author key A, price tag `100`) to the local relay; confirmed a
+`payment-required` feedback event came back with `amount` exactly
+matching the article's own price (100,000 msat = 100 sats) — not
+paid, standing rule. Confirmed correct rejection, with clear error
+messages, for a nonexistent article and for a real-but-non-paid
+article (no `encrypted`/`price` tags). In free mode (an intentionally
+invalid NWC override, not the real operator wallet), verified the full
+crypto round trip twice — once with a plain unencrypted request, once
+with a real NDK-shaped encrypted request (this is where the `hasTag`
+bug was caught and fixed) — both times confirming the paying
+requester's own key decrypts the exact original plaintext byte-for-
+byte, and a third, unrelated throwaway key's decrypt attempt fails
+with a genuine cryptographic rejection (`invalid hmac`, NIP-44's own
+authentication check), not just "returns nothing."
+
+**Not yet built**: the client half (Pieces 2 and 3 of the plan) —
+`ArticleComposer.tsx`'s paywall toggle and publish-time encryption,
+and `ArticleView.tsx`'s locked-preview/unlock UI. This server piece is
+purely additive and safe to deploy on its own (no client code
+references the new job kind yet), but hasn't been deployed to
+production as of this entry — continuing to the client pieces first.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
