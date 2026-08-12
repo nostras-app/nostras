@@ -9,7 +9,11 @@ export const GROUP_ADMIN_PUBLISH_TIMEOUT_MS = 8000
 // real, ratified NIP-29 kind NDK just hasn't added a constant for.
 const KIND_GROUP_DELETE_GROUP = 9008 as NDKKind
 
-type HistoryEvent = { kind: number; pubkey: string; createdAt: number; tags: string[][] }
+// Exported so useGroupList.ts can reuse the exact same derivation to
+// hide deleted groups from the discovery list — see its own comment for
+// why this needs a real subscription across every group, not just the
+// one this hook already scopes to via #h.
+export type HistoryEvent = { kind: number; pubkey: string; createdAt: number; tags: string[][] }
 
 // Deliberately mirrors server/nip29.go's applyNip29CacheEvent exactly —
 // kind:9007 (create) seeds the creator as admin, 9000 (put-user) adds,
@@ -50,7 +54,7 @@ function deriveAdmins(history: HistoryEvent[]): Set<string> {
 // recomputed from the full chronological history, not just "does a 9008
 // exist anywhere," or a group deleted and then legitimately re-created
 // would incorrectly show as still deleted.
-function deriveIsDeleted(history: HistoryEvent[]): boolean {
+export function deriveIsDeleted(history: HistoryEvent[]): boolean {
   const sorted = [...history].sort((a, b) => a.createdAt - b.createdAt)
   let deleted = false
   for (const evt of sorted) {

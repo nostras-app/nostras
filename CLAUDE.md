@@ -5465,6 +5465,47 @@ genuinely disabled, not just styled to look that way; confirmed via a
 final `nak` query that the real kind:9008 event was published under
 this session's own pubkey for the correct group id.
 
+**Real, user-reported follow-up gap the same day**: a group deleted by
+its own admin still showed up in the Communities discovery list — the
+composer correctly disabled once opened, but nothing kept it out of
+the list in the first place, since kind:39000 metadata staying in
+storage was never itself a deletion signal (deleting a group can't
+remove its metadata event any more than it can bulk-remove chat
+messages — same badger constraint). `useGroupList.ts`'s subscription
+grew to also cover kind:9007/9008, **unscoped across every group**
+(unlike `useGroupMembership.ts`'s own `#h`-scoped one) — a discovery
+list needs deletion status for every group it might show, not just
+one currently-open one. Reuses `deriveIsDeleted` (now exported from
+`useGroupMembership.ts`) so a group deleted and then legitimately
+re-created is correctly shown as active again here too, the exact same
+edge case already verified for the per-group check.
+
+**Real regression caught and fixed before shipping, not after**:
+filtering deleted groups out of the list would have also broken
+resolving a specific `groupTarget` — a "back" navigation into an
+already-open deleted group, or a stale `?group=` deep link, would
+incorrectly show "This group doesn't exist" instead of the accurate
+"This group has been deleted, existing messages remain visible below."
+Fixed by having `useGroupList` return both `groups` (filtered, for the
+list) and a separate `findGroup(id)` (unfiltered) — `CommunitiesView`
+uses `findGroup` specifically for resolving `groupTarget`, so opening a
+known deleted group by id still works and shows the real state.
+
+**Verified live, both directions, against real relay data — not
+assumed from code review**: reloaded Communities and confirmed a
+group with a real, previously-verified kind:9008 (`Delete UI Test`,
+its deletion independently confirmed via `nak` earlier the same day)
+no longer appeared in the list, while a genuinely non-deleted group
+still did — cross-checked directly against the relay via `nak req -k
+39000` (not just the app's own rendering) to confirm which groups the
+relay itself currently knows about, ruling out a filtering bug before
+trusting the shorter list. Then navigated directly to
+`?group=<the-deleted-group-id>` and confirmed it still opened
+correctly with the real "This group has been deleted" banner and full
+message history — proving the fix didn't break the direct-link path
+it was specifically designed to preserve. `tsc -b`, `oxlint`,
+`vite build` all clean.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

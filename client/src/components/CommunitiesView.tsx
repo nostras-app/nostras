@@ -108,10 +108,14 @@ function CreateGroupForm({ onCreated }: { onCreated: (id: string) => void }) {
 // hit once for DMs. groupTarget (from lib/navigation.ts's viewGroup())
 // picks list mode vs. chat mode, same shape as MessagesView's dmTarget.
 export function CommunitiesView({ groupTarget }: { groupTarget?: string | null } = {}) {
-  const { groups, loading } = useGroupList()
+  const { groups, findGroup, loading } = useGroupList()
 
   if (groupTarget) {
-    const group = groups.find((g) => g.id === groupTarget)
+    // findGroup, not the (deleted-filtered) `groups` list — opening a
+    // specific group by id (a "back" navigation into one already open,
+    // or a stale deep link) should still resolve a deleted group and
+    // show its real "deleted" state, not a misleading "doesn't exist."
+    const group = findGroup(groupTarget)
     if (group) {
       return <GroupChatView group={group} onBack={() => setActiveView('communities')} />
     }
