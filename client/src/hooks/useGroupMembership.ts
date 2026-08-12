@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { NDKEvent } from '@nostr-dev-kit/ndk'
+import { NDKEvent, NDKKind } from '@nostr-dev-kit/ndk'
 import { ndk, localRelaySet } from '../lib/ndk'
 import { useRelayStatus } from './useRelayStatus'
 
 export const GROUP_ADMIN_PUBLISH_TIMEOUT_MS = 8000
+
+// NDK's NDKKind enum doesn't include NIP-29's delete-group (9008) — a
+// real, ratified NIP-29 kind NDK just hasn't added a constant for.
+const KIND_GROUP_DELETE_GROUP = 9008 as NDKKind
 
 type HistoryEvent = { kind: number; pubkey: string; createdAt: number; tags: string[][] }
 
@@ -38,6 +42,24 @@ function deriveAdmins(history: HistoryEvent[]): Set<string> {
   return admins
 }
 
+// Mirrors server/nip29.go's cache.createGroup/deleteGroup exactly: a
+// 9008 removes the group id from the relay's own cache entirely (not
+// just a flag), which means a *later* 9007 for the same id is genuinely
+// accepted again (createGroup's own "already exists" guard only fires
+// while the id is still in the map) — so "deleted" here has to be
+// recomputed from the full chronological history, not just "does a 9008
+// exist anywhere," or a group deleted and then legitimately re-created
+// would incorrectly show as still deleted.
+function deriveIsDeleted(history: HistoryEvent[]): boolean {
+  const sorted = [...history].sort((a, b) => a.createdAt - b.createdAt)
+  let deleted = false
+  for (const evt of sorted) {
+    if (evt.kind === 9007) deleted = false
+    else if (evt.kind === 9008) deleted = true
+  }
+  return deleted
+}
+
 export function useGroupMembership(groupId: string | null) {
   const [history, setHistory] = useState<HistoryEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -57,7 +79,7 @@ export function useGroupMembership(groupId: string | null) {
     const seenIds = new Set<string>()
 
     const sub = ndk.subscribe(
-      { kinds: [9007, 9000, 9001], '#h': [groupId] },
+      { kinds: [9007, 9000, 9001, KIND_GROUP_DELETE_GROUP], '#h': [groupId] },
       { relaySet: localRelaySet },
     )
 
@@ -152,12 +174,34 @@ export function useGroupMembership(groupId: string | null) {
     [groupId, busy, loading],
   )
 
+  // Publishes kind:9008 (delete-group). Per server/nip29.go this stops
+  // the group from accepting any *new* posts/moderation — it does not
+  // and cannot bulk-remove already-stored kind:9 messages (badger has no
+  // cheap "delete everything matching this h tag" operation), so
+  // existing history stays fully visible. The UI surfacing this action
+  // is responsible for saying that plainly, not implying a full erase.
+  const deleteGroupAction = useCallback(async () => {
+    if (!groupId || busy || loading) return
+    setBusy('delete-group')
+    setError(null)
+    try {
+      const event = new NDKEvent(ndk, { kind: 9008, tags: [['h', groupId]] })
+      await event.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete group')
+    } finally {
+      setBusy(null)
+    }
+  }, [groupId, busy, loading])
+
   return {
     admins: Array.from(admins),
     isAdmin,
+    isDeleted: deriveIsDeleted(history),
     promote,
     demote,
     editMetadata,
+    deleteGroup: deleteGroupAction,
     loading,
     busy,
     error,

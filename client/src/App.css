@@ -2418,6 +2418,61 @@
   background: var(--code-bg);
 }
 
+.group-admin-danger-zone {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.group-message-bubble {
+  position: relative;
+}
+
+/* Extra right padding only on the deleter's own view (an admin viewing
+   their own message alongside everyone else's) so the delete button
+   never overlaps the timestamp — non-admins never see the button at
+   all, so their bubbles keep the original padding untouched. */
+.group-message-bubble:has(.group-message-delete-btn) {
+  padding-right: 34px;
+}
+
+.group-message-delete-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: currentColor;
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.group-message-delete-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.group-message-delete-btn:hover:not(:disabled) {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.15);
+  color: var(--danger);
+}
+
+.group-message-delete-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.group-deleted-banner {
+  margin: 0 16px;
+}
+
 .about-essay h4 {
   font-size: 16px;
   font-weight: 700;

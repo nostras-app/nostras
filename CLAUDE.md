@@ -5382,6 +5382,89 @@ shared link) and confirmed it landed directly in that same group's
 chat view — correct name, correct 5-member count, full real message
 history — with zero manual navigation.
 
+## Delete-message / delete-group UI — kind 9005/9008 (2026-08-12)
+
+Closes the last of the "not built yet, no deliberate call" gaps flagged
+in the Communities status review (server already admin-gated both
+kinds' *writes* — see `server/nip29.go`'s `groupModerationKinds` — but
+nothing published them and nothing acted on them once published).
+
+**Delete message (kind 9005)**: `useGroupChat.ts`'s subscription filter
+grew from `{kinds:[9]}` to `{kinds:[9, 9005]}` — one subscription, not
+two, since the relay already admin-gates 9005 at write time, so any
+9005 that exists in the stream *is* a legitimate deletion, no
+client-side re-verification needed. Deleted ids are tracked in a
+separate `Set`, filtered out of the returned `messages` only at read
+time (`rawMessages.filter(m => !deletedIds.has(m.id))`) rather than
+removed from the raw list on arrival — a 9005 can genuinely arrive
+*before* the message it targets during initial backlog replay, and
+filtering only at read time is what makes that ordering not matter.
+`GroupChatView.tsx` shows a small trash-icon button (new `TrashIcon` in
+`icons.tsx`) on each message, visible only when `viewerIsAdmin` — the
+relay enforces this regardless, but hiding a button that would always
+fail avoids confusing a non-admin.
+
+**Delete group (kind 9008)**: `useGroupMembership.ts`'s existing
+9007/9000/9001 history subscription grew to include 9008 too, and a new
+`deriveIsDeleted()` walks that same chronological history exactly the
+way `server/nip29.go`'s own cache does (`createGroup`/`deleteGroup`) —
+**not** "does a 9008 exist anywhere," which would be wrong: the
+server's `deleteGroup` fully removes the id from its cache map, so a
+*later* 9007 for the same id is genuinely accepted again
+(`createGroup`'s "already exists" guard only fires while the id is
+still in the map). Verified this exact recreate-after-delete edge case
+live against the relay via `nak` before trusting the derivation:
+create → delete → a new kind:9 post correctly rejected
+(`blocked: group does not exist`) → **re-create the same group id
+→ accepted** → posting works again. `deriveIsDeleted` reproduces that
+by tracking a single boolean flipped by 9007 (false)/9008 (true) in
+chronological order, matching the server exactly rather than
+independently guessing at the semantics.
+
+`GroupAdminPanel.tsx` gained a "Delete group" section, gated behind an
+inline confirm (not native `confirm()`, matching this app's own
+established `NoteMenu.tsx` delete-confirm pattern) with copy stating
+plainly what the linked backlog comment already knew: this stops new
+messages/moderation, it does **not** erase existing history (badger has
+no cheap "delete everything matching this h tag" op), and it can't be
+undone. Once deleted, `GroupChatView.tsx` shows a banner ("This group
+has been deleted — no new messages can be sent. Existing messages
+remain visible below.") and disables the composer — existing messages
+stay fully visible and scrollable, consistent with the honest scope
+rather than hiding history that's still really there.
+
+**Verified for real, both features, against the actual relay and the
+actual UI — not just built clean**: `tsc -b`, `oxlint`, `vite build` all
+clean (needed one real fix along the way: NDK's `NDKKind` enum doesn't
+include 9005/9008 — real, ratified NIP-29 kinds NDK just hasn't added
+constants for — so the subscription filters needed an explicit
+`as NDKKind` cast at the two call sites, not a hack, just NDK's own
+kind catalog being incomplete here).
+
+Server-side moderation semantics verified directly via `nak` before
+touching the UI: a non-admin's 9005 correctly rejected
+(`blocked: admin only`), an admin's 9005 correctly accepted; a 9008
+correctly blocks all future posts including from the *original*
+poster, and the freed-up id can be legitimately re-created (the exact
+case `deriveIsDeleted` was built to handle correctly, not just assumed).
+
+Then a real live-browser pass end to end: created a fresh group through
+the actual UI (so this session's identity was genuinely the admin, not
+simulated), sent a real message, clicked its new delete button, and
+confirmed via `get_page_text` it disappeared from the thread — then
+confirmed via direct `nak` query that the underlying kind:9005 event
+was really published with the correct `e`/`h` tags, **and** that the
+original kind:9 message is still fully retrievable from storage
+(proving the client hides it without the relay having erased anything,
+matching the documented scope exactly). Opened the admin panel, clicked
+"Delete group," confirmed the honest inline-confirm copy rendered, and
+confirmed the delete — the new banner appeared with the correct exact
+text; confirmed via direct DOM inspection (`textarea.disabled`,
+`sendBtn.disabled`, not just visual appearance) that the composer was
+genuinely disabled, not just styled to look that way; confirmed via a
+final `nak` query that the real kind:9008 event was published under
+this session's own pubkey for the correct group id.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

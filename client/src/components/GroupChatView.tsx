@@ -10,7 +10,7 @@ import { formatRelativeTime } from '../lib/time'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { GroupAdminPanel } from './GroupAdminPanel'
 import { GroupMemberList, type GroupParticipant } from './GroupMemberList'
-import { ArrowLeftIcon, UsersIcon, SettingsIcon, LinkIcon } from './icons'
+import { ArrowLeftIcon, UsersIcon, SettingsIcon, LinkIcon, TrashIcon } from './icons'
 
 function authorLabel(pubkey: string, name: string | null | undefined) {
   return name || `${nip19.npubEncode(pubkey).slice(0, 12)}…`
@@ -21,20 +21,38 @@ function MessageRow({
   content,
   createdAt,
   isOwn,
+  canDelete,
+  deleting,
+  onDelete,
 }: {
   pubkey: string
   content: string
   createdAt: number
   isOwn: boolean
+  canDelete: boolean
+  deleting: boolean
+  onDelete: () => void
 }) {
   const profile = useProfile(pubkey)
   const label = authorLabel(pubkey, profile?.name || profile?.displayName)
 
   return (
-    <div className={`dm-bubble${isOwn ? ' dm-bubble-own' : ' dm-bubble-peer'}`}>
+    <div className={`dm-bubble group-message-bubble${isOwn ? ' dm-bubble-own' : ' dm-bubble-peer'}`}>
       {!isOwn && <span className="feed-item-name group-message-author">{label}</span>}
       <p>{content}</p>
       <span className="dm-bubble-time">{formatRelativeTime(createdAt)}</span>
+      {canDelete && (
+        <button
+          type="button"
+          className="group-message-delete-btn"
+          onClick={onDelete}
+          disabled={deleting}
+          title="Delete message (admin)"
+          aria-label="Delete message"
+        >
+          <TrashIcon />
+        </button>
+      )}
     </div>
   )
 }
@@ -46,7 +64,7 @@ function MessageRow({
 // (unlike a 1:1 thread, a group has more than one other participant).
 export function GroupChatView({ group, onBack }: { group: Group; onBack: () => void }) {
   const activeUser = useActiveUser()
-  const { messages, loading } = useGroupChat(group.id)
+  const { messages, loading, deleteMessage, deletingMessageId, deleteError } = useGroupChat(group.id)
   const membership = useGroupMembership(group.id)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -84,7 +102,7 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
 
   async function handleSend() {
     const trimmed = draft.trim()
-    if (!trimmed || sending) return
+    if (!trimmed || sending || membership.isDeleted) return
     setSending(true)
     setError(null)
     try {
@@ -155,7 +173,15 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
           onPromote={membership.promote}
           onDemote={membership.demote}
           onEditMetadata={membership.editMetadata}
+          onDeleteGroup={membership.deleteGroup}
         />
+      )}
+
+      {membership.isDeleted && (
+        <p className="alert-error group-deleted-banner">
+          This group has been deleted — no new messages can be sent.
+          Existing messages remain visible below.
+        </p>
       )}
 
       {memberListOpen && (
@@ -176,6 +202,9 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
             content={msg.content}
             createdAt={msg.createdAt}
             isOwn={msg.pubkey === activeUser?.pubkey}
+            canDelete={viewerIsAdmin}
+            deleting={deletingMessageId === msg.id}
+            onDelete={() => deleteMessage(msg.id)}
           />
         ))}
       </div>
@@ -185,20 +214,22 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
           className="textarea"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Write a message…"
+          placeholder={membership.isDeleted ? 'This group has been deleted' : 'Write a message…'}
           rows={2}
+          disabled={membership.isDeleted}
         />
         <div className="btn-row">
           <button
             type="button"
             className="btn btn-primary btn-sm"
             onClick={handleSend}
-            disabled={sending || !draft.trim()}
+            disabled={sending || !draft.trim() || membership.isDeleted}
           >
             {sending ? 'Sending…' : 'Send'}
           </button>
         </div>
         {error && <p className="alert-error">{error}</p>}
+        {deleteError && <p className="alert-error">{deleteError}</p>}
       </div>
     </div>
   )

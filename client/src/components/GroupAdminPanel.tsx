@@ -57,6 +57,7 @@ export function GroupAdminPanel({
   onPromote,
   onDemote,
   onEditMetadata,
+  onDeleteGroup,
 }: {
   name: string
   about: string
@@ -67,12 +68,15 @@ export function GroupAdminPanel({
   onPromote: (pubkey: string) => void
   onDemote: (pubkey: string) => void
   onEditMetadata: (name: string, about: string, picture: string) => void
+  onDeleteGroup: () => void
 }) {
   const [editName, setEditName] = useState(name)
   const [editAbout, setEditAbout] = useState(about)
   const [editPicture, setEditPicture] = useState(picture)
   const [promoteInput, setPromoteInput] = useState('')
   const [promoteError, setPromoteError] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const deletingGroup = busy === 'delete-group'
 
   function handlePromote() {
     const trimmed = promoteInput.trim()
@@ -159,6 +163,45 @@ export function GroupAdminPanel({
       </ul>
 
       {error && <p className="alert-error">{error}</p>}
+
+      <div className="group-admin-danger-zone">
+        {!confirmingDelete ? (
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            onClick={() => setConfirmingDelete(true)}
+            disabled={!!busy}
+          >
+            Delete group
+          </button>
+        ) : (
+          <div className="stack">
+            <span className="translate-panel-label">
+              Delete this group? This stops any new messages or moderation
+              from being accepted — it does not erase existing messages
+              already stored on the relay, and can't be undone.
+            </span>
+            <div className="btn-row">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={deletingGroup}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={onDeleteGroup}
+                disabled={deletingGroup}
+              >
+                {deletingGroup ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
