@@ -5506,6 +5506,49 @@ message history — proving the fix didn't break the direct-link path
 it was specifically designed to preserve. `tsc -b`, `oxlint`,
 `vite build` all clean.
 
+**Real regression in that same-day fix, caught live in production
+(2026-08-12)**: user reported the Communities list intermittently
+showing a batch of junk-looking groups (garbage/templated names,
+clearly created by other real NIP-29 clients/bots against this
+publicly-discoverable relay, not a NOSTRAS bug in itself) that vanished
+on refresh. Root cause: `CommunitiesView.tsx`'s
+`{groups.length > 0 && (...)}` rendered the list **progressively as
+events streamed in, independent of `loading`** — but group metadata
+(kind:39000) and deletion history (kind:9007/9008) arrive as separate
+events over the same subscription, with no guaranteed ordering between
+them. A genuinely-deleted group's metadata could render the instant it
+arrived, before its own deletion event (arriving moments later, same
+subscription) had been processed into `deletionHistory` and the list
+re-filtered — exactly "see junk, refresh, it's gone." Never surfaced
+against this project's own sparse local test data (too few concurrent
+groups for the race window to be visible); real against production's
+actual, much larger and noisier group count.
+
+**Fixed** by gating the list render on `loading` (EOSE) rather than on
+`groups.length` alone — since `loading` only goes `false` once the
+subscription has finished delivering its *entire* current backlog for
+all three subscribed kinds together, by the time anything renders both
+`groups` and `deletionHistory` are guaranteed fully caught up,
+regardless of what order the relay happened to deliver events in.
+Post-EOSE live updates for a genuinely new group still stream in
+immediately, unaffected.
+
+**Verified the actual mechanism directly against the relay, not just
+reasoned about it** — a live `nak` query against `wss://nostras.app`
+for the same three kinds this subscription uses showed, for one real
+group, its **delete event (9008) arriving before its own metadata
+event (39000)** in relay delivery order — concrete proof this relay
+does not guarantee cross-kind delivery order, confirming the general
+vulnerability the old progressive-render code had (the reverse
+order — metadata before its own delete — is exactly what the user's
+screenshot caught). Also attempted a full live-browser repro against
+real production data (a local build with `VITE_RELAY_URL=wss://
+nostras.app`, confirmed baked into the bundle via `grep`) but hit
+unrelated environment flakiness getting past `AuthGate` in that
+specific preview context — not pursued further once the relay-level
+proof already confirmed the exact mechanism directly. `tsc -b`,
+`oxlint`, `vite build` all clean.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

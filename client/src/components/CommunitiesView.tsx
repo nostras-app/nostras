@@ -160,11 +160,26 @@ export function CommunitiesView({ groupTarget }: { groupTarget?: string | null }
 
       <CreateGroupForm onCreated={(id) => viewGroup(id)} />
 
-      {loading && groups.length === 0 && <p className="field-hint">Loading groups…</p>}
-      {!loading && groups.length === 0 && (
+      {/* Real bug found live in production, not caught locally: this used
+          to render `groups` progressively as events streamed in,
+          independent of `loading`. Group metadata (kind:39000) and
+          deletion history (kind:9007/9008) arrive as separate events over
+          the same subscription — a genuinely-deleted group's metadata
+          can arrive and render before its own deletion event has been
+          processed, then disappear once it catches up a moment later.
+          Never showed up against this project's own sparse local test
+          data (too little concurrent activity for the race to be
+          visible), but was real against production's actual group
+          count. Waiting for `loading` (EOSE — the subscription has
+          finished delivering its current backlog for both event types
+          together) before rendering the list at all closes the window;
+          post-EOSE live updates for a genuinely new group still stream
+          in immediately as before. */}
+      {loading ? (
+        <p className="field-hint">Loading groups…</p>
+      ) : groups.length === 0 ? (
         <p className="feed-empty-hint">No groups yet — create the first one.</p>
-      )}
-      {groups.length > 0 && (
+      ) : (
         <div className="communities-group-list">
           {groups.map((group) => (
             <GroupCard key={group.id} group={group} onSelect={() => viewGroup(group.id)} />
