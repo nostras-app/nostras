@@ -39,6 +39,7 @@ func main() {
 	relay.Info.Version = envOr("NOSTRAS_VERSION", "dev")
 	relay.Info.AddSupportedNIP(50) // search — khatru doesn't auto-detect this one
 	relay.Info.AddSupportedNIP(29) // groups — see nip29.go
+	relay.Info.AddSupportedNIP(62) // request to vanish — see vanish.go
 
 	badgerPath := envOr("NOSTRAS_BADGER_PATH", "./data")
 	blugePath := envOr("NOSTRAS_BLUGE_PATH", "./search-index")
@@ -134,6 +135,17 @@ func main() {
 	relay.Router().HandleFunc("POST /push/subscribe", handlePushSubscribe(pushSubs))
 	relay.Router().HandleFunc("POST /push/unsubscribe", handlePushUnsubscribe(pushSubs))
 
+	// NIP-62 Request to Vanish — see vanish.go. A plain JSON file (same
+	// pattern as pushSubs/analytics above), not a Nostr event: it's
+	// relay-operational bookkeeping (who asked to be erased, up to when),
+	// not content meant to be broadcast.
+	vanishStorePath := envOr("NOSTRAS_VANISH_STORE_PATH", "./vanished-pubkeys.json")
+	vanished, err := newVanishStore(vanishStorePath)
+	if err != nil {
+		panic(err)
+	}
+	relay.RejectEvent = append(relay.RejectEvent, newVanishRejectEventHook(vanished))
+
 	// Connection analytics + dashboard — see analytics.go/dashboard.go/
 	// dashboard.html. Counts unique relay connections per day/country (IP
 	// used only transiently for the country lookup, never stored) so the
@@ -148,7 +160,8 @@ func main() {
 	}
 	relay.OnConnect = append(relay.OnConnect, newAnalyticsConnectHook(analytics), newHealthConnectHook())
 	relay.OnDisconnect = append(relay.OnDisconnect, newHealthDisconnectHook())
-	relay.OnEventSaved = append(relay.OnEventSaved, newHealthEventSavedHook(), newNip29CacheUpdateHook(nip29Cache))
+	relay.OnEventSaved = append(relay.OnEventSaved, newHealthEventSavedHook(), newNip29CacheUpdateHook(nip29Cache),
+		newVanishEventSavedHook(relay, &db, vanished))
 
 	// See maxLiveConnections in health.go for why this exists — runs before
 	// the WebSocket upgrade, so a connection over the cap is refused

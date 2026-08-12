@@ -6283,6 +6283,97 @@ identity and back, confirming the already-unlocked-this-session
 identity showed a plain "Switch" with no re-prompt. `tsc -b`, `oxlint`,
 `vite build` clean.
 
+## NIP-62 Request to Vanish added — real data erasure, plus a
+re-broadcast-prevention mechanism this relay never had at all (2026-08-12)
+
+Direct follow-up to the NIP gap analysis: fixed the flagged NIP-62 gap.
+Fetched the real spec text before building anything (kind 62, a
+`["relay", "<url>"|"ALL_RELAYS"]` tag, optional reason as `content`;
+relay **MUST** delete that pubkey's events up through the request's own
+`created_at`, **SHOULD** delete NIP-59 gift wraps `#p`-tagging that
+pubkey, **MUST** ensure deleted events can't be re-broadcast back in).
+Scoped with the user via AskUserQuestion: the client's "Vanish" action
+targets **NOSTRAS's own relay only**, not a broadcast `ALL_RELAYS` — the
+relay that will actually honor it, matching what was actually asked.
+
+**Real finding while researching, not part of this fix**: `relay.
+ManagementAPI` (NIP-86's admin dispatch — ban/allow pubkeys/events,
+moderation queue) is declared and dispatched by the khatru fork but
+never actually assigned in `server/main.go` — the identical "wired for
+dispatch by the fork, never connected by our own config" bug class
+already fixed once this session for NIP-45's `CountEventsHLL`. Every
+NIP-86 management call today hits a nil handler and no-ops. Downgraded
+NIP-86 from ✅ to 🟡 in `nostras-nips-compliance.md`, flagged as a real
+follow-up, deliberately not bundled into this change.
+
+**No bulk-delete-by-author API exists** in either storage backend
+(badger/bluge only expose single-event `DeleteEvent`) — `server/
+vanish.go`'s `newVanishEventSavedHook` queries matching events directly
+against `db.QueryEvents` (never through `relay.QueryEvents`'s outbox-
+aggregation wrapper, which would be actively wrong here — this only
+ever needs locally-stored data) and deletes each one through the
+*existing* `relay.DeleteEvent` hook chain (`db.DeleteEvent` +
+`searchIndex.DeleteEvent` together — the same chain NIP-09 already
+uses, reused rather than duplicated, so search-index purging isn't a
+separate thing to remember). Dispatched in a goroutine, not run inline
+on `OnEventSaved` — that hook runs synchronously on the hot path for
+*every* event this relay stores, the same lock-contention lesson
+already learned once from the push-notification outage, and a vanish
+request can mean deleting a real user's entire history.
+
+**The bigger finding**: this relay had **no re-broadcast-prevention
+mechanism at all**, for any kind of deletion, before this — once an
+event was deleted (NIP-09 or otherwise), nothing stopped the exact same
+signed bytes from being republished and re-stored. NIP-62 is the first
+place this project has a hard spec requirement to close that gap. New
+`server/vanish.go`: a persistent `vanishStore` (mutex-guarded JSON file,
+`pubkey → vanishedUntil timestamp`, mirroring `push.go`'s `pushStore`
+shape exactly), checked on *every* future incoming event via a new
+`relay.RejectEvent` hook — deliberately scoped to `createdAt <=
+vanishedUntil` only, not a blanket permanent ban, so someone who
+vanished can still publish genuinely new events later if they choose to
+keep using the identity.
+
+**Applied a lesson proactively this time instead of relearning it a
+third time**: `analytics.json` and `push-subscriptions.json` both
+silently lived on ephemeral container storage for days early in this
+project (see their own dated entries) before anyone noticed. Added
+`NOSTRAS_VANISH_STORE_PATH` to `server/fly.toml`'s `[env]` block
+pointing at `/data` *in the same commit* as the feature, not as a
+follow-up fix after discovering data loss.
+
+**Verified with real data, both directions, not just built clean**: a
+throwaway pubkey published real notes to the local relay and received a
+real NIP-59 gift-wrapped DM (via `nak gift wrap`); sent a real kind:62
+vanish request; confirmed via direct `nak req` that the notes and the
+gift wrap were genuinely gone, confirmed NIP-50 search no longer found
+the content (first attempt was confusingly inconclusive — a shared
+"vanishtest-" prefix with an earlier aborted test run matched on token
+prefix; re-ran with a fully unique term and got a clean, unambiguous
+empty result); attempted to republish the *exact same deleted event*
+(identical id/sig) and confirmed it was rejected with the expected
+`blocked: this pubkey requested erasure...` reason; confirmed a
+**genuinely new** event from the same pubkey, published *after* the
+vanish request, was accepted normally — proving this isn't an
+accidental blanket ban. **Real, honest discovery during verification**:
+querying for the kind:62 request event itself afterward found nothing —
+the `Until`-inclusive deletion filter (`createdAt <= until`) also
+sweeps up the vanish request's own event, since its own timestamp
+equals the cutoff. NIP-62 only says a relay *MAY* retain the request for
+bookkeeping (optional), so this wasn't "fixed" into special-cased
+retention — simpler, and arguably a more privacy-respecting default
+(nothing lingers, not even the request), documented here as the real
+behavior rather than the originally-planned-but-inaccurate "retains it"
+description.
+
+**Live UI verified too**: created a real throwaway test identity,
+published a real note through the actual Composer, confirmed it existed
+via `nak`; triggered "Vanish my data" through the real Settings >
+Account UI (inline confirm, not a native dialog); confirmed the app
+automatically logged off afterward; confirmed via `nak` that the note
+was genuinely gone. `go build`/`go vet`/`gofmt -l` and `tsc -b`/
+`oxlint`/`vite build` all clean.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

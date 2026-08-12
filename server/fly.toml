@@ -52,6 +52,11 @@ primary_region = "fra"
   # Settings). Both now live on the persistent volume, same as badger/bluge.
   NOSTRAS_ANALYTICS_PATH            = "/data/analytics.json"
   NOSTRAS_PUSH_SUBSCRIPTIONS_PATH   = "/data/push-subscriptions.json"
+  # Applying the lesson above proactively this time (2026-08-12), not
+  # rediscovering it a third time: the NIP-62 vanish-tombstone store
+  # (vanish.go) needs the same persistent-volume treatment, set here
+  # from the start rather than left on the envOr default.
+  NOSTRAS_VANISH_STORE_PATH         = "/data/vanished-pubkeys.json"
   # <process-group>.process.<app>.internal is Fly's private-networking
   # hostname convention for reaching a specific process group without
   # going out over the public internet — confirmed working in production

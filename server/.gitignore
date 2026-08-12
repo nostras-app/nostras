@@ -2,6 +2,7 @@
 /search-index
 /push-subscriptions.json
 /analytics.json
+/vanished-pubkeys.json
 *.exe
 nostras-server
 /cmd/dvm/dvm
