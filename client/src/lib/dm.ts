@@ -22,6 +22,41 @@ export type DecryptedDm = {
 const DM_RELAY_LIST_KIND = 10050
 const RELAY_LIST_KIND = 10002
 
+// Matches the 8s per-publish convention used everywhere else in this
+// codebase (Composer.tsx, useFollowing.ts, the group hooks, etc.).
+const DM_PUBLISH_TIMEOUT_MS = 8000
+// A real, previously-unbounded hang, not hypothetical: a recipient's
+// kind:10002 write-relay list can legitimately have 20+ entries (a real
+// production identity's list checked while diagnosing a stuck "Sending…"
+// report had 24), and sendDirectMessage fans the gift wrap out to every
+// one of them via NDKRelaySet.fromRelayUrls + a single Promise.all — one
+// slow or hanging relay in that untrusted, discovered set (unlike
+// devPublishRelaySet's small set of known-good relays) stalled the
+// entire send indefinitely, with no per-call timeout anywhere in this
+// file to bound it. This wraps the *whole* operation in one hard
+// ceiling so the UI can never hang forever regardless of how many
+// relays were discovered or how badly any one of them misbehaves —
+// defense in depth on top of, not instead of, the per-publish timeouts
+// below (a per-relay timeout bounds a slow OK/ack; this bounds
+// everything, including a stall during the relay connection itself).
+const DM_SEND_OVERALL_TIMEOUT_MS = 15000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
 // Same private/local-address guard used for outbox-discovered relays in
 // ndk.ts (relayFilter.ts) — reused directly here rather than relying on
 // NDK's pool-level relayConnectionFilter, because NDKRelaySet.fromRelayUrls()
@@ -100,15 +135,19 @@ export async function sendDirectMessage(recipient: NDKUser, content: string): Pr
   ])
 
   const publishes = [
-    wrapForRecipient.publish(devPublishRelaySet),
-    wrapForSelf.publish(devPublishRelaySet),
+    wrapForRecipient.publish(devPublishRelaySet, DM_PUBLISH_TIMEOUT_MS),
+    wrapForSelf.publish(devPublishRelaySet, DM_PUBLISH_TIMEOUT_MS),
   ]
   if (recipientRelayUrls.length > 0) {
     const recipientRelaySet = NDKRelaySet.fromRelayUrls(recipientRelayUrls, ndk)
-    publishes.push(wrapForRecipient.publish(recipientRelaySet))
+    publishes.push(wrapForRecipient.publish(recipientRelaySet, DM_PUBLISH_TIMEOUT_MS))
   }
 
-  await Promise.all(publishes)
+  await withTimeout(
+    Promise.all(publishes),
+    DM_SEND_OVERALL_TIMEOUT_MS,
+    'Sending timed out — one or more relays may be unreachable',
+  )
 }
 
 // Returns null for anything that doesn't decrypt/parse as a valid rumor —

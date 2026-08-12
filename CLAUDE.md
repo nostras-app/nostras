@@ -5549,6 +5549,54 @@ specific preview context — not pursued further once the relay-level
 proof already confirmed the exact mechanism directly. `tsc -b`,
 `oxlint`, `vite build` all clean.
 
+## DM send hardened with real timeouts, though the exact stuck-forever
+cause is unconfirmed (2026-08-12)
+
+User-reported: a real DM's composer stuck on "Sending…" indefinitely,
+with not even the sender's own copy showing up in the thread.
+Investigating `lib/dm.ts`'s `sendDirectMessage()` found a genuine,
+previously-missed structural gap: **none of its three `.publish()`
+calls, and no wrapper around the overall `Promise.all(publishes)`, had
+an explicit timeout** — unlike every other publish path in this
+codebase (`Composer.tsx`, `useFollowing.ts`, the group hooks, etc.),
+which all already learned this lesson and set one explicitly. Checking
+the real recipient's (MMOnostr's) published kind:10002 write-relay list
+found **24 relays** — `sendDirectMessage` fans the gift wrap out to
+every one of them via `NDKRelaySet.fromRelayUrls` + a single
+`Promise.all`, an untrusted, freshly-discovered set (unlike
+`devPublishRelaySet`'s small known-good one) with nothing bounding how
+long any one of those 24 could take, or hang, before the whole
+operation settles.
+
+**Fixed** by adding the same `withTimeout()` pattern already
+established in `remoteSigner.ts`: each individual `.publish()` call now
+gets an explicit 8s timeout (matching this codebase's standing
+convention), and the entire `Promise.all(publishes)` is additionally
+wrapped in a 15s overall ceiling — defense in depth, since a per-relay
+publish timeout only bounds a slow OK/ack, not a stall during the
+relay *connection* itself, which a single overall wrapper closes
+regardless of where in the pipeline something gets stuck.
+
+**Honest limitation, not glossed over**: extensive attempts to actually
+reproduce an indefinite hang came back inconclusive. A standalone
+Node.js script (real NDK, a throwaway recipient identity publishing a
+real kind:10002 list pointing at deliberately unreachable relays)
+resolved within a few seconds both with and *without* the fix applied
+— NDK's own internal per-relay default (~2.5s) already bounded the
+*original*, unfixed code in that specific test harness, since a
+DNS-failing host fails near-instantly there. A live browser test
+against MMOnostr's actual real 24-relay list (four of the more unusual-
+looking URLs tested directly via raw `WebSocket` connections) also all
+settled within ~2 seconds each, no hang. So the fix is real, correct,
+and a genuine improvement — it makes the whole operation provably
+bounded no matter what, closing a structural gap that was inconsistent
+with the rest of this codebase — but **whether it was the exact cause
+of the specific reported stuck screenshot could not be confirmed**,
+only that testing didn't reproduce a literal infinite hang through
+several different, reasonably thorough attempts. `tsc -b`, `oxlint`,
+`vite build` all clean; all temporary test scripts removed before
+committing, none checked in.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
