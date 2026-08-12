@@ -6082,6 +6082,25 @@ reuses the same simple, type-checked ternary already exercised on the
 across this project's entire history — a reasonable stopping point
 given the marginal value versus standing up a second mock NWC wallet.
 
+**Deployed and verified live in production the same day.** Both
+`deploy-relay.yml` and `deploy-client.yml` succeeded; `web`/`dvm` both
+came back `started` at the new version on their own, no manual
+intervention needed. **Production verification deliberately avoided
+hitting any real third party's Lightning infrastructure** — no real
+`lud16` was tested against a live wallet, since even a non-paying LNURL
+fetch is real, unconsented load on someone else's real service. Instead
+confirmed two things directly against `wss://nostras.app` with
+throwaway keys: a real article whose author has no `lud16` gets the
+correct clean rejection, and a real article whose author's `lud16`
+points at a deliberately nonexistent domain produces a genuine DNS
+failure — the error text includes Fly's actual internal resolver
+address (`fdaa::3`), confirming the new LNURL-fetch code is truly
+executing on the live deployed infrastructure, not a stale or cached
+path. The full happy path (a real author actually getting paid) is
+verified via the local mock-server round trip above, not against
+production — matching this project's standing practice of never
+initiating real payments during verification.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
