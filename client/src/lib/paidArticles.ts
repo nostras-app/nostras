@@ -84,10 +84,25 @@ export async function encryptArticleBody(plaintext: string, dvmPubkey: string): 
 
 export type ArticleUnlockUpdate =
   | { status: 'processing' }
-  | { status: 'payment-required'; amountMsat: number; invoice: string }
+  | { status: 'payment-required'; payee: 'author' | 'nostras'; amountMsat: number; invoice: string }
   | { status: 'done'; content: string }
   | { status: 'error'; message: string }
 
+// A single unlock job now produces TWO sequential payment-required
+// feedback events, not one: the DVM fetches the article author's own
+// invoice server-side (a real HTTPS call to the domain in their
+// published lud16 — see server/cmd/dvm/lnurl.go) and confirms
+// settlement itself via LUD-21, before separately charging its own flat
+// fee through the existing NWC-based flow every other job kind already
+// uses. Distinguished here by the "payee" tag the server sets only on
+// the author's own event ("author"; absent/anything else = NOSTRAS's
+// own fee) — see server/cmd/dvm/main.go's publishPaymentRequiredFor.
+// Neither leg needs anything special from this client (no invoice-
+// fetching, no preimage capture) — an earlier version of this design
+// did try to have the client fetch+prove the author's payment itself,
+// but that was found to be cryptographically insecure and replaced;
+// see the plan file's "real findings" section for the full story.
+//
 // Same request/feedback/result shape as lib/dvm.ts's requestDvmJob, but
 // genuinely can't reuse it directly: the request payload needs NIP-90's
 // own ["encrypted"] tag-JSON-wrapping convention (see server/cmd/dvm/
@@ -151,8 +166,10 @@ export function requestArticleUnlock(opts: {
         const status = event.tags.find((t) => t[0] === 'status')?.[1]
         if (status === 'payment-required') {
           const amountTag = event.tags.find((t) => t[0] === 'amount')
+          const payeeTag = event.tags.find((t) => t[0] === 'payee')?.[1]
           onUpdate({
             status: 'payment-required',
+            payee: payeeTag === 'author' ? 'author' : 'nostras',
             amountMsat: Number(amountTag?.[1] ?? 0),
             invoice: amountTag?.[2] ?? '',
           })

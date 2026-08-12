@@ -3,6 +3,8 @@ import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { uploadToBlossom } from '../lib/blossom'
 import { encryptArticleBody, fetchDvmArticleEncryptionPubkey } from '../lib/paidArticles'
+import { useActiveUser } from '../hooks/useActiveUser'
+import { useProfile } from '../hooks/useProfile'
 
 // Matches the 8s convention used everywhere else in this codebase
 // (Composer.tsx, useFollowing.ts, the group hooks, etc.) — a real,
@@ -14,6 +16,16 @@ import { encryptArticleBody, fetchDvmArticleEncryptionPubkey } from '../lib/paid
 const PUBLISH_TIMEOUT_MS = 8000
 
 export function ArticleComposer() {
+  const activeUser = useActiveUser()
+  const ownProfile = useProfile(activeUser?.pubkey)
+  // The article's price is now paid directly to the author's own
+  // Lightning address (the DVM fetches a real invoice from it
+  // server-side — see lib/paidArticles.ts's own comment on why) rather
+  // than to NOSTRAS's wallet, so a paywalled article with no lud16 set
+  // would have nowhere for the payment to go. Blocked here, at publish
+  // time, rather than discovered later at unlock time.
+  const hasLud16 = Boolean(ownProfile?.lud16)
+
   const [title, setTitle] = useState('')
   const [summary, setSummary] = useState('')
   const [image, setImage] = useState('')
@@ -136,12 +148,19 @@ export function ArticleComposer() {
         <input
           type="checkbox"
           checked={requirePayment}
+          disabled={!hasLud16}
           onChange={(e) => setRequirePayment(e.target.checked)}
         />
         Require payment to unlock
       </label>
+      {!hasLud16 && (
+        <p className="field-hint">
+          Set a Lightning address in your profile first (Settings &gt; Profile) — that's where a
+          reader's payment for this article goes.
+        </p>
+      )}
 
-      {requirePayment && (
+      {requirePayment && hasLud16 && (
         <div className="stack">
           <input
             className="input"
@@ -152,12 +171,14 @@ export function ArticleComposer() {
           />
           <p className="field-hint">
             Title, summary, and cover image stay public — only the body
-            is encrypted. Readers pay this price via Lightning through
-            NOSTRAS's own DVM to unlock it. That's a real service we
-            provide, not an end-to-end system: our DVM holds the
+            is encrypted. Readers pay this price directly to{' '}
+            <strong>your</strong> Lightning address to unlock it, plus a
+            small flat fee to NOSTRAS for running the unlock service.
+            That fee is not an end-to-end system: our DVM holds the
             decryption key and reads the plaintext to serve it to
             whoever pays, the same way any of NOSTRAS's other paid DVM
-            jobs work. And like any paywall — once a reader has
+            jobs work — but your own share never passes through our
+            wallet at all. And like any paywall — once a reader has
             unlocked it, nothing technical stops them from sharing what
             they read further. That's the nature of paying for
             content, not a flaw specific to this.

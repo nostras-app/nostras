@@ -5938,6 +5938,150 @@ live) hasn't been followed up — that's a real message to a real person
 and needs the user's own review/send, same standing rule as every other
 DM in this project.
 
+## Paid articles: author payout added — a real security bug found and
+fixed mid-implementation, not just a feature add (2026-08-12)
+
+Direct follow-up, same day: with the feature live, the user pointed out
+the obvious next question before pinging timosolo — the article's
+author-set price was, by design, 100% kept by the NOSTRAS operator
+wallet, same as every other DVM job. Real V4V meant the author needed
+to actually get paid, with NOSTRAS taking a small cut to help fund the
+project, not the reverse.
+
+**Scoped via three explicit choices, agreed with the user before
+building**: (1) a dual-invoice model — the reader pays the author
+*directly*, NOSTRAS separately charges its own small flat fee through
+the existing DVM invoice flow — chosen specifically over a simpler
+single-invoice-then-DVM-forwards-the-rest design, because forwarding
+would have required granting the DVM's NWC wallet connection real
+*send* capability for the first time in this project's history, a
+direct reversal of the deliberate "create invoices + lookup status
+only, no send" scoping held to throughout; (2) NOSTRAS's fee: a flat 21
+sats, matching the existing flat DVM default; (3) an author with no
+`lud16` set on their profile can't enable the paywall toggle at all —
+blocked at publish time with a message pointing at Settings, not
+discovered later at unlock time.
+
+**First implementation attempt was built, tested, and found to be
+cryptographically broken — not shipped.** The original design had the
+client fetch the author's own real NIP-57 zap invoice (reusing
+`lib/zap.ts`'s `createZapInvoice`), pay it, and submit the resulting
+invoice + Lightning payment preimage to the DVM as proof; the DVM would
+verify `sha256(preimage) == payment_hash` plus the invoice's own BOLT11
+signature before trusting it. Building this required a BOLT11 decoder —
+the first candidate considered, `github.com/nbd-wtf/ln-decodepay`, was
+described as "pure Go" but a real `go get` proved it transitively drags
+in the *entire* `lightningnetwork/lnd` tree (wallet, neutrino, tor, ~40
+packages) — reverted immediately, replaced with a hand-rolled amount/
+payment_hash parser (`server/cmd/dvm/bolt11.go`) built on
+`github.com/btcsuite/btcd/btcutil/bech32`, already a transitive
+dependency via go-nostr's own `nip19` (npub/nsec encoding) — zero new
+go.mod entries, matching this project's established pattern of hand-
+rolling protocol primitives (the NWC client, NIP-98 auth) over pulling
+heavy dependencies.
+
+Signature verification itself (ECDSA recoverable-signature recovery via
+`btcec/v2/ecdsa.RecoverCompact`) was then added on top, reasoning that
+confirming the invoice was genuinely signed by *some* real key would at
+least rule out a hand-typed fake string. **A real forged-invoice test
+proved this reasoning wrong, not just theoretically incomplete**: took
+a genuine invoice, flipped one bit inside its `payment_hash` tagged
+field, re-encoded with a freshly-computed *valid* bech32 checksum
+(keeping the original, now-mismatched signature bytes untouched), and
+fed it back through the decoder — the forged invoice was **accepted**.
+Root cause: ECDSA signature *recovery* always succeeds in recovering
+*some* mathematically valid public key given *any* (signature, message)
+pair — it has no way to know or check whether that's the "real"
+signer's key unless the caller already knows which key to expect.
+"Recovery didn't error" proves nothing about tampering. This is a
+genuinely different property from normal signature *verification
+against a known key*, and conflating the two was a real design mistake,
+caught by testing rather than by review.
+
+**The actual fix was architectural, not cryptographic.** Since the DVM
+has no way to independently bind a Nostr pubkey to a Lightning node
+pubkey, the only thing that genuinely establishes an invoice's
+provenance is *making the HTTP request yourself*. `server/cmd/dvm/
+lnurl.go` (new) hand-rolls LNURL-pay (LUD-06/16) resolution — the DVM
+now fetches the article author's `lud16` from their own kind:0 profile
+and requests a real invoice *itself*, server-side, straight from the
+domain they published. That HTTPS call is what proves authenticity, not
+any property of the returned invoice string. Settlement is confirmed
+via **LUD-21's `verify` mechanism** (confirmed against the real spec at
+`github.com/lnurl/luds` via WebFetch before implementing, not guessed
+from memory: the invoice-fetch response optionally includes a `verify`
+URL; polling it returns `{status, settled, preimage, pr}`) — the same
+mechanism this DVM already uses for its own NWC-connected wallet
+(`lookup_invoice`), just over HTTP instead, since there's no wallet
+connection to the author's own wallet to poll directly. An author whose
+wallet doesn't support LUD-21 can't receive paid-article payments yet —
+a real, explicit scope limit (`fetchLnurlInvoice` fails with a clear
+named error), not silently degraded.
+
+**A genuine, unplanned simplification fell out of the fix**: the
+client no longer needs to fetch any invoice or capture any preimage at
+all — the DVM handles the entire author-payment leg server-side and
+just publishes two sequential `payment-required` feedback events for
+one job (distinguished by a new `payee` tag: `"author"` vs. absent =
+NOSTRAS's own fee, added via a new `publishPaymentRequiredFor`
+alongside the existing, unchanged `publishPaymentRequired`). This also
+means readers can pay *either* leg via "Copy invoice" or "Pay with
+connected wallet," exactly like every other DVM job already supports —
+the earlier design's NWC-wallet requirement for the author leg
+specifically (needed to capture a preimage) simply doesn't exist
+anymore.
+
+**One accepted, honestly-stated tradeoff of the final design**: the
+reader's payment to the author is a plain LNURL-pay payment, not a real
+NIP-57 zap — building a genuine zap request needs the *reader's own*
+signature (zap requests are meant to be signed by whoever's actually
+paying), which the DVM can't produce on the reader's behalf without
+either impersonating them or having the receiving service reject it as
+invalid. The original design's "shows up as a visible zap in the
+author's notifications" bonus is a direct casualty of the security fix;
+the payment itself still reaches the author's real wallet correctly.
+
+**Verified for real, in layers, not just built clean**: `go build`/
+`go vet`/`gofmt -l` clean, zero new go.mod dependencies (confirmed via
+`git diff go.mod` after `go mod tidy`). `bolt11Amount` verified against
+a real, freshly-minted invoice captured from this DVM's own existing
+payment flow. Built a real mock LNURL-pay server (Python, TLS via a
+self-signed cert — `resolveLud16` always builds `https://` URLs on
+purpose, so a plain-HTTP mock wouldn't exercise the real code path;
+trust for the DVM process was scoped via the `SSL_CERT_FILE` env var
+per-process, not by touching the system-wide CA store, which would
+have needed sudo this session didn't have and shouldn't touch anyway)
+implementing `.well-known/lnurlp`, the callback, and LUD-21 verify, plus
+a second instance with LUD-21 support disabled. Ran the actual server
+functions (`fetchLnurlPayParams`/`fetchLnurlInvoice`/`pollLnurlVerify`)
+directly against it first, including a genuinely asynchronous test
+(confirmed unsettled, settled it 4 seconds into a live poll, confirmed
+detection) rather than a pre-settled instant pass. Then ran the **full
+flow through the real, unmodified running DVM process** via `nak`, four
+times: (1) happy path — real author + reader identities, a real paid
+article, confirmed the correct `payee: author` payment-required event
+with the right invoice/amount, confirmed the DVM detected a genuine
+mid-poll settlement, confirmed the final decrypted content matched the
+original byte-for-byte; (2) an author with no `lud16` — clear rejection;
+(3) an author whose wallet lacks LUD-21 — clear rejection; (4) the
+author invoice never settling — confirmed the real 2-minute
+`paymentWaitWindow` timeout fires with the correct error (measured at
+~121s between the payment-required and error events, not assumed).
+**Live UI verification, not just server-side**: set a real `lud16` on
+a local dev identity's profile through the app's own live NDK signer
+(no key ever touched the test script), confirmed the composer's paywall
+toggle correctly flips from disabled+hint to enabled; published a real
+paid article through the actual Compose UI; opened it, clicked Unlock,
+confirmed "Step 1 of 2 — pay the author" rendered with the real fetched
+invoice; settled it via the mock server; confirmed the article
+correctly decrypted and rendered the real typed content. "Step 2 of 2"
+(NOSTRAS's fee) rendering wasn't separately live-tested this pass — it
+reuses the same simple, type-checked ternary already exercised on the
+"author" branch, and the underlying NOSTRAS-fee payment mechanism
+(`requirePayment`) is completely unchanged, already proven correct
+across this project's entire history — a reasonable stopping point
+given the marginal value versus standing up a second mock NWC wallet.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

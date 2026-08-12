@@ -84,6 +84,16 @@ const (
 	paymentPollEvery  = 3 * time.Second
 	paymentWaitWindow = 2 * time.Minute
 
+	// The article's author-set price is now paid directly to the author
+	// (a real NIP-57 zap on the article, verified via a Lightning
+	// payment preimage — see handleArticleUnlockJob) rather than to this
+	// DVM's own wallet. NOSTRAS keeps only this small flat fee for
+	// running the unlock/decryption service — chosen to match the
+	// existing flat defaultPriceSats convention, since the DVM's real
+	// marginal cost per unlock is near-zero (unlike the Claude-API-
+	// cost-driven jobs, which price dynamically).
+	articleAuthorPayoutFeeSats = 21
+
 	// claude-opus-5 pricing (per shared/models.md — keep in sync if the
 	// model ever changes). Job pricing is computed from these rather than
 	// charged flat, so cost is at least roughly proportional to what the
@@ -514,14 +524,68 @@ func handleArticleUnlockJob(ctx context.Context, relay *nostr.Relay, sk, article
 		return
 	}
 
-	// Same operator wallet as every other job kind, not the article
-	// author's own — "author sets the price" means the author controls
-	// what NOSTRAS charges on their content's behalf, not that payment is
-	// automatically routed to them. Real, deliberate simplification, not
-	// an oversight: automatic revenue sharing is a separate business/
-	// product decision, not built here.
+	// The article's own price is paid *directly* to its author, not to
+	// this DVM's wallet. This DVM fetches a real invoice itself,
+	// server-side, straight from the domain in the author's own
+	// published lud16 (see lnurl.go) — that HTTPS call is what actually
+	// establishes the invoice is genuine, not any property of the
+	// invoice string itself. (A first version of this trusted a
+	// client-submitted invoice + payment preimage, verified via the
+	// invoice's own bolt11 signature; that was proven insecure by a real
+	// forged-invoice test — ECDSA signature *recovery* always succeeds
+	// for *some* key given any signature+message pair, so it can't
+	// detect tampering without already knowing which key to expect.)
+	// Settlement is confirmed via LUD-21's verify mechanism, since this
+	// DVM has no NWC wallet connection to the author's own wallet to
+	// lookup_invoice against. This DVM never holds or forwards the
+	// author's money — only NOSTRAS's own flat fee below ever touches
+	// its own wallet, preserving the standing rule that this DVM's NWC
+	// connection only ever receives, never sends.
+	authorProfileEvents, err := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{0}, Authors: []string{article.PubKey}, Limit: 1})
+	if err != nil || len(authorProfileEvents) == 0 {
+		publishFeedback(ctx, relay, sk, req, "error", "could not find the article author's profile")
+		return
+	}
+	var authorProfile struct {
+		Lud16 string `json:"lud16"`
+	}
+	if err := json.Unmarshal([]byte(authorProfileEvents[0].Content), &authorProfile); err != nil || authorProfile.Lud16 == "" {
+		publishFeedback(ctx, relay, sk, req, "error", "the article author has no Lightning address set — cannot pay them")
+		return
+	}
+
+	lnurlParams, err := fetchLnurlPayParams(ctx, authorProfile.Lud16)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+	priceMsat := priceSats * 1000
+	if priceMsat < lnurlParams.MinSendable || priceMsat > lnurlParams.MaxSendable {
+		publishFeedback(ctx, relay, sk, req, "error", "the article's price is outside the author's wallet's accepted range")
+		return
+	}
+	authorInvoice, err := fetchLnurlInvoice(ctx, lnurlParams.Callback, priceMsat)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+	if invoiceMsat, err := bolt11Amount(authorInvoice.PR); err != nil || invoiceMsat != priceMsat {
+		publishFeedback(ctx, relay, sk, req, "error", "the author's wallet returned an invoice for the wrong amount")
+		return
+	}
+
+	publishPaymentRequiredFor(ctx, relay, sk, req, priceMsat, authorInvoice.PR, "author")
+	if settled, _ := pollLnurlVerify(ctx, authorInvoice.Verify); !settled {
+		publishFeedback(ctx, relay, sk, req, "error", "author payment not received in time")
+		return
+	}
+
+	// NOSTRAS's own flat fee for running the unlock/decryption service —
+	// same operator wallet and requirePayment mechanism as every other
+	// job kind, just a small flat amount instead of the full price now
+	// that the price itself goes directly to the author above.
 	if payment != nil {
-		paid, err := requirePayment(ctx, relay, sk, payment, req, priceSats)
+		paid, err := requirePayment(ctx, relay, sk, payment, req, articleAuthorPayoutFeeSats)
 		if err != nil {
 			publishFeedback(ctx, relay, sk, req, "error", err.Error())
 			return
@@ -702,7 +766,7 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, art
 		{"k", strconv.Itoa(kindJobRequestModerate)},
 	}
 	if articleKeyPk != "" {
-		about += " Paid long-form article unlock (5904) — the author sets the price; decrypted content is NIP-44-encrypted back to you specifically, not published in the clear."
+		about += fmt.Sprintf(" Paid long-form article unlock (5904) — the author sets the price and is paid directly via a real zap on the article; NOSTRAS keeps a flat %d-sat fee for the unlock service. Decrypted content is NIP-44-encrypted back to you specifically, not published in the clear.", articleAuthorPayoutFeeSats)
 		tags = append(tags, nostr.Tag{"k", strconv.Itoa(kindJobRequestArticleUnlock)})
 	}
 
@@ -803,6 +867,27 @@ func publishPaymentRequired(ctx context.Context, relay *nostr.Relay, sk string, 
 		Tags: nostr.Tags{
 			{"status", "payment-required"},
 			{"amount", strconv.FormatInt(amountMsat, 10), bolt11},
+			{"e", req.ID},
+			{"p", req.PubKey},
+		},
+	}
+	signAndPublish(ctx, relay, sk, evt)
+}
+
+// publishPaymentRequiredFor is publishPaymentRequired plus a "payee"
+// tag, used only for the article-unlock job's author-payment leg, so
+// the client can tell it apart from NOSTRAS's own fee (published via
+// the plain publishPaymentRequired above, no payee tag) when a single
+// job produces two sequential payment-required feedback events.
+func publishPaymentRequiredFor(ctx context.Context, relay *nostr.Relay, sk string, req *nostr.Event, amountMsat int64, bolt11, payee string) {
+	evt := nostr.Event{
+		Kind:      kindJobFeedback,
+		CreatedAt: nostr.Now(),
+		Content:   "",
+		Tags: nostr.Tags{
+			{"status", "payment-required"},
+			{"amount", strconv.FormatInt(amountMsat, 10), bolt11},
+			{"payee", payee},
 			{"e", req.ID},
 			{"p", req.PubKey},
 		},

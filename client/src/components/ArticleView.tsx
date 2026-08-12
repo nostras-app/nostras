@@ -53,6 +53,11 @@ function ArticleUnlockPanel({
   const [error, setError] = useState('')
   const [invoice, setInvoice] = useState('')
   const [amountSats, setAmountSats] = useState(priceSats ?? 0)
+  // Which of the two sequential payments this payment-required event is
+  // for — see lib/paidArticles.ts's own comment on why an unlock job now
+  // produces two of these in a row (the article's price, paid directly
+  // to the author, then NOSTRAS's own small flat service fee).
+  const [payee, setPayee] = useState<'author' | 'nostras'>('author')
   const [paying, setPaying] = useState(false)
   const cancelRef = useRef<(() => void) | null>(null)
 
@@ -77,6 +82,7 @@ function ArticleUnlockPanel({
           } else if (update.status === 'payment-required') {
             setInvoice(update.invoice)
             setAmountSats(Math.round(update.amountMsat / 1000))
+            setPayee(update.payee)
             setState('payment-required')
           } else if (update.status === 'done') {
             onUnlocked(update.content)
@@ -123,12 +129,12 @@ function ArticleUnlockPanel({
       <LockIcon />
       <p className="field-hint">
         This article is paywalled —{' '}
-        {priceSats ? <strong>{priceSats.toLocaleString()} sats</strong> : 'a set price'} to unlock
-        via NOSTRAS's own DVM. That's a real service, not an end-to-end
-        system: our DVM holds the decryption key and reads the plaintext
-        to serve it to whoever pays. And like any paywall — once
-        unlocked, nothing technical stops a reader from sharing what
-        they read further.
+        {priceSats ? <strong>{priceSats.toLocaleString()} sats</strong> : 'a set price'} paid
+        directly to its author, plus a small flat fee to NOSTRAS for running the unlock service
+        (that fee is not end-to-end: our DVM holds the decryption key and reads the plaintext to
+        serve it to whoever pays; the author's own share never passes through our wallet). And
+        like any paywall — once unlocked, nothing technical stops a reader from sharing what they
+        read further.
       </p>
 
       {state === 'locked' && (
@@ -142,7 +148,9 @@ function ArticleUnlockPanel({
       {state === 'payment-required' && (
         <div className="stack">
           <p className="field-hint">
-            Payment required to unlock — you are paying <strong>{amountSats} sats</strong>.
+            {payee === 'author' ? 'Step 1 of 2 — pay the author' : 'Step 2 of 2 — pay NOSTRAS\'s fee'}
+            {' — you are paying '}
+            <strong>{amountSats} sats</strong>.
           </p>
           <textarea className="textarea" readOnly value={invoice} rows={3} />
           <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
