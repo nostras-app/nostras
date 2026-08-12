@@ -4,7 +4,7 @@ import { parseArticleMeta } from '../lib/article'
 import { formatRelativeTime } from '../lib/time'
 import { viewArticle } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
-import { FileTextIcon } from './icons'
+import { FileTextIcon, LockIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
 
 export function ArticleCard({ event }: { event: NDKEvent }) {
@@ -37,7 +37,10 @@ export function ArticleCard({ event }: { event: NDKEvent }) {
             <span className="feed-item-name">{authorLabel}</span>
             {time && <span className="feed-item-time">{formatRelativeTime(time)}</span>}
           </div>
-          <h3 className="article-card-title">{meta.title}</h3>
+          <h3 className="article-card-title">
+            {meta.encrypted && <LockIcon className="article-card-lock" />}
+            {meta.title}
+          </h3>
           {meta.summary && <p className="article-card-summary">{meta.summary}</p>}
         </div>
       </button>

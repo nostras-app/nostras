@@ -1,4 +1,5 @@
-import { ndk, localRelaySet } from './ndk'
+import { NDKEvent, NDKKind, type NDKSubscription } from '@nostr-dev-kit/ndk'
+import { ndk, localRelaySet, devPublishRelaySet } from './ndk'
 
 // Paid long-form articles (NIP-23 + a NIP-90 DVM unlock job, kind
 // 5904->6904 on server/cmd/dvm/main.go). Shared by ArticleComposer
@@ -8,9 +9,13 @@ import { ndk, localRelaySet } from './ndk'
 
 const DVM_HANDLER_D_TAG = 'nostras-dvm'
 const KIND_HANDLER_ANNOUNCEMENT = 31990
+const KIND_JOB_FEEDBACK = 7000
 
 export const KIND_ARTICLE_UNLOCK_REQUEST = 5904
-export const KIND_ARTICLE_UNLOCK_RESULT = 6904
+// NDK's NDKKind enum doesn't include this real, ratified-by-this-project
+// job kind (same gap already hit for NIP-29's 9005/9008) — cast at the
+// one place it's used as a subscription filter kind.
+export const KIND_ARTICLE_UNLOCK_RESULT = 6904 as NDKKind
 
 // Real, previously-unbounded hang caught live while verifying this, not
 // hypothetical: ndk.fetchEvent() with no explicit timeout genuinely
@@ -18,8 +23,9 @@ export const KIND_ARTICLE_UNLOCK_RESULT = 6904
 // with zero error, confirmed before this fix) — the same bug class
 // already found and fixed for the DM send path and SearchView earlier
 // this session. Matches the withTimeout() pattern already established
-// in remoteSigner.ts.
-const DISCOVERY_TIMEOUT_MS = 8000
+// in remoteSigner.ts. Reused below for the unlock request's own publish
+// call too, same reasoning.
+const PAID_ARTICLE_TIMEOUT_MS = 8000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -51,7 +57,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 export async function fetchDvmArticleEncryptionPubkey(): Promise<string | null> {
   const evt = await withTimeout(
     ndk.fetchEvent({ kinds: [KIND_HANDLER_ANNOUNCEMENT], '#d': [DVM_HANDLER_D_TAG] }, undefined, localRelaySet),
-    DISCOVERY_TIMEOUT_MS,
+    PAID_ARTICLE_TIMEOUT_MS,
     'Timed out looking up the DVM',
   )
   if (!evt) return null
@@ -74,4 +80,104 @@ export async function encryptArticleBody(plaintext: string, dvmPubkey: string): 
   if (!ndk.signer) throw new Error('Not signed in')
   const dvmUser = ndk.getUser({ pubkey: dvmPubkey })
   return ndk.signer.encrypt(dvmUser, plaintext, 'nip44')
+}
+
+export type ArticleUnlockUpdate =
+  | { status: 'processing' }
+  | { status: 'payment-required'; amountMsat: number; invoice: string }
+  | { status: 'done'; content: string }
+  | { status: 'error'; message: string }
+
+// Same request/feedback/result shape as lib/dvm.ts's requestDvmJob, but
+// genuinely can't reuse it directly: the request payload needs NIP-90's
+// own ["encrypted"] tag-JSON-wrapping convention (see server/cmd/dvm/
+// main.go's handleArticleUnlockJob comment on why request encoding and
+// result encoding are deliberately different shapes), and the result
+// needs a NIP-44 decrypt before it's usable — requestDvmJob's `event.
+// content` is always plaintext by design. Returns a cancel function,
+// same contract as requestDvmJob.
+export function requestArticleUnlock(opts: {
+  articleEventId: string
+  dvmPubkey: string
+  onUpdate: (update: ArticleUnlockUpdate) => void
+}): () => void {
+  const { articleEventId, dvmPubkey, onUpdate } = opts
+  let stopped = false
+  let sub: NDKSubscription | null = null
+
+  ;(async () => {
+    try {
+      if (!ndk.signer) throw new Error('Not signed in')
+      const dvmUser = ndk.getUser({ pubkey: dvmPubkey })
+
+      // Matches NDK's own NDKDVMRequest.encryption(): job-payload tags
+      // (just `i` here) moved into content as a JSON array, then NIP-44-
+      // encrypted to the DVM — exactly the wire format server/cmd/dvm/
+      // main.go's handleArticleUnlockJob was built and verified against.
+      const tagsJson = JSON.stringify([['i', articleEventId, 'event']])
+      const encryptedContent = await ndk.signer.encrypt(dvmUser, tagsJson, 'nip44')
+
+      const request = new NDKEvent(ndk, {
+        kind: KIND_ARTICLE_UNLOCK_REQUEST,
+        content: encryptedContent,
+        tags: [
+          ['p', dvmPubkey],
+          ['encrypted'],
+        ],
+      })
+      await request.sign()
+      if (stopped) return
+
+      sub = ndk.subscribe({
+        kinds: [KIND_JOB_FEEDBACK, KIND_ARTICLE_UNLOCK_RESULT],
+        '#e': [request.id],
+      })
+      sub.on('event', (event: NDKEvent) => {
+        if (event.kind === KIND_ARTICLE_UNLOCK_RESULT) {
+          // The result's own content is a direct NIP-44 ciphertext (not
+          // the tag-JSON-wrapping the request used) — see the server-
+          // side comment on why the two directions deliberately differ.
+          ndk.signer
+            ?.decrypt(dvmUser, event.content, 'nip44')
+            .then((plaintext) => onUpdate({ status: 'done', content: plaintext }))
+            .catch((e) =>
+              onUpdate({
+                status: 'error',
+                message: e instanceof Error ? e.message : 'Could not decrypt the unlocked article',
+              }),
+            )
+          return
+        }
+        const status = event.tags.find((t) => t[0] === 'status')?.[1]
+        if (status === 'payment-required') {
+          const amountTag = event.tags.find((t) => t[0] === 'amount')
+          onUpdate({
+            status: 'payment-required',
+            amountMsat: Number(amountTag?.[1] ?? 0),
+            invoice: amountTag?.[2] ?? '',
+          })
+        } else if (status === 'error') {
+          onUpdate({ status: 'error', message: event.content || 'Unlock failed' })
+        } else if (status === 'processing') {
+          onUpdate({ status: 'processing' })
+        }
+      })
+
+      await withTimeout(
+        request.publish(devPublishRelaySet, PAID_ARTICLE_TIMEOUT_MS),
+        PAID_ARTICLE_TIMEOUT_MS,
+        'Timed out sending the unlock request',
+      )
+    } catch (e) {
+      onUpdate({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Could not send unlock request',
+      })
+    }
+  })()
+
+  return () => {
+    stopped = true
+    sub?.stop()
+  }
 }

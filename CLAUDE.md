@@ -5778,6 +5778,102 @@ base64 ciphertext, not markdown — decrypted it with the DVM's own
 article key via `nak decrypt` and got back the *exact* original
 plaintext typed into the composer, byte-for-byte.
 
+## Paid long-form articles, Piece 3 — reader unlock side, completing the
+feature (2026-08-12)
+
+Third and final piece of the plan. `ArticleMeta`
+(`client/src/lib/article.ts`) gained `encrypted`/`priceSats`, parsed
+straight from the article's own `["encrypted"]`/`["price", sats]` tags
+Piece 2 writes. `ArticleCard.tsx` shows a small `LockIcon` next to the
+title when encrypted (new icon in `icons.tsx`) — a real signal in the
+feed/search/bookmarks list, not just on the full article view.
+
+`ArticleView.tsx` branches on a `locked = meta.encrypted &&
+unlockedContent === null` condition: locked renders a new
+`ArticleUnlockPanel` instead of `<ReactMarkdown>`, so **no ciphertext
+or plaintext ever reaches the DOM before a real unlock succeeds** —
+`event.content` (the ciphertext) is simply never passed to the
+renderer in the locked branch. `ArticleUnlockPanel` mirrors
+`TranslateButton.tsx`'s processing/payment-required/done/error
+state-machine shape (reusing `getSavedNwcUri()`/`payInvoiceWithNwc`
+for the pay-with-wallet path), but starts from a `'locked'` state
+rather than `'idle'`, since the locked state itself *is* what replaces
+the content, not an icon opening a picker. The same disclosure copy
+promised in the design discussion is right there in the panel body,
+not gated behind a tooltip: custodial trust ("our DVM holds the
+decryption key and reads the plaintext to serve it to whoever pays")
+and the copy-after-unlock limitation, framed as the ordinary nature of
+paying for content rather than a DRM-style warning.
+
+`requestArticleUnlock()` (`lib/paidArticles.ts`) is a separate function
+from `lib/dvm.ts`'s generic `requestDvmJob` — genuinely can't share it:
+the request payload needs NIP-90's `["encrypted"]` tag-JSON-wrapping
+convention (matching exactly what `server/cmd/dvm/main.go`'s
+`handleArticleUnlockJob` was built and verified against in Piece 1),
+and the *result* needs a NIP-44 decrypt before it's usable, unlike
+every other job kind's plain-text `event.content`. Publish uses the
+same `withTimeout()` (8s) convention as Piece 2's fix.
+`KIND_ARTICLE_UNLOCK_RESULT = 6904 as NDKKind` — the same real gap
+already hit for NIP-29's kinds 9005/9008: NDK's own `NDKKind` enum
+doesn't include this project-specific kind, so it needs an explicit
+cast at the one place it's used as a subscription filter (not needed
+for `NDKEvent` construction, which is more loosely typed).
+
+**Real bug found and fixed live during verification, not shipped**:
+the first Pass-A test — reader clicks Unlock on a real paid article
+against a deliberately payment-gated test DVM — unlocked *immediately*
+with no payment-required screen ever shown. Investigated via direct
+`nak` queries rather than assumed: the real kind:6904 result event on
+the relay was correctly tagged to the real request, but was **signed
+by a different pubkey** than the intentionally-running test DVM
+process. Root cause: `ps aux` found **four stray `go run ./cmd/dvm`
+processes/child binaries left running from earlier in this same
+session's Piece 1/Piece 2 testing** (oldest started ~30 minutes prior),
+never fully killed — the exact "killing `go run .` doesn't necessarily
+kill what it spawned" lesson already documented once elsewhere in this
+file, hit again here. One of the stray instances (running in free mode
+from an earlier test) won the race to answer the job before the
+intentionally-configured payment-gated instance could, since nothing in
+this local dev setup prevents multiple DVM processes from
+simultaneously subscribing to and racing for the same jobs. This also
+retroactively explains the `"dvm health server error: listen tcp :7778:
+bind: address already in use"` line that had appeared in every DVM boot
+log all session — previously shrugged off as harmless, it was the real
+signal that several processes were bound at once. Fixed by identifying
+every stray PID via `ps`/`lsof -i :7778` (not just a `pkill -f` pattern
+match, which had already missed a compiled child binary once before)
+and killing them explicitly, leaving exactly one controlled instance.
+
+**Verified for real, end to end, through the actual UI, with a single
+clean DVM instance confirmed via `ps`/`lsof` before each pass — not
+just built clean**: `tsc -b`, `oxlint`, `vite build` all clean; `go
+build`/`go vet`/`gofmt -l` clean on the server (unchanged from Piece 1).
+**Pass A (payment gating ON, real operator wallet from `nostras.env`)**:
+reloaded the real paid test article as a fresh reader identity, confirmed
+the locked panel rendered correctly with the real author-set price (321
+sats) and zero content leak in the DOM; clicked Unlock and this time
+got a genuine `payment-required` state with a real invoice
+(`lnbc3210n...`, matching 321 sats) — not paid, standing rule. **Pass B
+(free mode — a deliberately invalid `NOSTRAS_DVM_NWC_URI` override,
+same throwaway `NOSTRAS_DVM_ARTICLE_KEY` so the DVM could still decrypt
+the same test article)**: reloaded fresh, confirmed locked again, clicked
+Unlock, and this time the panel disappeared and the real decrypted
+markdown body rendered correctly through `ReactMarkdown` (confirmed via
+both DOM text extraction and a screenshot) — the genuine happy path,
+matching today's unlocked-article rendering exactly. Re-ran Pass B with
+console-error tracking active from before the click: zero errors either
+time. The "a third, never-paid identity can't unlock" guarantee was
+**not** re-tested at the UI layer — it's a property of NIP-44's
+Diffie-Hellman derivation, already proven cryptographically in Piece 1
+via `nak` (a wrong key fails with a real `invalid hmac` rejection, not
+just "returns nothing"), and that proof doesn't depend on which
+identity's client code is running it.
+
+**All three pieces of the paid-articles feature are now built and
+verified locally.** Not yet deployed to production, and the DM already
+sent to the original requester (promising a ping once it's live) hasn't
+been followed up yet — both still pending as of this entry.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

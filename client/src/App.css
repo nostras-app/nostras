@@ -2041,6 +2041,16 @@
   font-size: 16px;
   font-weight: 700;
   color: var(--text-h);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.article-card-lock {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--text-muted);
 }
 
 .article-card-summary {
@@ -2115,6 +2125,23 @@
   font-size: 16px;
   line-height: 1.7;
   color: var(--text);
+}
+
+.article-unlock-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.article-unlock-panel > svg {
+  width: 28px;
+  height: 28px;
+  color: var(--accent);
 }
 
 .article-view-content :first-child {
