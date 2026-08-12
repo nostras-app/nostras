@@ -2160,6 +2160,19 @@
   flex: none;
 }
 
+.article-paywall-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.article-paywall-toggle input {
+  cursor: pointer;
+}
+
 /* ---------- About view ----------
    A normal nav-rail-switched view (like Settings/Ask Claude), not a
    popup — reachable via the header wordmark or the info icon in the nav

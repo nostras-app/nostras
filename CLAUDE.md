@@ -5716,6 +5716,68 @@ purely additive and safe to deploy on its own (no client code
 references the new job kind yet), but hasn't been deployed to
 production as of this entry — continuing to the client pieces first.
 
+## Paid long-form articles, Piece 2 — author compose side (2026-08-12)
+
+Second piece of the plan in `/home/user/.claude/plans/crystalline-
+puzzling-gosling.md`. New `client/src/lib/paidArticles.ts`:
+`fetchDvmArticleEncryptionPubkey()` reads the DVM's persisted
+encryption key from its real kind:31990 handler announcement (the
+`articleEncryptionPubkey` field Piece 1 added — a live, already-
+queryable source of truth, not a build-time constant that could drift
+from server config); `encryptArticleBody()` is a plain
+`ndk.signer.encrypt(dvmUser, plaintext, 'nip44')` call, not the fuller
+`NDKDVMRequest.encryption()` dance that's for job *requests* with
+structured params — this is one blob of text.
+
+`ArticleComposer.tsx` gained a "Require payment to unlock" checkbox +
+a sats price input, shown only when checked, plus real disclosure copy
+right there in the form (not tucked into a tooltip) naming both things
+the user explicitly asked to disclose: that this is a real DVM-
+custodial service ("our DVM holds the decryption key... the same way
+any of NOSTRAS's other paid DVM jobs work"), not an end-to-end system,
+and that nothing stops a reader from sharing unlocked content further,
+framed as the ordinary nature of paying for content rather than a
+flaw. On publish with the toggle on: fetch the DVM's key, encrypt the
+body, add `["encrypted"]` + `["price", sats]` tags, publish ciphertext
+as `content` instead of markdown.
+
+**Two real, separate pre-existing gaps in this file fixed while
+touching it, not part of the paywall feature itself**: `.publish()`
+had no explicit timeout at all (NDK's tight 2.5s default applied,
+unlike every other publish site in this codebase) — added the
+standard 8s convention. More seriously, **the file had no `catch`
+block anywhere** — just `try/finally` — so any publish failure was an
+unhandled promise rejection with zero user-visible feedback. Added a
+real `error` state, surfaced in the UI.
+
+**Real bug found and fixed live during verification, not shipped**:
+`fetchDvmArticleEncryptionPubkey()`'s `ndk.fetchEvent()` call had no
+explicit timeout either — and unlike the DM-send investigation earlier
+this session (which found NDK's own internal default bounded things
+fine in every test scenario tried), this one **genuinely hung
+indefinitely**, confirmed live: clicked Publish with the toggle on,
+watched the button sit on "Publishing…" for 30+ seconds with zero
+error, well past any of NDK's documented internal fallbacks. Fixed
+with the same `withTimeout()` pattern already established in
+`remoteSigner.ts` (8s) — after the fix, a fresh publish attempt
+completed normally within a few seconds.
+
+**Verified for real, end to end, through the actual UI — not just
+built clean**: `tsc -b`, `oxlint`, `vite build` all clean. Ran a local
+test DVM (same throwaway `NOSTRAS_DVM_ARTICLE_KEY` as Piece 1) so its
+kind:31990 announcement carried a real `articleEncryptionPubkey` to
+discover. Published a real paid test article through the actual
+Compose > Article UI (title, body, toggle checked, price `250`),
+confirmed the disclosure copy rendered exactly as written, confirmed
+the form cleared on success (the transient "Published!" message had
+already faded by the time it was checked, so success was confirmed by
+the more reliable signal of the fields actually resetting). Queried
+the local relay directly afterward: the published event carried
+`["encrypted"]` and `["price","250"]` tags, and `content` was genuine
+base64 ciphertext, not markdown — decrypted it with the DVM's own
+article key via `nak decrypt` and got back the *exact* original
+plaintext typed into the composer, byte-for-byte.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
