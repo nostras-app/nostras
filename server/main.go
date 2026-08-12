@@ -181,6 +181,13 @@ func main() {
 		newPushNotifyHook(pushSubs, vapidPublicKey, vapidPrivateKey, vapidSubscriber))
 	relay.DeleteEvent = append(relay.DeleteEvent, db.DeleteEvent, searchIndex.DeleteEvent)
 	relay.CountEvents = append(relay.CountEvents, db.CountEvents)
+	// The badger backend also ships a real CountEventsHLL (NIP-45's
+	// pubkey-approximate/HyperLogLog counting variant, used for e.g.
+	// "how many people follow this pubkey") but it was never wired up —
+	// the khatru fork's CountEventsHLL slice stayed empty, so any HLL-
+	// shaped COUNT request silently returned 0 (a false "nobody", not an
+	// error) instead of either a real count or an honest "unsupported."
+	relay.CountEventsHLL = append(relay.CountEventsHLL, db.CountEventsHLL)
 
 	// NIP-65 outbox aggregation: resolve each queried author's write relays
 	// and fan out to them too, caching results back into db. See outbox.go.

@@ -6174,6 +6174,47 @@ needs the same explicit go-ahead as any other DM in this project. The
 fix is verified against his real, actual declared relay directly
 (`auth.nostr1.com`), just not by sending him anything.
 
+## NIP-45 HyperLogLog counting fixed — a real bug found via the NIP gap
+analysis, not just a documentation gap (2026-08-12)
+
+Direct follow-up to the full NIP coverage audit (`nostras-nips-
+compliance.md`): asked to fix the NIP-45 "counting inconsistency" that
+audit had flagged. Read the actual code
+(`server/internal/khatrufork/handlers.go`/`responding.go`) rather than
+trusting the earlier one-line flag, and found a real bug, not just
+confusing-looking code. `Relay.CountEventsHLL` (the handler slice for
+NIP-45's HyperLogLog/pubkey-approximate counting — the mechanism behind
+e.g. "how many people follow this pubkey") is declared in the khatru
+fork and consumed by `handleCountRequestWithHLL`'s `for range` loop —
+but `server/main.go` only ever populated the *plain* `CountEvents`
+slice (`db.CountEvents`), never `CountEventsHLL`. An empty slice means
+the `for range` loop simply runs zero times, so `handleCountRequestWithHLL`
+silently returns `(0, nil)` — no error, no notice — for any HLL-shaped
+COUNT request. A client asking "how many followers does this pubkey
+have" would get a confident, wrong answer of zero, indistinguishable
+from a genuinely unfollowed pubkey.
+
+**Fixed with one line**: `github.com/fiatjaf/eventstore/badger` (already
+a dependency, backing every other storage need this relay has) ships a
+real `CountEventsHLL(ctx, filter, offset) (int64, *hyperloglog.HyperLogLog,
+error)` method with the exact signature the fork's `CountEventsHLL` slot
+expects — it was just never wired up.
+`relay.CountEventsHLL = append(relay.CountEventsHLL, db.CountEventsHLL)`
+in `server/main.go`, mirroring the existing `CountEvents` line right
+above it.
+
+**Verified with a real before/after test, not just a build check**:
+published 3 real kind:3 (follow list) events tagging a real throwaway
+pubkey to the local relay, then ran the exact HLL-triggering query shape
+(`nip45.HyperLogLogEventPubkeyOffsetForFilter` requires kind:3 + exactly
+one `p` tag + nothing else) via `nak count`. **Before the fix** (checked
+by `git stash`-ing the change and restarting the relay against the same
+already-stored data): `0`. **After restoring the fix**: `3`, the correct
+count. Also confirmed the regular (non-HLL) COUNT path is unaffected — a
+kind:1 count against a pubkey that never posted correctly still returns
+a genuine `0`, proving the fix doesn't just make everything return
+nonzero. `go build`/`go vet`/`gofmt -l` all clean.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
