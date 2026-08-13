@@ -3,6 +3,7 @@
 /push-subscriptions.json
 /analytics.json
 /vanished-pubkeys.json
+/nip86-admin.json
 *.exe
 nostras-server
 /cmd/dvm/dvm

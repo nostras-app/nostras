@@ -40,6 +40,7 @@ func main() {
 	relay.Info.AddSupportedNIP(50) // search — khatru doesn't auto-detect this one
 	relay.Info.AddSupportedNIP(29) // groups — see nip29.go
 	relay.Info.AddSupportedNIP(62) // request to vanish — see vanish.go
+	relay.Info.AddSupportedNIP(86) // relay management API — see adminapi.go
 
 	badgerPath := envOr("NOSTRAS_BADGER_PATH", "./data")
 	blugePath := envOr("NOSTRAS_BLUGE_PATH", "./search-index")
@@ -145,6 +146,32 @@ func main() {
 		panic(err)
 	}
 	relay.RejectEvent = append(relay.RejectEvent, newVanishRejectEventHook(vanished))
+
+	// NIP-86 Relay Management API — see adminapi.go. rl.ManagementAPI was
+	// declared and dispatched by the khatru fork but never actually
+	// assigned anywhere in this file (found while building the NIP-62 work
+	// above), so every real call silently returned "method X not
+	// supported" for every method. NOSTRAS_ADMIN_PUBKEY is the operator's
+	// own real pubkey, set as a Fly secret the same way
+	// NOSTRAS_DASHBOARD_PASSWORD already is — unset means the whole API
+	// stays inert (every call rejected as unauthorized), same
+	// safe-by-default posture as the dashboard and DVM payment gating.
+	nip86StorePath := envOr("NOSTRAS_NIP86_STORE_PATH", "./nip86-admin.json")
+	nip86Store, err := newNip86Store(nip86StorePath)
+	if err != nil {
+		panic(err)
+	}
+	adminPubkey := os.Getenv("NOSTRAS_ADMIN_PUBKEY")
+	if adminPubkey == "" {
+		fmt.Println("NIP-86 relay management: OFF (NOSTRAS_ADMIN_PUBKEY not set)")
+	} else {
+		fmt.Println("NIP-86 relay management: ON")
+	}
+	applyNip86RelayInfoOverrides(relay, nip86Store)
+	relay.ManagementAPI = buildNip86ManagementAPI(relay, &db, nip86Store, adminPubkey)
+	relay.RejectEvent = append(relay.RejectEvent, newNip86RejectEventHook(nip86Store))
+	relay.RejectConnection = append(relay.RejectConnection, newNip86RejectConnectionHook(nip86Store))
+	relay.OnEventSaved = append(relay.OnEventSaved, newNip86ReportObserverHook(nip86Store))
 
 	// Connection analytics + dashboard — see analytics.go/dashboard.go/
 	// dashboard.html. Counts unique relay connections per day/country (IP

@@ -48,6 +48,18 @@ type RelayManagementAPI struct {
 func (rl *Relay) HandleNIP86(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/nostr+json+rpc")
 
+	// Defense in depth alongside the grantadmin/revokeadmin params fix
+	// above: this is an admin-facing endpoint accepting arbitrary
+	// attacker-shaped JSON before any authorization check runs, so an
+	// unexpected panic anywhere below (a future method, an edge case this
+	// fix doesn't anticipate) should end the request with a clean JSON
+	// error, not an abruptly closed connection.
+	defer func() {
+		if rec := recover(); rec != nil {
+			json.NewEncoder(w).Encode(nip86.Response{Error: fmt.Sprintf("internal error: %v", rec)})
+		}
+	}()
+
 	var (
 		resp        nip86.Response
 		ctx         = r.Context()
@@ -102,6 +114,26 @@ func (rl *Relay) HandleNIP86(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(payload, &req); err != nil {
 		resp.Error = "invalid json body"
 		goto respond
+	}
+
+	// go-nostr@v0.52.3's nip86.DecodeRequest asserts req.Params[1].([]string)
+	// directly for grantadmin/revokeadmin — but encoding/json always decodes
+	// a JSON array into an any-typed field as []interface{}, never []string,
+	// so that assertion panics unconditionally for every real caller, not
+	// just malformed input (confirmed live: a correctly-shaped nak admin
+	// grantadmin call reliably panicked this connection's goroutine before
+	// this fix). Normalize here, in our own fork, rather than vendoring a
+	// second copy of the whole nip86 package just for these two cases.
+	if (req.Method == "grantadmin" || req.Method == "revokeadmin") && len(req.Params) >= 2 {
+		if raw, ok := req.Params[1].([]interface{}); ok {
+			methods := make([]string, 0, len(raw))
+			for _, m := range raw {
+				if s, ok := m.(string); ok {
+					methods = append(methods, s)
+				}
+			}
+			req.Params[1] = methods
+		}
 	}
 
 	mp, err = nip86.DecodeRequest(req)

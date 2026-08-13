@@ -57,6 +57,10 @@ primary_region = "fra"
   # (vanish.go) needs the same persistent-volume treatment, set here
   # from the start rather than left on the envOr default.
   NOSTRAS_VANISH_STORE_PATH         = "/data/vanished-pubkeys.json"
+  # Same proactive lesson applied a third time (2026-08-13): NIP-86's
+  # ban/allow/moderation-queue/admin-grant store (adminapi.go) also needs
+  # the persistent volume, set here from the start.
+  NOSTRAS_NIP86_STORE_PATH          = "/data/nip86-admin.json"
   # <process-group>.process.<app>.internal is Fly's private-networking
   # hostname convention for reaching a specific process group without
   # going out over the public internet — confirmed working in production

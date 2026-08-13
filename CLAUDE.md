@@ -6374,6 +6374,139 @@ automatically logged off afterward; confirmed via `nak` that the note
 was genuinely gone. `go build`/`go vet`/`gofmt -l` and `tsc -b`/
 `oxlint`/`vite build` all clean.
 
+## NIP-86 Relay Management API wired up for real — plus a real vendored-
+library bug found and fixed along the way (2026-08-13)
+
+Direct follow-up to the gap flagged during the NIP-62 work: `relay.
+ManagementAPI` was declared and dispatched by the khatru fork
+(`internal/khatrufork/nip86.go`) but never actually assigned anywhere in
+`main.go` — every real call silently hit a nil method and returned
+"method X not supported" for all 20+ NIP-86 methods.
+
+**New `server/adminapi.go`** is the real wiring, backed by persistent
+storage (`nip86Store`, same mutex-guarded JSON-file shape as `push.go`/
+`vanish.go`), not a stub. Auth vs. authorization, worth being precise
+about: khatru's `HandleNIP86` already verifies a NIP-98-shaped signed
+event proving *who* is calling, before any hook here ever runs — but
+that only proves identity, not that the identity is allowed to
+administer this relay. `NOSTRAS_ADMIN_PUBKEY` (the operator's own real
+pubkey, set as a Fly secret the same way `NOSTRAS_DASHBOARD_PASSWORD`
+already is — never typed into chat or read by Claude) gets full access;
+`grantadmin` can scope additional pubkeys to specific method names.
+Unset `NOSTRAS_ADMIN_PUBKEY` means nobody can call anything, ever — same
+safe-by-default posture as the dashboard password and DVM payment
+gating: the feature exists in code but stays inert until the operator
+deliberately turns it on. Applied the `/data`-volume lesson proactively
+a third time: `NOSTRAS_NIP86_STORE_PATH` went into `fly.toml` in the
+same commit as the feature, not discovered later as a data-loss bug.
+
+**Real design decisions, not just wiring**: `banpubkey`/`banevent` are
+enforced via a new `RejectEvent` hook (blocks future events from that
+pubkey / that exact event id from ever being (re-)stored) — `banevent`
+additionally deletes any already-stored copy via the existing
+`relay.DeleteEvent` chain, the same reuse pattern `vanish.go` already
+established for NIP-62. `allowpubkey`/`allowevent` double as "unban" —
+the vendored nip86 package has no separate unban method, and since
+NOSTRAS's relay is open (no allow-list-only mode for pubkeys), treating
+"allow" as "this identity is fine, clear any ban" is the only reading
+that's actually useful here; documented inline as a deliberate scope
+choice, not an oversight. `listeventsneedingmoderation` is fed by a new
+`OnEventSaved` observer on real NIP-56 (kind:1984) reports — this relay
+already receives these from NOSTRAS's own "report" note-menu action
+(shipped in an earlier session) and from any other NIP-56-capable
+client, but nothing had ever consumed them for anything before this;
+now a report populates a real moderation queue an admin can act on.
+`allowkind`/`disallowkind` are two independent lists matching
+conventional relay ACL semantics: `disallowedKinds` is always enforced;
+`allowedKinds`, once non-empty, switches the relay into allow-list mode
+where *only* those kinds are accepted — a real, spec-faithful footgun
+worth flagging loudly: turning this on without including every kind
+NOSTRAS's client depends on (0, 1, 3, 5, 6, 7, 9, 10000, 10002, 10003,
+10050, 1059, 1984, the 5xxx/6xxx/7000/9xxx DVM and group kinds, 30023)
+would break the app for everyone. `changerelayname`/`description`/
+`icon` mutate `relay.Info` live *and* persist, so an admin's rename
+survives a restart instead of reverting to `main.go`'s hardcoded
+defaults. `grantadmin`/`revokeadmin` are deliberately **operator-only,
+not delegable** — enforced a second time inside the method bodies
+themselves (`requireOperator`), independent of whatever a granted
+admin's own method list says, specifically so a compromised
+granted-admin key can't create further admins. Not implemented: the
+newer role-based methods (`createrole`/`editrole`/`deleterole`/
+`assignrole`/`unassignrole`) some NIP-86 tooling (`nak admin`) offers —
+the vendored `go-nostr@v0.52.3` `nip86` package's own `DecodeRequest`
+doesn't know these method names either, so they already fail cleanly
+with "unknown method" before reaching any code here; a real, small,
+upstream-version gap, not something this file works around.
+
+**Real bug found live during verification, not shipped**: `nak admin
+grantadmin`/`revokeadmin` reliably **crashed the connection** (`Post
+"...": EOF`) on the very first real attempt. Traced to the vendored
+`go-nostr@v0.52.3` `nip86.DecodeRequest`, which type-asserts
+`req.Params[1].([]string)` directly for these two methods — but
+`encoding/json` always decodes a JSON array into an `any`-typed field
+as `[]interface{}`, never `[]string`, so this assertion panics
+**unconditionally for every real caller**, not just malformed input —
+confirmed via the actual panic trace in the relay log
+(`interface conversion: interface {} is []interface {}, not []string`
+at `nip86/methods.go:153`). This is a genuine, 100%-reproducible defect
+in the vendored dependency itself. Fixed in `internal/khatrufork/
+nip86.go` (already this project's own fork, from the earlier
+broadcast-path work) by normalizing `req.Params[1]` from
+`[]interface{}` to `[]string` before handing off to
+`nip86.DecodeRequest`, rather than vendoring a second copy of the whole
+`nip86` package for two method cases. Also added a `recover()` around
+the whole handler as defense in depth — this is a new admin-facing
+surface parsing arbitrary attacker-shaped JSON before any authorization
+check runs, so any *other* unexpected panic should end the one request
+with a clean JSON error instead of an abruptly closed connection,
+rather than depend on having anticipated every edge case.
+
+**Verified for real, methodically, against a live local relay with
+`NOSTRAS_ADMIN_PUBKEY` set to a throwaway key — every mechanism, not
+just a build check**: `supportedmethods` correctly returns the full
+method list for the admin pubkey and a clean `"unauthorized"` for a
+random pubkey. `banpubkey` → a spammer's further publishes rejected
+with a real error string → `listbannedpubkeys` shows it →
+`allowpubkey` unbans → the same identity can publish again. A real
+report → `listeventsneedingmoderation` shows the reported event with
+its real reason (`nudity`, from the NIP-56 tag) → `banevent` both
+removes it from the queue *and* genuinely deletes the stored copy
+(confirmed via direct `nak req` returning empty) → **republishing the
+exact same signed event bytes is rejected** (proving the "can't be
+resurrected" property, not just a one-time delete). `disallowkind`
+blocks only that kind, `listdisallowedkinds` reflects it; `allowkind`
+correctly both clears the disallow list and switches the relay into
+allow-list mode, verified by confirming a previously-fine kind
+suddenly gets rejected too — the documented footgun, reproduced for
+real, not just described. `changerelayname`/`changerelaydescription`
+confirmed live via a direct NIP-11 fetch showing the new values.
+`stats` returns real numbers (matching the relay's actual live state at
+the time, cross-checked against `listbannedpubkeys`/etc. counts) —
+**and its own doubly-nested `{"result": {"result": {...}}}` shape,
+inherited from the fork's own `Stats` interface (typed to return a full
+`nip86.Response`, unlike every other method), was reproduced faithfully
+rather than "fixed," since correcting the fork's own dispatch shape is
+out of scope for this feature.** `grantadmin` (post-fix) genuinely
+grants exactly the requested methods — confirmed the granted pubkey
+could call `listbannedpubkeys` but not an ungranted method
+(`changerelayname`) and not `grantadmin` itself (the operator-only
+guard, confirmed even against a pubkey holding *some* other granted
+methods) — and `revokeadmin` genuinely revokes, confirmed via the same
+pubkey going back to fully unauthorized. `blockip` confirmed to reject
+a fresh WebSocket connection attempt with a clean `429` — and a real,
+worth-documenting nuance found while testing the obvious self-lockout
+concern: **`blockip` cannot lock an admin out of the NIP-86 API
+itself**, since `RejectConnection` (which `blockip` hooks into) only
+gates the WebSocket-upgrade path in khatru's own `ServeHTTP`, never the
+separate `Content-Type: application/nostr+json+rpc` branch the
+management API uses — confirmed live, not assumed, by successfully
+calling `listblockedips` from the same IP that had just been blocked
+for WebSocket traffic. `unblockip` confirmed to restore normal
+connectivity. `go build`/`go vet`/`gofmt -l` clean throughout
+(including the fork fix). Local test store file (`nip86-admin.json`)
+was never committed — added to `.gitignore` alongside
+`vanished-pubkeys.json`/`analytics.json`/`push-subscriptions.json`.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
