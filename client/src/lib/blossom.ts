@@ -94,19 +94,49 @@ async function buildBlossomAuthHeader(sha256: string): Promise<string> {
   return `Nostr ${base64Encode(JSON.stringify(event.rawEvent()))}`
 }
 
+// Real, live bug caught in production, not hypothetical: the fetch below
+// had no timeout at all, so a stalled request to blossom.primal.net left
+// the composer stuck on "Uploading…" indefinitely with no way to know if
+// it would ever resolve — the same missing-timeout class already fixed
+// in remoteSigner.ts/dm.ts/appData.ts/paidArticles.ts, just never applied
+// here. 30s (not this codebase's usual 8s) since a real file upload
+// genuinely takes longer than a relay query, especially for video/audio
+// attachments this same input also accepts.
+const UPLOAD_TIMEOUT_MS = 30000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
 export async function uploadToBlossom(file: File): Promise<BlobDescriptor> {
   const uploadFile = await stripExifFromImage(file)
   const sha256 = await sha256Hex(uploadFile)
   const authHeader = await buildBlossomAuthHeader(sha256)
 
-  const res = await fetch(`${BLOSSOM_SERVER}/upload`, {
-    method: 'PUT',
-    headers: {
-      Authorization: authHeader,
-      'Content-Type': uploadFile.type || 'application/octet-stream',
-    },
-    body: uploadFile,
-  })
+  const res = await withTimeout(
+    fetch(`${BLOSSOM_SERVER}/upload`, {
+      method: 'PUT',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': uploadFile.type || 'application/octet-stream',
+      },
+      body: uploadFile,
+    }),
+    UPLOAD_TIMEOUT_MS,
+    'Upload timed out — check your connection and try again',
+  )
   if (!res.ok) {
     throw new Error(`Upload failed (${res.status})`)
   }
