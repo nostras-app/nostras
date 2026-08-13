@@ -6,6 +6,7 @@ import { makeRelayConnectionFilter } from '../lib/relayFilter'
 import { CURATED_RELAYS } from '../lib/curatedRelays'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { requestDvmJob, type DvmJobUpdate } from '../lib/dvm'
+import { findExistingModerationLabel } from '../lib/moderationLabel'
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
 import { MoreIcon } from './icons'
 
@@ -285,6 +286,12 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
       requestKind: KIND_JOB_REQUEST_MODERATE,
       resultKind: KIND_JOB_RESULT_MODERATE,
       inputText: event.content,
+      // NIP-32: lets the DVM publish a real kind:1985 label pointing at
+      // this actual event (server/cmd/dvm/main.go's
+      // publishModerationLabel) — the job itself only ever sees raw
+      // text, never the event id, so without this the classification
+      // stays a private response only this click ever sees.
+      params: [['event_id', event.id]],
       onUpdate: (update: DvmJobUpdate) => {
         if (update.status === 'processing') {
           setCheckState('requesting')
@@ -303,13 +310,26 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     })
   }
 
-  function handleCheck() {
+  async function handleCheck() {
     setPanel('check')
     // Only auto-fire on first open — reopening an already-run check just
     // shows the existing result instead of silently starting a second
     // paid job. "Check again" inside the done/error view is the only
     // explicit re-trigger.
-    if (checkState === 'idle') runCheck()
+    if (checkState !== 'idle') return
+
+    // NIP-32: a real label may already exist from an earlier check —
+    // by this session, another user, or a previous reload — since the
+    // DVM now publishes one alongside every classification result. Show
+    // it directly, for free, instead of always re-running a paid job.
+    setCheckState('requesting')
+    const existing = await findExistingModerationLabel(event.id)
+    if (existing) {
+      setCheckResult(`{"verdict":${JSON.stringify(existing.verdict)}}\n${existing.reason}`)
+      setCheckState('done')
+      return
+    }
+    runCheck()
   }
 
   async function handleCheckPayWithWallet() {

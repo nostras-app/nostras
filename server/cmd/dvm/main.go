@@ -57,6 +57,14 @@ const (
 	kindJobResultArticleUnlock  = 6904
 	kindJobFeedback             = 7000
 
+	// NIP-32 labeling — see publishModerationLabel. A moderate-job result
+	// gets published a second time as a real, standard kind:1985 label
+	// (not just the ephemeral kind:6501 response the requesting client
+	// happens to parse), so any NIP-32-aware client or relay can query
+	// for it independently of ever having run this exact job.
+	kindLabel                = 1985
+	moderationLabelNamespace = "org.nostras.moderation"
+
 	// NIP-89 handler information event, reused by NIP-90 (Appendix 2:
 	// "Service provider discoverability") to advertise a DVM's supported
 	// job kinds so clients that aren't NOSTRAS can discover and pay this
@@ -421,6 +429,10 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 	}
 
 	publishResult(ctx, relay, sk, req, resultKind, result)
+
+	if req.Kind == kindJobRequestModerate {
+		publishModerationLabel(ctx, relay, sk, req, result)
+	}
 }
 
 // handleArticleUnlockJob decrypts a paid NIP-23 article for a paying
@@ -905,6 +917,60 @@ func publishResult(ctx context.Context, relay *nostr.Relay, sk string, req *nost
 			{"e", req.ID},
 			{"p", req.PubKey},
 			{"request", string(reqJSON)},
+		},
+	}
+	signAndPublish(ctx, relay, sk, evt)
+}
+
+type moderateVerdict struct {
+	Verdict    string `json:"verdict"`
+	Confidence string `json:"confidence"`
+}
+
+// publishModerationLabel turns a spam/scam classification result into a
+// real, standard NIP-32 label (kind 1985), separate from the kind:6501
+// job result. The classification job itself only ever sees raw text —
+// never the original event id (see requestDvmJob's own comment on why:
+// most feed notes never touched the local relay this DVM queries
+// against) — so the requester must tell us which real event was
+// actually classified via a ["param","event_id",<id>] tag if it wants a
+// real label published; missing or malformed input here just means no
+// label gets published, not an error — the kind:6501 result itself is
+// unaffected either way.
+func publishModerationLabel(ctx context.Context, relay *nostr.Relay, sk string, req *nostr.Event, result string) {
+	eventID := ""
+	for _, t := range req.Tags {
+		if len(t) >= 3 && t[0] == "param" && t[1] == "event_id" {
+			eventID = t[2]
+			break
+		}
+	}
+	if len(eventID) != 64 {
+		return
+	}
+
+	lines := strings.SplitN(result, "\n", 2)
+	var v moderateVerdict
+	if err := json.Unmarshal([]byte(strings.TrimSpace(lines[0])), &v); err != nil {
+		return
+	}
+	if v.Verdict != "spam" && v.Verdict != "scam" && v.Verdict != "legit" {
+		return
+	}
+
+	reason := ""
+	if len(lines) > 1 {
+		reason = strings.TrimSpace(lines[1])
+	}
+
+	evt := nostr.Event{
+		Kind:      kindLabel,
+		CreatedAt: nostr.Now(),
+		Content:   reason,
+		Tags: nostr.Tags{
+			{"L", moderationLabelNamespace},
+			{"l", v.Verdict, moderationLabelNamespace},
+			{"e", eventID},
 		},
 	}
 	signAndPublish(ctx, relay, sk, evt)

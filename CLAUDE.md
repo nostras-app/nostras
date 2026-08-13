@@ -7406,6 +7406,86 @@ confirmed via a follow-up state check that the actual fill/click had
 already landed before the disconnect, rather than assumed; no real app
 hang at any point.
 
+## NIP-32 labeling added — connected to the existing spam/scam DVM
+rather than built as a standalone feature (2026-08-13)
+
+Fetched the real spec text before building: kind 1985, an `L` tag
+naming the label namespace (ISO standard or reverse-domain notation),
+one or more `l` tags carrying the actual label value with the
+namespace as its own mark parameter, and one or more object-reference
+tags (`e`/`p`/`a`/`r`/`t`) — "the label event MUST include one or more
+tags representing the object or objects being labeled." Content is for
+longer reasoning.
+
+**Scoped by connecting to real, already-shipped infrastructure rather
+than building a disconnected demo**: NOSTRAS already has a real
+spam/scam classification DVM (kind:5501→6501, shipped 2026-08-09) that
+produces exactly the kind of verdict NIP-32 exists to standardize —
+turning its private, one-off response into a real published label
+makes that judgment independently queryable by any NIP-32-aware client
+or relay, not just this app's own "Check for spam/scam" button.
+
+**Server** (`server/cmd/dvm/main.go`): `publishModerationLabel`
+publishes a kind:1985 alongside the existing kind:6501 result — `L`/`l`
+both use a new `org.nostras.moderation` namespace, `e` points at the
+classified note, content carries the same one-sentence reasoning
+already generated for the job. **Real constraint found while building
+this, not assumed upfront**: the moderate job only ever receives raw
+text (see the DVM's own standing comment on why — most feed notes
+never touched the local relay this DVM queries against), never the
+original event id, so there was nothing to tag `e` with. Fixed by
+having the client send the note's real id as a new
+`["param","event_id",<id>]` tag; the server parses and validates it
+(64-char hex) and simply skips publishing a label — never errors the
+job — if it's missing or the verdict line didn't parse as one of the
+three known values, matching this DVM's existing degrade-gracefully
+posture everywhere else.
+
+**Client**: `NoteMenu.tsx`'s existing "Check for spam/scam" action now
+sends the new `event_id` param. New `client/src/lib/moderationLabel.ts`
+(`findExistingModerationLabel`) queries the local relay (the only place
+these labels can ever land, since the DVM only ever publishes to its
+own relay connection) for a real kind:1985 already covering this note
+*before* `handleCheck` ever calls `runCheck()` — if one exists, its
+content is synthesized into the exact two-line format the DVM's own
+kind:6501 results already use and fed straight into the existing
+`parseCheckResult`/badge-rendering path, so a second click (by the same
+user after a reload, or a completely different user) shows the real
+existing verdict for free instead of silently starting a second paid
+job.
+
+**Verified for real, end to end, against a real local relay, a real
+DVM, and the real Claude API — not just built clean**: `go build`/
+`go vet`/`gofmt -l` and `tsc -b`/`oxlint`/`vite build` all clean. Ran a
+real local DVM in free mode (same established pattern as every prior
+DVM verification this session: a deliberately unreachable
+`NOSTRAS_DVM_NWC_URI` override, real Anthropic key from `nostras.env`
+untouched/unread). Published a real scam-shaped test note plus a real
+kind:5501 request carrying the correct `event_id` param via `nak`;
+confirmed a genuine `verdict:"scam"` kind:6501 result *and* a
+correctly-tagged kind:1985 label (`L`/`l` = `org.nostras.moderation`,
+`e` = the real note id) both landed. Opened that exact note through the
+real UI and clicked "Check for spam/scam" — confirmed the badge showed
+"scam" immediately, and confirmed via a fresh `nak` count that this did
+**not** create a second kind:5501 request or kind:1985 label (both
+counts stayed at exactly 1) — proving the existing-label short-circuit
+actually prevents a redundant paid job, not just that it looks like it
+does. Then published two more fresh notes (a real scam-shaped one and
+two benign ones) with no prior label and confirmed the normal live-job
+path still worked end-to-end for both a "scam" and a "legit" verdict,
+each producing its own correctly-tagged kind:1985. **Real diagnostic
+detour, not a shrug-and-move-on**: one browser tab appeared to hang
+indefinitely on "Checking…" for one of these — instead of assuming
+either "app bug" or "just flaky," opened a raw `WebSocket` directly
+from that same tab and confirmed it genuinely couldn't get so much as
+an EOSE back from the local relay, while the identical raw check from a
+freshly-opened tab worked instantly; this isolated the cause to that
+one tab's own degraded connectivity (consistent with this session's
+broader Chrome-extension-bridge flakiness) rather than any code path,
+and the retest in a fresh tab confirmed the live-subscription result
+path works correctly. Confirmed zero console errors across a fresh
+reload.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
