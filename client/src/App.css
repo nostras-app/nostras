@@ -2302,6 +2302,66 @@ a.profile-external-identity:hover {
   gap: 10px;
 }
 
+.comment-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.comment-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.comment-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.comment-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  align-self: flex-start;
+}
+
+.comment-author .avatar,
+.comment-author .avatar-fallback {
+  width: 24px;
+  height: 24px;
+}
+
+.comment-content {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.comment-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .article-composer-body {
   font-family: var(--mono);
   min-height: 260px;

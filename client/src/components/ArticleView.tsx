@@ -14,6 +14,7 @@ import {
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
 import { ArrowLeftIcon, LockIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
+import { CommentSection } from './CommentSection'
 import type { Components } from 'react-markdown'
 
 // react-markdown's own `![alt](url)` image syntax renders a real <img>
@@ -225,11 +226,14 @@ export function ArticleView({ event }: { event: NDKEvent }) {
       {locked ? (
         <ArticleUnlockPanel event={event} priceSats={meta.priceSats} onUnlocked={setUnlockedContent} />
       ) : (
-        <div className="article-view-content">
-          <ReactMarkdown components={markdownComponents}>
-            {meta.encrypted ? (unlockedContent ?? '') : event.content}
-          </ReactMarkdown>
-        </div>
+        <>
+          <div className="article-view-content">
+            <ReactMarkdown components={markdownComponents}>
+              {meta.encrypted ? (unlockedContent ?? '') : event.content}
+            </ReactMarkdown>
+          </div>
+          <CommentSection rootEvent={event} />
+        </>
       )}
     </div>
   )

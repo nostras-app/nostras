@@ -7020,6 +7020,86 @@ already proven for ordinary note media, rather than leaving a broken-
 image icon on the page. Confirmed zero console errors across a fresh
 page reload.
 
+## NIP-22 comments added — plus a real relay-side tag-indexing bug found
+and fixed along the way (2026-08-13)
+
+Direct follow-up: asked to pick the next gap again. Chose NIP-22
+(Comment) — NIP-23 articles had zero discussion mechanism at all (only
+kind:1 notes get NIP-10 replies), a real, visible gap, not a spec
+technicality. Fetched the real spec first: kind:1111, plaintext content
+only, uppercase `E`/`A`/`I`/`K`/`P` tags scope to the *root* item,
+lowercase `e`/`a`/`i`/`k`/`p` scope to the immediate *parent* — for a
+top-level comment (not replying to another comment), parent and root
+are the same tags, which is exactly what this pass implements.
+
+**Scoped to top-level article comments only** — no reply-to-a-comment
+UI, matching this app's own established "one level of thread depth,
+not a full nested tree" precedent (`SingleNoteView`'s own note-reply
+view). `publishComment()` deliberately has no `replyTo` parameter at
+all, rather than an unused one sitting in the API waiting for a future
+caller that doesn't exist yet.
+
+**`client/src/lib/comments.ts`**: builds the six tags (`A`/`K`/`P` +
+`a`/`k`/`p`, root==parent) from `NDKEvent.tagAddress()` — NDK's own
+existing helper for `"kind:pubkey:d"` address strings, not hand-rolled.
+**`hooks/useComments.ts`** mirrors `useReplies.ts`'s exact subscribe/
+dedupe/sort shape, just scoped to kind:1111 and the `#A` tag instead of
+kind:1's `#e` — left unscoped (not `localRelaySet`-restricted), matching
+`useNotifications`/`useDirectMessages`/`useZapTotal`'s own precedent:
+a tag-only filter (no `authors`) never routes through NDK's authors-
+filtered CONNECTED-only relay race documented elsewhere in this project.
+**`components/CommentSection.tsx`**: a flat list (author avatar/name/
+time + plain-text content, per the spec's own "no HTML/Markdown"
+restriction — no segment parsing needed) plus a compose box, wired into
+`ArticleView.tsx` below the article body, shown only once an article is
+actually unlocked (a still-paywalled article shows the unlock panel,
+not a discussion section for content the reader hasn't paid for yet).
+
+**A real, previously-undiscovered relay-side bug found during
+verification, not a NIP-22 bug** — worth remembering well beyond this
+one feature: a `nak`-published, spec-correct kind:1111 comment
+referencing a real local test article came back **completely empty**
+from a `#A` tag query, with no error anywhere. Traced by reading the
+vendored `fiatjaf/eventstore` badger backend's own source
+(`badger/helpers.go`): `len(tag[1]) > 100` silently skips indexing any
+tag *value* over 100 characters entirely, unless `BadgerBackend.
+IndexLongerTag` is explicitly set — which this project never did. This
+isn't an edge case for NOSTRAS's own content: an article address
+(`kind:pubkey:d`) is `"30023:" + a 64-char hex pubkey + ":" + this
+app's own crypto.randomUUID() d tag (36 chars)` = **107 characters,
+always over the limit** — every single one of this app's own articles
+was affected, not a rare shape. The library ships an existing compact
+address-aware encoding path for exactly this (`getTagIndexPrefix`'s
+special `"kind:pubkey:d"` handling) — it was simply never reachable,
+gated behind the same length check. Fixed generally, not narrowly: a
+new `indexLongerTag()` in `server/main.go` opts in any tag value shaped
+like a real address (splits into exactly 3 parts, middle part decodes
+as a 32-byte pubkey), regardless of tag name — so this fixes the same
+latent gap for *any* current or future feature that queries by a long
+addressable-event reference tag, not just kind:1111 comments.
+
+**Verified for real, end to end, in layers — not just built clean**:
+`go build`/`go vet`/`gofmt -l` and `tsc -b`/`oxlint`/`vite build` all
+clean. First reproduced the actual indexing bug directly against a real
+local relay (a genuine `nak`-published, correctly-tagged kind:1111
+comment, completely unqueryable via `#A`) before touching any fix code
+— confirmed it wasn't a client-side or test-script mistake. After the
+fix (fresh data directory, since the hook only affects newly-stored
+events, not retroactively): republished identical test data and
+confirmed the same query now returns the comment correctly. Then, real
+end-to-end through the actual UI: opened the test article via a real
+`?nostr=naddr...` deep link (proving the existing NIP-89 deep-link
+mechanism and this new feature compose correctly together), confirmed
+the pre-existing `nak`-published comment rendered with the right
+author/content, typed and posted a real comment through the actual
+compose box (via precise DOM property-setter + native event dispatch,
+not coordinate clicks — this session's own established more-reliable
+technique), confirmed it appeared live in the list ("Comments (2)"),
+and independently confirmed via a direct `nak` query that the real
+UI-published event carried the exact correct six tags — not just
+trusting the rendered UI. Confirmed zero console errors across a fresh
+reload.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	dgraphBadger "github.com/dgraph-io/badger/v4"
 	"github.com/fiatjaf/eventstore/badger"
@@ -13,6 +15,35 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/sdk"
 )
+
+// indexLongerTag opts address-shaped ("kind:pubkey:d") tag values into
+// badger's index instead of being silently dropped. Real bug found
+// while building NIP-22 comments, not a NIP-22-specific fix: the
+// vendored eventstore badger backend (v0.17.9) only indexes tag values
+// up to 100 characters by default (badger/helpers.go's
+// `len(tag[1]) > 100` check) unless BadgerBackend.IndexLongerTag is
+// explicitly set — which this project never did, so the backend's own
+// already-existing compact "kind:pubkey:d" address encoding
+// (getTagIndexPrefix) was never actually reachable for any address
+// whose d tag pushes the whole value past 100 chars. That's not an edge
+// case here: it's the NORMAL case for this app's own kind:30023
+// articles, whose d tag is a crypto.randomUUID() (36 chars) —
+// "30023:" + a 64-char hex pubkey + ":" + a 36-char UUID = 107
+// characters, always over the limit. Confirmed live: a real NIP-22
+// kind:1111 comment's "A"/"a" tag pointing at one of this app's own
+// real articles was completely unqueryable via a #A/#a filter before
+// this fix — silently, no error anywhere. A general relay-indexing gap,
+// not scoped to comments: anything else this project ever queries by a
+// long addressable-event reference tag would have hit the same silent
+// failure.
+func indexLongerTag(_ *nostr.Event, _ string, tagValue string) bool {
+	parts := strings.Split(tagValue, ":")
+	if len(parts) != 3 {
+		return false
+	}
+	pk, err := hex.DecodeString(parts[1])
+	return err == nil && len(pk) == 32
+}
 
 // envOr returns the environment variable's value, or fallback if unset —
 // used so the Fly deployment (which mounts a Volume at /data and sets these
@@ -93,6 +124,7 @@ func main() {
 				WithBlockCacheSize(32 << 20).
 				WithIndexCacheSize(32 << 20)
 		},
+		IndexLongerTag: indexLongerTag,
 	}
 	if err := db.Init(); err != nil {
 		panic(err)
