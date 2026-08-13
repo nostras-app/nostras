@@ -3,9 +3,17 @@ import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { useProfile, setCachedProfile } from '../hooks/useProfile'
 import { useActiveUser } from '../hooks/useActiveUser'
+import { useUserStatus } from '../hooks/useUserStatus'
+import { publishUserStatus, clearUserStatus } from '../lib/userStatus'
 import { uploadToBlossom } from '../lib/blossom'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { ImageIcon, UserIcon } from './icons'
+
+const STATUS_EXPIRY_OPTIONS = [
+  { label: 'Never', seconds: undefined },
+  { label: '1 hour', seconds: 60 * 60 },
+  { label: '24 hours', seconds: 24 * 60 * 60 },
+] as const
 
 type ImageField = 'picture' | 'banner'
 
@@ -28,6 +36,51 @@ export function ProfileEditor() {
   const [uploadError, setUploadError] = useState('')
   const pictureInputRef = useRef<HTMLInputElement>(null)
   const bannerInputRef = useRef<HTMLInputElement>(null)
+
+  // NIP-38 "general" status — separate save flow from the kind:0 profile
+  // fields above, deliberately: different event kind (30315, addressable-
+  // replaceable), different semantics (an empty content clears it, per
+  // the spec itself), no reason to couple its lifecycle to the profile
+  // form's own save/preserve-unknown-fields logic.
+  const existingStatus = useUserStatus(pubkey)
+  const [statusText, setStatusText] = useState('')
+  const [statusUrl, setStatusUrl] = useState('')
+  const [statusExpirySeconds, setStatusExpirySeconds] = useState<number | undefined>(undefined)
+  const [statusSaving, setStatusSaving] = useState(false)
+  const [statusError, setStatusError] = useState('')
+
+  useEffect(() => {
+    if (existingStatus) {
+      setStatusText(existingStatus.content)
+      setStatusUrl(existingStatus.url ?? '')
+    }
+  }, [existingStatus])
+
+  async function handleStatusSave() {
+    setStatusSaving(true)
+    setStatusError('')
+    try {
+      await publishUserStatus(statusText.trim(), statusUrl, statusExpirySeconds)
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : 'Could not update status')
+    } finally {
+      setStatusSaving(false)
+    }
+  }
+
+  async function handleStatusClear() {
+    setStatusSaving(true)
+    setStatusError('')
+    try {
+      await clearUserStatus()
+      setStatusText('')
+      setStatusUrl('')
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : 'Could not clear status')
+    } finally {
+      setStatusSaving(false)
+    }
+  }
 
   useEffect(() => {
     if (!pubkey) return
@@ -178,6 +231,57 @@ export function ProfileEditor() {
         >
           {saving ? 'Saving…' : uploading ? 'Uploading…' : 'Save profile'}
         </button>
+      </div>
+
+      <div className="stack profile-status-editor">
+        <p className="field-hint">
+          Status (NIP-38): a short "what I'm up to" line shown on your
+          profile. Leave it blank and save to clear it.
+        </p>
+        <input
+          className="input"
+          value={statusText}
+          onChange={(e) => setStatusText(e.target.value)}
+          placeholder="e.g. Working, Hiking, Heads down on a release…"
+          maxLength={140}
+        />
+        <input
+          className="input"
+          value={statusUrl}
+          onChange={(e) => setStatusUrl(e.target.value)}
+          placeholder="Link (optional)"
+        />
+        <div className="btn-row">
+          {STATUS_EXPIRY_OPTIONS.map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              className={`btn btn-sm ${statusExpirySeconds === opt.seconds ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setStatusExpirySeconds(opt.seconds)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {statusError && <p className="alert-error">{statusError}</p>}
+        <div className="btn-row">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleStatusClear}
+            disabled={statusSaving}
+          >
+            Clear status
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={handleStatusSave}
+            disabled={statusSaving || !statusText.trim()}
+          >
+            {statusSaving ? 'Saving…' : 'Update status'}
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -7,6 +7,7 @@ import { useFollowCounts } from '../hooks/useFollowCounts'
 import { useFollowing } from '../hooks/useFollowing'
 import { useNip05Verified } from '../hooks/useNip05Verified'
 import { useWalletBalance } from '../hooks/useWalletBalance'
+import { useUserStatus } from '../hooks/useUserStatus'
 import { FeedItem, FeedSkeleton } from './Feed'
 import { FollowListModal } from './FollowListModal'
 import { UserIcon, CheckCircleIcon, ZapCircleIcon } from './icons'
@@ -58,6 +59,7 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
     error: followError,
   } = useFollowing()
   const nip05Verified = useNip05Verified(viewedUser, profile?.nip05)
+  const status = useUserStatus(viewedPubkey)
   // Wallet balance is always the ACTIVE user's own connected NWC wallet —
   // showing it while viewing someone else's profile would misleadingly
   // suggest it's theirs.
@@ -112,6 +114,17 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
                 <span className="alert-error follow-error">{followError}</span>
               )}
             </div>
+            {status && (
+              <p className="profile-status">
+                {status.url ? (
+                  <a href={status.url} target="_blank" rel="noopener noreferrer" className="note-link">
+                    {status.content}
+                  </a>
+                ) : (
+                  status.content
+                )}
+              </p>
+            )}
             {npub && (
               <button type="button" className="profile-npub" onClick={handleCopyNpub}>
                 {copied ? 'Copied!' : `${npub.slice(0, 16)}…`}

@@ -874,6 +874,18 @@
   color: var(--text-h);
 }
 
+.profile-status {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.profile-status-editor {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
 .profile-npub {
   align-self: flex-start;
   font-family: var(--mono);

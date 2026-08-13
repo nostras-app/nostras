@@ -6654,6 +6654,82 @@ success indicator. Confirmed zero console errors across a fresh page
 reload and the full interaction sequence, tracked from before any
 interaction began.
 
+## NIP-38 user statuses added — the next NIP gap, picked after NIP-36
+(2026-08-13)
+
+Direct follow-up to NIP-36: asked to pick the next gap again. Chose
+NIP-38 (User Statuses) over the other open candidates — a real,
+user-visible profile feature (a short "what I'm up to" line, common
+across Nostr clients) with a clean, well-scoped implementation and no
+ambiguous UI-selection complexity (unlike, say, NIP-84 Highlights,
+which would need real text-selection handling). Fetched the real spec
+first: kind:30315, `d` tag identifies the status type ("general" or
+"music", others allowed but undefined), optional `r` (link)/`p`/`e`/`a`
+reference tags, optional `expiration` timestamp, and — the one easy-to-
+miss detail — **an empty `content` string is itself the spec's defined
+way to clear a status**, not a separate mechanism.
+
+**Scoped to the "general" status type only** — "music" would need
+real player integration this app has no reason to build, and the
+`p`/`e`/`a` reference tags (linking a status to a specific profile/
+note/addressable event) add real complexity for a niche use case;
+both deliberately left out, documented as a scope choice rather than
+an oversight.
+
+**`client/src/lib/userStatus.ts`** (new): `publishUserStatus(content,
+url?, expiresInSeconds?)` builds the tag set and publishes with this
+project's now-standard 8s explicit timeout; `clearUserStatus()` is
+just `publishUserStatus('')`, matching the spec's own convention rather
+than inventing a separate "delete" action. **`client/src/hooks/
+useUserStatus.ts`** (new): fetches a pubkey's current status, treating
+an `expiration` tag in the past as no status at all — a client-side
+check, since NIP-40 expiration on the relay side (already implemented,
+`server/internal/khatrufork/expiration.go`) is best-effort and the
+client shouldn't assume an expired event has already been purged by
+the time it's read. Scoped to `authorQueryRelaySet`, not left unscoped
+— this is an authors-filtered `fetchEvent`, the exact NDK query shape
+that's raced NDK's CONNECTED-only relay fallback several times
+elsewhere in this project (see `lib/ndk.ts`'s own comment on
+`authorQueryRelaySet`) — applied proactively here rather than waiting
+to hit the bug a sixth time.
+
+**UI**: `ProfileEditor.tsx` (Settings > Profile) gained a status editor
+— text, optional link, and an expiration picker (Never/1 hour/24
+hours) — with its own save flow, deliberately independent of the
+profile-fields save button above it, since kind:30315 has different
+semantics (addressable-replaceable, empty-content-clears) than kind:0.
+`ProfileView.tsx` displays the resolved status just under the name,
+as a real clickable link when a URL was set. `30315 as NDKKind` was
+needed for the `fetchEvent` filter's `kinds` array — the same
+NDKKind-enum gap already hit for the NIP-29 delete kinds and the paid-
+article-unlock result kind; NDKEvent *construction* didn't need the
+cast, consistent with that same earlier precedent.
+
+**Verified for real, end to end, against a live local relay and the
+actual UI**: `tsc -b`, `oxlint` (only the pre-existing unrelated
+`useNoteFeed.ts` warning), `vite build` all clean. Published a real
+status with a link via `nak`, confirmed it rendered on the profile
+view as a genuine `<a href="...">` (checked via the DOM accessibility
+tree, not just visually) pointing at the exact URL from the event's
+`r` tag. Published a second status with an `expiration` timestamp
+already in the past and confirmed the client correctly showed no
+status at all for that profile, even though the (single, since
+kind:30315 is addressable-replaceable) event was still genuinely
+present on the relay — the hide-if-expired check working as designed,
+not just "no status was ever published." Then drove the real
+`ProfileEditor` UI end to end on the app's own active dev identity:
+typed a status, selected "1 hour," clicked Update, and independently
+confirmed via a direct `nak` query that the real published event
+carried the exact text and an `expiration` tag equal to its own
+`created_at` plus 3600 seconds — not just trusting the UI's success
+state. Clicked "Clear status" and confirmed via a second `nak` query
+that the republished event (same `d` tag, correctly replacing the
+prior one — addressable-event semantics working as expected) had
+`content: ""`, matching the spec's own clear-status convention
+exactly. Confirmed zero console errors across a fresh page reload and
+the whole interaction sequence, tracked from before any interaction
+began.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
