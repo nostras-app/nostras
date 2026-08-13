@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { parseContentSegments, shortenUrl } from '../lib/parseContent'
+import { MentionLink } from './MentionLink'
 
 const TRUNCATE_AT = 400
 
@@ -20,7 +21,7 @@ export function NoteContent({ content }: { content: string }) {
   const displayContent = expanded || !truncated ? content : preview
   const segments = parseContentSegments(displayContent)
   const textSegments = segments.filter(
-    (s) => s.type === 'text' || s.type === 'link',
+    (s) => s.type === 'text' || s.type === 'link' || s.type === 'mention',
   )
   // Media stays hidden until a truncated note is expanded, so a long note
   // doesn't load heavy content the reader hasn't opted into yet.
@@ -34,21 +35,25 @@ export function NoteContent({ content }: { content: string }) {
   return (
     <div className="note-content">
       <p className="feed-item-content">
-        {textSegments.map((seg, i) =>
-          seg.type === 'link' ? (
-            <a
-              key={i}
-              href={seg.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="note-link"
-            >
-              {shortenUrl(seg.url)}
-            </a>
-          ) : (
-            <span key={i}>{seg.value}</span>
-          ),
-        )}
+        {textSegments.map((seg, i) => {
+          if (seg.type === 'link') {
+            return (
+              <a
+                key={i}
+                href={seg.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="note-link"
+              >
+                {shortenUrl(seg.url)}
+              </a>
+            )
+          }
+          if (seg.type === 'mention') {
+            return <MentionLink key={i} decoded={seg.decoded} />
+          }
+          return <span key={i}>{seg.value}</span>
+        })}
         {truncated && !expanded && '…'}
       </p>
 

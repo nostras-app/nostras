@@ -11,16 +11,17 @@ import { FeedItem, FeedSkeleton } from './Feed'
 import { FollowListModal } from './FollowListModal'
 import { UserIcon, CheckCircleIcon, ZapCircleIcon } from './icons'
 import { parseContentSegments, shortenUrl, isSecureImageUrl } from '../lib/parseContent'
+import { MentionLink } from './MentionLink'
 
 // Same URL-detection parseContentSegments already uses for note content —
 // reused here just for linkification (a bio doesn't get inline media
-// embeds like a note does, so every non-text segment renders as a plain
-// clickable link regardless of its sniffed type).
+// embeds like a note does, so every non-text, non-mention segment renders
+// as a plain clickable link regardless of its sniffed type).
 function renderAbout(about: string) {
-  return parseContentSegments(about).map((seg, i) =>
-    seg.type === 'text' ? (
-      <span key={i}>{seg.value}</span>
-    ) : (
+  return parseContentSegments(about).map((seg, i) => {
+    if (seg.type === 'text') return <span key={i}>{seg.value}</span>
+    if (seg.type === 'mention') return <MentionLink key={i} decoded={seg.decoded} />
+    return (
       <a
         key={i}
         href={seg.url}
@@ -30,8 +31,8 @@ function renderAbout(about: string) {
       >
         {shortenUrl(seg.url)}
       </a>
-    ),
-  )
+    )
+  })
 }
 
 // pubkey omitted = "my own profile" (the nav rail avatar), matching the

@@ -6507,6 +6507,89 @@ connectivity. `go build`/`go vet`/`gofmt -l` clean throughout
 was never committed — added to `.gitignore` alongside
 `vanished-pubkeys.json`/`analytics.json`/`push-subscriptions.json`.
 
+## NIP-27 inline nostr: mention rendering added — the last flagged NIP
+gap from this session's compliance audit (2026-08-13)
+
+Direct follow-up to the gap flagged in the NIP audit: note bodies (and
+profile bios) rendered raw `nostr:npub1...`/`nostr:note1...`/etc.
+mentions as inert plain text — only `https://` URLs got linkified.
+Fetched NIP-27's real spec text before building: mentions appear as
+`nostr:` URIs wrapping a NIP-19 (bech32) code; readers are expected to
+turn them into links/embeds; the `p`/`q` tag conventions the spec also
+describes are a compose-time concern (should the *author's* client add
+a notifying tag when they insert a mention), not a rendering one, so
+deliberately out of scope here — this fix is read-side only, matching
+the gap as actually documented ("note bodies don't render inline
+`nostr:` mentions").
+
+**`client/src/lib/parseContent.ts`**: `CONTENT_SPLIT_RE` now matches
+`nostr:(npub|nprofile|note|nevent|naddr)1[a-z0-9]+` alongside the
+existing URL pattern, decoded via `nip19.decode()` into a new `mention`
+segment type. Deliberately **excludes nsec/ncryptsec/nrelay** even
+though `nip19.decode()` would happily decode those too — nsec/ncryptsec
+are private-key material and must never get any special rendering
+treatment (not even a "this looks like a key" callout), just silent
+fall-through to plain text like any other unrecognized token; nrelay
+has no NIP-27 mention meaning at all. Fails closed to plain text for
+anything that doesn't decode or isn't in the allowed list, same
+degrade-gracefully posture as every other untrusted-input parser in
+this codebase.
+
+**New `client/src/components/MentionLink.tsx`**: npub/nprofile mentions
+navigate immediately on click (`viewProfile()` only needs the pubkey —
+`ProfileView` fetches the rest) and display a resolved `@name` via the
+existing `useProfile` cache hook, falling back to a shortened re-encoded
+npub if the profile hasn't loaded. note/nevent/naddr mentions need a
+real `NDKEvent` in hand before `viewNote()`/`viewArticle()` can navigate
+(same contract `SearchView`'s own note-reference resolution already
+established), so those resolve **on click**, not on render — eagerly
+resolving every mention in a busy feed would mean a lot of unrequested
+relay fetches for links most readers never follow. `naddr` mentions
+pointing at anything other than kind:30023 (articles) render as a
+plain, non-clickable, muted-color reference rather than a link to
+nowhere — matching `lib/deeplink.ts`'s own already-established scope
+limit for naddr (this app only has a reading view for articles).
+
+**Deliberately not deduplicated with `SearchView.tsx`/`lib/deeplink.ts`'s
+own near-identical "build a relay set from hints + fetchEvent" blocks**
+— this is now the third copy of that shape in the codebase, but
+consolidating it would mean touching two already-shipped, already-
+verified flows for a feature that doesn't need them changed; noted here
+as a real, honest tradeoff (lower risk now, a bit more duplication)
+rather than silently introduced. `ProfileView.tsx`'s `renderAbout()`
+(the bio-linkification helper added for a previous fix) was extended to
+render `MentionLink` too, alongside its existing text/link segments —
+found only because `tsc -b` correctly caught it as a compile error
+(the segment union gained a case it didn't handle) rather than a
+runtime surprise.
+
+**Verified for real, end to end, against real published events on the
+local relay — not just built clean**: `tsc -b`, `oxlint` (only the
+pre-existing unrelated `useNoteFeed.ts` warning), `vite build` all
+clean. Published a real note (throwaway author) containing a genuine
+`nostr:npub1...` mention of a second throwaway identity with a real
+kind:0 profile, a `nostr:nevent1...` mention of a separately-published
+real note, a `nostr:naddr1...` mention of a real published kind:30023
+article, a `nostr:naddr1...` mention of a real kind:30001 (non-article)
+event, and a plain `https://` URL — confirmed via `nak` and NOSTRAS's
+own Search that all five render distinctly: the profile mention as
+`@nip27testuser` (the real resolved name), the note/article mentions
+as clickable purple links, the non-article naddr as a muted
+non-clickable reference, and the plain URL unaffected. **Caught and
+fixed a real test-data mistake before treating anything as a bug,
+not after**: the first `nak encode naddr ... $UUID ws://localhost:7777`
+attempt put the relay URL into the naddr's own `identifier` field
+instead of its relay-hints list (wrong flag; needed `--relay`, not a
+bare trailing argument) — confirmed via `nak decode` before assuming
+the renderer was at fault, then fixed the test data and re-verified.
+Clicked through all three navigable mention types live: the profile
+mention opened the real `nip27testuser` profile; the nevent mention
+opened `SingleNoteView` showing the exact real target note; the naddr
+mention opened `ArticleView` showing the exact real published article
+("NIP-27 test article"). Confirmed zero console errors across a full
+page reload and the whole click-through sequence, tracked from before
+any interaction, not just spot-checked after the fact.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
