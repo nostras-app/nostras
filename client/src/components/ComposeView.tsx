@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Composer } from './Composer'
 import { ArticleComposer } from './ArticleComposer'
+import { ZapGoalComposer } from './ZapGoalComposer'
 
-type Mode = 'note' | 'article'
+type Mode = 'note' | 'article' | 'zap-goal'
 
 export function ComposeView() {
   const [mode, setMode] = useState<Mode>('note')
@@ -28,8 +29,19 @@ export function ComposeView() {
         >
           Article
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'zap-goal'}
+          className={`feed-tab${mode === 'zap-goal' ? ' feed-tab-active' : ''}`}
+          onClick={() => setMode('zap-goal')}
+        >
+          Zap Goal
+        </button>
       </div>
-      {mode === 'note' ? <Composer /> : <ArticleComposer />}
+      {mode === 'note' && <Composer />}
+      {mode === 'article' && <ArticleComposer />}
+      {mode === 'zap-goal' && <ZapGoalComposer />}
     </div>
   )
 }

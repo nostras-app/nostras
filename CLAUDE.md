@@ -7100,6 +7100,86 @@ UI-published event carried the exact correct six tags — not just
 trusting the rendered UI. Confirmed zero console errors across a fresh
 reload.
 
+## NIP-75 zap goals added — the next NIP gap, and the smallest-surface
+fix of this whole run since almost everything it needed already existed
+(2026-08-13)
+
+Fetched the real NIP-75 spec text before building anything: kind 9041,
+untitled/non-addressable, tags `amount` (target, msat), `relays` (where
+zap receipts should be looked for), optional `image`/`summary`/
+`closed_at`/`zap` (beneficiary split). Content is the human-readable
+description. A "goal" is just an event other events (zap receipts) tag
+via `e` — the exact same shape as zapping any other note, which is why
+this NIP needed almost no new plumbing: `client/src/lib/zap.ts`'s
+`createZapInvoice(target: NDKEvent, ...)`, `hooks/useZapTotal.ts`'s
+`useZapList(eventId)` (sums every real kind:9735 receipt tagging an id),
+and `ZapButton.tsx` (already generic over any `NDKEvent`) were all
+already fully agnostic to event kind — reused completely unchanged for
+the actual "contribute to a goal" mechanic. Deliberately scoped down
+from the full spec for this pass: no `closed_at` (expiring goals) and no
+multi-beneficiary `zap` split tag, both real NIP-75 features, both
+separate scope from "a goal exists and can be zapped."
+
+**New**: `client/src/lib/zapGoal.ts` (`parseZapGoalMeta` — reads
+`amount`/`image` tags, falls back content → `summary` tag for the
+description), `ZapGoalComposer.tsx` (description textarea, target-sats
+input, optional image URL/Blossom upload — reusing the exact
+`uploadToBlossom` path `Composer`/`ArticleComposer` already established
+— publishes a real kind:9041 with `amount` in msat and `relays` tags
+pointing at the app's own public bootstrap relays), and `ZapGoalCard.tsx`
+(author row + `NoteMenu`, image, description, a gradient progress bar
+computed from `useZapList`'s real total against the goal's target,
+percentage label, and the unmodified `ZapButton`).
+
+**Threaded through the existing shared feed machinery**, not a
+dedicated new view — exactly mirroring how kind:30023 articles were
+integrated: `useNoteFeed.ts`'s subscription `kinds` array gained
+`KIND_ZAP_GOAL = 9041 as NDKKind` (same NDK-enum-incompleteness pattern
+hit repeatedly this session) alongside kind:1/30023, and `Feed.tsx`'s
+shared `FeedItem` branches on `event.kind === 9041` to render
+`ZapGoalCard`. Since every content surface in this app already renders
+through `FeedItem` (global/following feed, search, bookmarks, a
+profile's own notes), zap goals now show up everywhere automatically
+with no per-surface wiring. `ComposeView.tsx` gained a third "Zap Goal"
+tab alongside Note/Article.
+
+**Verified for real, end to end, against a real local relay and a real
+browser — not just a clean build**: published a real kind:9041 goal via
+`nak` (100-sat target, real image tag) and a real, protocol-correct
+kind:9735 zap receipt against it — built by hand-crafting a
+bech32-valid (but not cryptographically real) bolt11 invoice using the
+exact same `@scure/base` bech32 implementation `light-bolt11-decoder`
+(NDK's own dependency for `zapInvoiceFromEvent`) uses internally, wrapped
+in a real signed NIP-57 zap request embedded in the receipt's
+`description` tag — confirmed the *real* decoder library parses it to
+exactly 50000 msat before using it, so the test exercises the actual
+parsing code path NDK ships, not a mocked shortcut. Loaded the app in a
+live browser: the card rendered with the correct description, and the
+progress bar/label correctly read "50 / 100 sats (50%)" — proving
+`useZapList` genuinely sums real zap receipts for a goal event, the same
+as it already does for notes. Clicked the embedded `ZapButton`'s "Get
+invoice" against the goal (a throwaway author with no `lud16` set) and
+confirmed a clean, real error ("Recipient has no Lightning address
+(lud16/lud06) set") — proving the invoice-fetch path is genuinely wired
+up end-to-end without ever attempting a payment, consistent with the
+standing financial-safety rule. Published a second goal through the
+actual Compose UI (native property-setter + input-event dispatch, this
+session's established reliable-fill technique) and confirmed via a
+direct `nak` query that the resulting event carried the exact right
+tags (`amount: 777000`, two `relays` tags pointing at the real public
+bootstrap relays, correct content) — then confirmed it rendered back in
+the feed as "0 / 777 sats (0%)". Confirmed zero console errors across a
+fresh reload. **One real tooling gotcha hit and worked around, not an
+app bug**: the Chrome extension bridge disconnected mid-session more
+than once (`"Chrome extension disconnected mid-operation"` /
+`Runtime.evaluate` timeouts) — confirmed by retrying after a short wait
+and finding app state (button labels, DOM) unchanged from before the
+apparent hang, i.e. no fetch or render was actually stuck, only the
+automation bridge itself; switched to precise JS-driven element lookups
+(rather than fixed screen coordinates, which drift as the noisy public
+global feed reorders live) for the rest of the verification once this
+was confirmed.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

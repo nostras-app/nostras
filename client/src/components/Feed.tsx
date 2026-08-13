@@ -12,6 +12,7 @@ import { getContentWarningReason } from '../lib/contentWarning'
 import { NoteContent } from './NoteContent'
 import { EngagementBar } from './EngagementBar'
 import { ArticleCard } from './ArticleCard'
+import { ZapGoalCard } from './ZapGoalCard'
 import { ReplyIcon } from './icons'
 
 // Real user-reported gap (2026-08-07): replies rendered as ordinary,
@@ -61,7 +62,8 @@ function ReplyContext({ replyToId }: { replyToId: string }) {
 // Branches on event.kind here (not at each call site) so every place
 // that already renders FeedItem — the global/following feed, search
 // results, bookmarks, a profile's own notes — automatically gets article
-// cards mixed in for kind:30023 events too, no separate call needed.
+// cards and zap goal cards mixed in for kind:30023/9041 events too, no
+// separate call needed.
 export function FeedItem({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
   const label = profile?.name || profile?.displayName || `${event.author.npub.slice(0, 12)}…`
@@ -69,6 +71,10 @@ export function FeedItem({ event }: { event: NDKEvent }) {
 
   if (event.kind === 30023) {
     return <ArticleCard event={event} />
+  }
+
+  if (event.kind === 9041) {
+    return <ZapGoalCard event={event} />
   }
 
   return (

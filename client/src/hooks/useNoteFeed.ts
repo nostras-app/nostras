@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react'
-import type { NDKEvent } from '@nostr-dev-kit/ndk'
+import type { NDKEvent, NDKKind } from '@nostr-dev-kit/ndk'
 import { ndk, authorQueryRelaySet } from '../lib/ndk'
 import { useRelayStatus } from './useRelayStatus'
 
-// Subscribes to kind:1 notes and kind:30023 long-form articles — either
-// the global feed (authors omitted) or a single author's notes (profile
-// view). Shared here so both call sites get the same dedup/sort/eose/
-// event:dup handling instead of two copies. FeedItem (Feed.tsx) branches
-// on event.kind to render either a normal note or an article card.
+// Not in NDK's own kind catalog — same gap already hit for several
+// other project-specific kinds this session (NIP-29 delete kinds,
+// paid-article-unlock, NIP-38/39, NIP-22 comments).
+const KIND_ZAP_GOAL = 9041 as NDKKind
+
+// Subscribes to kind:1 notes, kind:30023 long-form articles, and
+// kind:9041 zap goals — either the global feed (authors omitted) or a
+// single author's notes (profile view). Shared here so both call sites
+// get the same dedup/sort/eose/event:dup handling instead of two
+// copies. FeedItem (Feed.tsx) branches on event.kind to render a normal
+// note, an article card, or a zap goal card.
 export function useNoteFeed(authors?: string[]) {
   const [events, setEvents] = useState<NDKEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,8 +44,8 @@ export function useNoteFeed(authors?: string[]) {
     // yet, so it was never subject to this race.
     const sub = ndk.subscribe(
       authors
-        ? { kinds: [1, 30023], authors, limit: 50 }
-        : { kinds: [1, 30023], limit: 50 },
+        ? { kinds: [1, 30023, KIND_ZAP_GOAL], authors, limit: 50 }
+        : { kinds: [1, 30023, KIND_ZAP_GOAL], limit: 50 },
       authors ? { relaySet: authorQueryRelaySet } : undefined,
     )
 
