@@ -492,6 +492,22 @@
   font-size: 13px;
 }
 
+.composer-pow-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.composer-mining-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
 .content-warning-gate {
   display: flex;
   align-items: center;

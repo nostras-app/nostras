@@ -7261,6 +7261,77 @@ had hung; a fresh tab was needed once when a stuck tab didn't recover
 on its own, consistent with this project's own documented history of
 this exact class of environment flakiness.
 
+## NIP-13 proof of work added — picked directly after explaining the
+NIP to the user (2026-08-13)
+
+Real, not-hypothetical difficulty (per spec): NIP-13's "difficulty" is
+the number of leading zero bits in an event's own NIP-01 id — no block,
+no chain, no reward, no consensus, just per-event brute-force cost. The
+`nonce` tag is `["nonce", "<counter>", "<target>"]`; a relay can refuse
+events below a minimum difficulty (spam deterrence — cost imposed in
+CPU time instead of money) and NIP-11's `limitation.min_pow_difficulty`
+field exists specifically so a client can know the requirement before
+even trying.
+
+**Server** (`server/pow.go`): `countLeadingZeroBits` implements the
+spec's own definition directly against the event's real id — never a
+client-claimed target, since by the time a `RejectEvent` hook runs,
+khatru/go-nostr has already computed and signature-verified that id.
+Wired via `NOSTRAS_MIN_POW_DIFFICULTY` (unset/≤0 = fully off — no hook
+registered, no `limitation` object in NIP-11 at all), the same
+safe-by-default posture as NIP-43/NIP-86/the dashboard: this app's
+every existing publish path (Composer, DVM results, DM gift wraps)
+never mined PoW before this, so requiring it by default would have
+silently broken all of them the moment this feature merged. When
+enabled, `relay.Info.Limitation = &nip11.RelayLimitationDocument{MinPowDifficulty: n}`
+advertises the real requirement and `AddSupportedNIP(13)` follows suit.
+
+**Client** (`client/src/lib/pow.ts`, `Composer.tsx`): `mineEvent`
+brute-forces the nonce by mutating `event.tags` and calling the event's
+own `getEventHash()` in a loop — NDK's real `serialize()`+sha256 code
+(confirmed by reading the installed package directly, not assumed),
+the exact path `.sign()` uses internally — rather than hand-rolling
+serialization or hashing. `event.pubkey`/`event.created_at` are frozen
+*before* mining starts (both are hash inputs), and `sign()` is called
+immediately after with nothing else touching tags/content/pubkey/
+created_at in between, so the id it signs matches exactly what was
+mined. Chunked with a yield every 300 attempts (`setTimeout(r, 0)`) so
+mining never freezes the tab, and cancelable via a ref checked each
+chunk. Composer gained a difficulty selector (Off/8/16/20/24 bits — a
+ceiling chosen so "mine it" stays a realistic thing to click rather
+than quietly running for many minutes) and a live "Mining… N attempts"
+status with a Cancel button, wired in before the existing publish call
+so a mined note goes through the exact same relay-result-tracking path
+every other note already does. **Deliberately scoped to the top-level
+Composer only, not the inline reply composer** — same "smallest useful
+slice" precedent already used for NIP-36's sensitivity toggle.
+
+**Verified for real, end to end, against a real local relay — not just
+built clean**: `go build`/`go vet`/`gofmt -l` and `tsc -b`/`oxlint`/
+`vite build` all clean. Ran the relay with `NOSTRAS_MIN_POW_DIFFICULTY=8`:
+confirmed NIP-11 correctly advertised `13` in `supported_nips` and
+`min_pow_difficulty: 8`; a plain unmined `nak` publish was rejected with
+the exact configured error text; a real `nak`-mined difficulty-8 event
+(nak has its own independent NIP-13 miner) was accepted — a genuine
+cross-implementation check, not just testing the code against itself.
+Then drove the real Composer UI against this same enforcing relay:
+publishing with PoW "Off" was correctly rejected by the relay, with the
+real server error text (`"pow: difficulty 8 is required"`) surfacing
+both in the general publish-error banner and the per-relay tooltip;
+selecting difficulty 8 mined and published successfully, confirmed via
+a direct `nak` query that the real signed event's id genuinely had ≥8
+leading zero bits with a correctly-shaped `nonce` tag — proving the
+mine-then-sign invariant holds in this exact NDK version, not just in
+the research that predicted it. Repeated at difficulty 16, this time
+long enough to observe the live "900 attempts" progress readout
+mid-mine (proving the chunked yields keep the tab responsive during
+mining, not just fast enough to never notice), then independently
+confirmed via `nak` that the published id met the higher target too.
+Tested cancellation at difficulty 24: clicked Cancel mid-mine, got a
+clean "Mining cancelled" error with no hang, and confirmed the Publish
+button was immediately usable again afterward, not stuck. Confirmed
+zero console errors across a fresh reload.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

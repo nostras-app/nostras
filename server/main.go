@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	dgraphBadger "github.com/dgraph-io/badger/v4"
@@ -13,6 +14,7 @@ import (
 	"github.com/fiatjaf/eventstore/bluge"
 	"github.com/fiatjaf/khatru"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip11"
 	"github.com/nbd-wtf/go-nostr/sdk"
 )
 
@@ -205,6 +207,24 @@ func main() {
 	relay.RejectEvent = append(relay.RejectEvent, newNip86RejectEventHook(nip86Store))
 	relay.RejectConnection = append(relay.RejectConnection, newNip86RejectConnectionHook(nip86Store))
 	relay.OnEventSaved = append(relay.OnEventSaved, newNip86ReportObserverHook(nip86Store))
+
+	// NIP-13 Proof of Work — see pow.go. NOSTRAS_MIN_POW_DIFFICULTY unset
+	// or <= 0 means the feature stays fully off: no RejectEvent hook
+	// registered at all, and no `limitation` object in NIP-11 either —
+	// same "off means don't even advertise the capability" posture as
+	// NIP-43. This matters here specifically because every existing
+	// publish path in this app (Composer, DVM results, DM gift wraps,
+	// etc.) never mines PoW by default — turning this on is a real,
+	// deliberate operator choice to start rejecting all of that unless
+	// clients opt in, not a default this relay should silently adopt.
+	if minPowDifficulty, err := strconv.Atoi(envOr("NOSTRAS_MIN_POW_DIFFICULTY", "0")); err == nil && minPowDifficulty > 0 {
+		relay.RejectEvent = append(relay.RejectEvent, newMinPowRejectEventHook(minPowDifficulty))
+		relay.Info.Limitation = &nip11.RelayLimitationDocument{MinPowDifficulty: minPowDifficulty}
+		relay.Info.AddSupportedNIP(13)
+		fmt.Printf("NIP-13 proof of work: ON (min difficulty %d)\n", minPowDifficulty)
+	} else {
+		fmt.Println("NIP-13 proof of work: OFF (NOSTRAS_MIN_POW_DIFFICULTY not set)")
+	}
 
 	// Connection analytics + dashboard — see analytics.go/dashboard.go/
 	// dashboard.html. Counts unique relay connections per day/country (IP

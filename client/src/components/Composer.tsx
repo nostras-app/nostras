@@ -8,7 +8,16 @@ import { usePublishTargets } from '../hooks/usePublishTargets'
 import { uploadToBlossom } from '../lib/blossom'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { setActiveView } from '../lib/navigation'
+import { mineEvent } from '../lib/pow'
 import { ImageIcon, XIcon, WarningIcon } from './icons'
+
+// NIP-13 proof-of-work difficulty presets. 0 = off (no nonce tag at
+// all — every publish before this feature existed, still the default).
+// Capped at 24 bits: on ordinary hardware this is a few seconds to
+// roughly a minute in pure-JS SHA-256, versus 28+ bits genuinely
+// running for many minutes — a ceiling chosen so "mine it" stays a
+// realistic thing to click, not a UI element that quietly hangs.
+const DIFFICULTY_OPTIONS = [0, 8, 16, 20, 24] as const
 
 type Attachment = {
   id: string
@@ -32,6 +41,10 @@ export function Composer() {
   // an author mark their own note sensitive, or a reader see that signal.
   const [sensitive, setSensitive] = useState(false)
   const [sensitiveReason, setSensitiveReason] = useState('')
+  const [difficulty, setDifficulty] = useState<number>(0)
+  const [mining, setMining] = useState(false)
+  const [miningTries, setMiningTries] = useState(0)
+  const cancelMiningRef = useRef(false)
   const [publishing, setPublishing] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
   // Real gap found (2026-08-09): NDKRelaySet.publish() only requires ONE
@@ -98,9 +111,6 @@ export function Composer() {
     setPublishing(true)
     setPublishError(null)
 
-    const targetUrls = Array.from(devPublishRelaySet.relays).map((r) => normalizeRelayUrl(r.url))
-    setRelayResults(Object.fromEntries(targetUrls.map((u) => [u, { status: 'pending' as const }])))
-
     const event = new NDKEvent(ndk, {
       kind: 1,
       content: [content.trim(), ...attachments.filter((a) => a.status === 'done').map((a) => a.url as string)]
@@ -110,6 +120,37 @@ export function Composer() {
         ? [sensitiveReason.trim() ? ['content-warning', sensitiveReason.trim()] : ['content-warning']]
         : [],
     })
+
+    // Mining brute-forces the nonce only — pubkey/created_at/tags/content
+    // must all be frozen to their final values *before* mining starts,
+    // since they're inputs to the hash mined against. sign() (called
+    // inside event.publish() below) must not touch any of them again, or
+    // the id it actually signs would differ from the one just mined.
+    if (difficulty > 0) {
+      if (!ndk.signer) {
+        setPublishError('No signer connected')
+        setPublishing(false)
+        return
+      }
+      const user = await ndk.signer.user()
+      event.pubkey = user.pubkey
+      event.created_at = Math.floor(Date.now() / 1000)
+      setMining(true)
+      setMiningTries(0)
+      cancelMiningRef.current = false
+      try {
+        await mineEvent(event, difficulty, setMiningTries, () => cancelMiningRef.current)
+      } catch (e) {
+        setMining(false)
+        setPublishing(false)
+        setPublishError(e instanceof Error ? e.message : 'Mining failed')
+        return
+      }
+      setMining(false)
+    }
+
+    const targetUrls = Array.from(devPublishRelaySet.relays).map((r) => normalizeRelayUrl(r.url))
+    setRelayResults(Object.fromEntries(targetUrls.map((u) => [u, { status: 'pending' as const }])))
 
     const onPublished = (relay: NDKRelay) => {
       setRelayResults((prev) => ({ ...prev, [relay.url]: { status: 'success' } }))
@@ -129,6 +170,7 @@ export function Composer() {
       setAttachments([])
       setSensitive(false)
       setSensitiveReason('')
+      setDifficulty(0)
     } catch (e) {
       setPublishError(e instanceof Error ? e.message : 'Failed to publish')
     } finally {
@@ -215,6 +257,36 @@ export function Composer() {
           />
         )}
 
+        <div className="composer-pow-row">
+          <span className="field-hint">Proof of work:</span>
+          {DIFFICULTY_OPTIONS.map((d) => (
+            <button
+              key={d}
+              type="button"
+              className={`btn btn-sm ${difficulty === d ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setDifficulty(d)}
+              disabled={publishing}
+            >
+              {d === 0 ? 'Off' : d}
+            </button>
+          ))}
+        </div>
+
+        {mining && (
+          <p className="composer-mining-status">
+            Mining… {miningTries.toLocaleString()} attempts
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                cancelMiningRef.current = true
+              }}
+            >
+              Cancel
+            </button>
+          </p>
+        )}
+
         <div className="btn-row">
           <input
             ref={fileInputRef}
@@ -241,7 +313,7 @@ export function Composer() {
             onClick={handlePublish}
             disabled={publishing || uploading || !hasContent}
           >
-            {publishing ? 'Publishing…' : uploading ? 'Uploading…' : 'Publish'}
+            {mining ? 'Mining…' : publishing ? 'Publishing…' : uploading ? 'Uploading…' : 'Publish'}
           </button>
         </div>
         {publishError && <p className="alert-error composer-publish-error">{publishError}</p>}
