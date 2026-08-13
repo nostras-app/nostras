@@ -8,7 +8,7 @@ import { usePublishTargets } from '../hooks/usePublishTargets'
 import { uploadToBlossom } from '../lib/blossom'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { setActiveView } from '../lib/navigation'
-import { ImageIcon, XIcon } from './icons'
+import { ImageIcon, XIcon, WarningIcon } from './icons'
 
 type Attachment = {
   id: string
@@ -28,6 +28,10 @@ const PUBLISH_TIMEOUT_MS = 8000
 export function Composer() {
   const [content, setContent] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  // NIP-36 content-warning — a real, previously-flagged gap: nothing let
+  // an author mark their own note sensitive, or a reader see that signal.
+  const [sensitive, setSensitive] = useState(false)
+  const [sensitiveReason, setSensitiveReason] = useState('')
   const [publishing, setPublishing] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
   // Real gap found (2026-08-09): NDKRelaySet.publish() only requires ONE
@@ -102,6 +106,9 @@ export function Composer() {
       content: [content.trim(), ...attachments.filter((a) => a.status === 'done').map((a) => a.url as string)]
         .filter(Boolean)
         .join('\n\n'),
+      tags: sensitive
+        ? [sensitiveReason.trim() ? ['content-warning', sensitiveReason.trim()] : ['content-warning']]
+        : [],
     })
 
     const onPublished = (relay: NDKRelay) => {
@@ -120,6 +127,8 @@ export function Composer() {
       await event.publish(devPublishRelaySet, PUBLISH_TIMEOUT_MS)
       setContent('')
       setAttachments([])
+      setSensitive(false)
+      setSensitiveReason('')
     } catch (e) {
       setPublishError(e instanceof Error ? e.message : 'Failed to publish')
     } finally {
@@ -185,6 +194,26 @@ export function Composer() {
             change
           </button>
         </p>
+
+        <label className="composer-sensitive-toggle">
+          <input
+            type="checkbox"
+            checked={sensitive}
+            onChange={(e) => setSensitive(e.target.checked)}
+          />
+          <WarningIcon className="composer-sensitive-icon" />
+          Mark as sensitive
+        </label>
+        {sensitive && (
+          <input
+            type="text"
+            className="input composer-sensitive-reason"
+            placeholder="Reason (optional) — e.g. nudity, violence, spoiler"
+            value={sensitiveReason}
+            onChange={(e) => setSensitiveReason(e.target.value)}
+            maxLength={140}
+          />
+        )}
 
         <div className="btn-row">
           <input

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { parseContentSegments, shortenUrl } from '../lib/parseContent'
 import { MentionLink } from './MentionLink'
+import { WarningIcon } from './icons'
 
 const TRUNCATE_AT = 400
 
@@ -14,9 +15,41 @@ function truncateSafely(content: string, limit: number) {
   return { text: safeSlice.trimEnd(), truncated: true }
 }
 
-export function NoteContent({ content }: { content: string }) {
+export function NoteContent({
+  content,
+  contentWarning,
+}: {
+  content: string
+  // NIP-36: null/undefined means not marked sensitive at all; '' means
+  // marked sensitive with no reason given; any other string is the
+  // author's stated reason. See lib/contentWarning.ts.
+  contentWarning?: string | null
+}) {
   const [expanded, setExpanded] = useState(false)
+  // Gate starts closed for any sensitive note — "hide until acted on"
+  // is NIP-36's own stated expectation, not a stricter choice made here.
+  const [revealed, setRevealed] = useState(false)
   const { text: preview, truncated } = truncateSafely(content, TRUNCATE_AT)
+
+  if (contentWarning != null && !revealed) {
+    return (
+      <div className="note-content">
+        <div className="content-warning-gate">
+          <WarningIcon className="content-warning-icon" />
+          <span className="content-warning-text">
+            {contentWarning ? `Marked sensitive: ${contentWarning}` : 'Marked as sensitive content'}
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setRevealed(true)}
+          >
+            Show anyway
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const displayContent = expanded || !truncated ? content : preview
   const segments = parseContentSegments(displayContent)

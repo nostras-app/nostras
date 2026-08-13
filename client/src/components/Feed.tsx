@@ -8,6 +8,7 @@ import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
 import { getReplyToEventId } from '../lib/nip10'
 import { isSecureImageUrl } from '../lib/parseContent'
+import { getContentWarningReason } from '../lib/contentWarning'
 import { NoteContent } from './NoteContent'
 import { EngagementBar } from './EngagementBar'
 import { ArticleCard } from './ArticleCard'
@@ -100,7 +101,7 @@ export function FeedItem({ event }: { event: NDKEvent }) {
           )}
         </div>
         {replyToId && <ReplyContext replyToId={replyToId} />}
-        <NoteContent content={event.content} />
+        <NoteContent content={event.content} contentWarning={getContentWarningReason(event.tags)} />
         <div className="feed-item-footer">
           <EngagementBar event={event} />
         </div>

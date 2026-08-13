@@ -472,6 +472,50 @@
   color: var(--accent-2, var(--accent));
 }
 
+.composer-sensitive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: fit-content;
+}
+
+.composer-sensitive-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--danger);
+}
+
+.composer-sensitive-reason {
+  font-size: 13px;
+}
+
+.content-warning-gate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--danger-bg);
+  background: var(--danger-bg);
+}
+
+.content-warning-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--danger);
+  flex-shrink: 0;
+}
+
+.content-warning-text {
+  font-size: 13px;
+  color: var(--text);
+  flex: 1;
+}
+
 /* ---------- Buttons ---------- */
 
 .btn {

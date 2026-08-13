@@ -6590,6 +6590,70 @@ mention opened `ArticleView` showing the exact real published article
 page reload and the whole click-through sequence, tracked from before
 any interaction, not just spot-checked after the fact.
 
+## NIP-36 sensitive content warnings added — picked as the next NIP gap
+after re-running the full compliance audit (2026-08-13)
+
+Direct follow-up: after the NIP-27/NIP-21 fixes, re-ran the full
+compliance audit (a fresh registry fetch — unchanged — plus an Explore
+agent re-checking all ~76 untouched rows against real code) to catch
+any other drift; it found one (NIP-21, already fixed) and confirmed
+everything else accurate, including a full list of genuinely
+unimplemented ⬜ NIPs. Asked to pick the next one and fix it — chose
+NIP-36 (Content Warning) over the other open candidates as the best mix
+of real user value (a genuine, previously-flagged safety/moderation gap
+directly adjacent to this project's existing spam/scam-classification
+and reporting work) and reasonable scope for one pass.
+
+Fetched the real spec first: a `["content-warning", "<reason>"]` tag,
+reason optional, no kind restriction, client expectation is "hide the
+content until the user acts on it."
+
+**`client/src/lib/contentWarning.ts`** (new): `getContentWarningReason
+(tags)` returns `null` when a note isn't marked sensitive at all,
+distinct from `''` (marked sensitive, no reason given) — callers need
+to tell these apart to decide whether to show a reason string at all.
+
+**Reader side**: `NoteContent.tsx` gained an optional `contentWarning`
+prop — when set and not yet revealed, it renders a gate (new
+`WarningIcon`, the reason text if any, a "Show anyway" button) instead
+of the normal text/media flow, matching the spec's own "hide until
+acted on" expectation rather than a stricter interpretation invented
+here. Wired into both call sites that render kind:1 content directly:
+`Feed.tsx`'s `FeedItem` (covers the global/following feed, search
+results, bookmarks, and any profile's own-notes list, since they all
+reuse `FeedItem`) and `NotificationsView.tsx`.
+
+**Compose side**: `Composer.tsx` gained a "Mark as sensitive" checkbox
+(new `WarningIcon`) that reveals an optional reason text input when
+checked; on publish, the event gets a real `["content-warning", reason]`
+tag (or a bare `["content-warning"]` if no reason was typed). **Scoped
+to the top-level Composer only for this pass, not the inline reply
+composer in `EngagementBar.tsx`** — a deliberate smallest-useful-slice
+choice, documented rather than silently left out, matching this
+project's own established pattern of shipping multi-piece features one
+piece at a time (e.g. relay management, paid articles).
+
+**Verified for real, end to end, against a live local relay and the
+actual UI — not just built clean**: `tsc -b`, `oxlint` (only the
+pre-existing unrelated `useNoteFeed.ts` warning), `vite build` all
+clean. Published three real test notes via `nak` (a genuine reason, a
+present-but-empty reason, and an unmarked control note) and confirmed
+via Search that only the two tagged notes rendered the gate — the
+control note rendered completely normally, and the empty-reason note
+correctly showed the generic "Marked as sensitive content" text rather
+than an empty/broken reason string. Clicked "Show anyway" on the
+reasoned note and confirmed it revealed the real content while the
+other gated note stayed independently hidden (per-instance `revealed`
+state, not a global toggle). Then drove the actual Composer UI end to
+end: typed content, checked the box, typed a reason ("spoiler"),
+published, confirmed the success state and the checkbox/reason field
+reset — then independently confirmed via a direct `nak` query against
+the relay that the real published event carried exactly
+`["content-warning","spoiler"]`, not just trusting the UI's own
+success indicator. Confirmed zero console errors across a fresh page
+reload and the full interaction sequence, tracked from before any
+interaction began.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

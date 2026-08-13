@@ -4,6 +4,7 @@ import { useNotifications } from '../hooks/useNotifications'
 import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
+import { getContentWarningReason } from '../lib/contentWarning'
 import { NoteContent } from './NoteContent'
 import { NoteMenu } from './NoteMenu'
 import { FeedSkeleton } from './Feed'
@@ -75,7 +76,9 @@ function NotificationItem({ event }: { event: NDKEvent }) {
             <span className="feed-item-time">{formatRelativeTime(event.created_at)}</span>
           )}
         </div>
-        {event.kind === 1 && <NoteContent content={event.content} />}
+        {event.kind === 1 && (
+          <NoteContent content={event.content} contentWarning={getContentWarningReason(event.tags)} />
+        )}
         {/* Real traceability gap reported by the user (2026-08-07): a
             notification's actor name wasn't even clickable, and there was
             no way to inspect who they actually are beyond the display
