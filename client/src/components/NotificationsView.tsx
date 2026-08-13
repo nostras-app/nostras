@@ -5,6 +5,7 @@ import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { getContentWarningReason } from '../lib/contentWarning'
+import { getSubject } from '../lib/subject'
 import { NoteContent } from './NoteContent'
 import { NoteMenu } from './NoteMenu'
 import { FeedSkeleton } from './Feed'
@@ -77,7 +78,12 @@ function NotificationItem({ event }: { event: NDKEvent }) {
           )}
         </div>
         {event.kind === 1 && (
-          <NoteContent content={event.content} contentWarning={getContentWarningReason(event.tags)} tags={event.tags} />
+          <NoteContent
+            content={event.content}
+            contentWarning={getContentWarningReason(event.tags)}
+            subject={getSubject(event.tags)}
+            tags={event.tags}
+          />
         )}
         {/* Real traceability gap reported by the user (2026-08-07): a
             notification's actor name wasn't even clickable, and there was

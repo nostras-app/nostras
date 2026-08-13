@@ -41,6 +41,9 @@ export function Composer() {
   // an author mark their own note sensitive, or a reader see that signal.
   const [sensitive, setSensitive] = useState(false)
   const [sensitiveReason, setSensitiveReason] = useState('')
+  // NIP-14: an optional email-style subject line, kept separate from
+  // content — see lib/subject.ts.
+  const [subject, setSubject] = useState('')
   const [difficulty, setDifficulty] = useState<number>(0)
   const [mining, setMining] = useState(false)
   const [miningTries, setMiningTries] = useState(0)
@@ -111,14 +114,16 @@ export function Composer() {
     setPublishing(true)
     setPublishError(null)
 
+    const tags: string[][] = []
+    if (sensitive) tags.push(sensitiveReason.trim() ? ['content-warning', sensitiveReason.trim()] : ['content-warning'])
+    if (subject.trim()) tags.push(['subject', subject.trim()])
+
     const event = new NDKEvent(ndk, {
       kind: 1,
       content: [content.trim(), ...attachments.filter((a) => a.status === 'done').map((a) => a.url as string)]
         .filter(Boolean)
         .join('\n\n'),
-      tags: sensitive
-        ? [sensitiveReason.trim() ? ['content-warning', sensitiveReason.trim()] : ['content-warning']]
-        : [],
+      tags,
     })
 
     // Mining brute-forces the nonce only — pubkey/created_at/tags/content
@@ -170,6 +175,7 @@ export function Composer() {
       setAttachments([])
       setSensitive(false)
       setSensitiveReason('')
+      setSubject('')
       setDifficulty(0)
     } catch (e) {
       setPublishError(e instanceof Error ? e.message : 'Failed to publish')
@@ -197,6 +203,14 @@ export function Composer() {
         </span>
       )}
       <div className="composer-body">
+        <input
+          type="text"
+          className="input composer-subject"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          placeholder="Subject (optional)"
+          maxLength={80}
+        />
         <textarea
           className="textarea"
           value={content}

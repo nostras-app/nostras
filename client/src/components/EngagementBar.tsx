@@ -5,6 +5,7 @@ import { ndk, devPublishRelaySet } from '../lib/ndk'
 import { useEventCount, useReactionList } from '../hooks/useEventCount'
 import { useBookmark } from '../hooks/useBookmark'
 import { viewNote } from '../lib/navigation'
+import { getSubject, replySubject } from '../lib/subject'
 import { ZapButton } from './ZapButton'
 import { TranslateButton } from './TranslateButton'
 import { NoteMenu } from './NoteMenu'
@@ -33,6 +34,10 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
   const [reposted, setReposted] = useState(false)
   const [replying, setReplying] = useState(false)
   const [replyText, setReplyText] = useState('')
+  // NIP-14: prefilled from the parent's own subject (with "Re: " adorned
+  // per the spec) when opening a reply, editable, omitted entirely if
+  // left blank — see lib/subject.ts.
+  const [replySubjectText, setReplySubjectText] = useState('')
   const [busy, setBusy] = useState(false)
   const [listModal, setListModal] = useState<'likes' | 'reposts' | null>(null)
 
@@ -74,20 +79,28 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
     }
   }
 
+  function openReply() {
+    if (!replying) setReplySubjectText(replySubject(getSubject(event.tags)) ?? '')
+    setReplying((v) => !v)
+  }
+
   async function handleReply() {
     if (!replyText.trim() || busy) return
     setBusy(true)
     try {
+      const tags: string[][] = [
+        ['e', event.id, '', 'reply'],
+        ['p', event.pubkey],
+      ]
+      if (replySubjectText.trim()) tags.push(['subject', replySubjectText.trim()])
       const reply = new NDKEvent(ndk, {
         kind: 1,
         content: replyText,
-        tags: [
-          ['e', event.id, '', 'reply'],
-          ['p', event.pubkey],
-        ],
+        tags,
       })
       await reply.publish(devPublishRelaySet)
       setReplyText('')
+      setReplySubjectText('')
       setReplying(false)
     } finally {
       setBusy(false)
@@ -101,7 +114,7 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
           <button
             type="button"
             className="engage-btn-icon"
-            onClick={() => setReplying((v) => !v)}
+            onClick={openReply}
             aria-label="Reply"
           >
             <ReplyIcon />
@@ -180,6 +193,14 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
 
       {replying && (
         <div className="reply-composer">
+          <input
+            type="text"
+            className="input"
+            value={replySubjectText}
+            onChange={(e) => setReplySubjectText(e.target.value)}
+            placeholder="Subject (optional)"
+            maxLength={80}
+          />
           <textarea
             className="textarea"
             value={replyText}

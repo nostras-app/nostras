@@ -9,6 +9,7 @@ import { viewProfile } from '../lib/navigation'
 import { getReplyToEventId } from '../lib/nip10'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { getContentWarningReason } from '../lib/contentWarning'
+import { getSubject } from '../lib/subject'
 import { NoteContent } from './NoteContent'
 import { EngagementBar } from './EngagementBar'
 import { ArticleCard } from './ArticleCard'
@@ -113,7 +114,12 @@ export function FeedItem({ event }: { event: NDKEvent }) {
           )}
         </div>
         {replyToId && <ReplyContext replyToId={replyToId} />}
-        <NoteContent content={event.content} contentWarning={getContentWarningReason(event.tags)} tags={event.tags} />
+        <NoteContent
+          content={event.content}
+          contentWarning={getContentWarningReason(event.tags)}
+          subject={getSubject(event.tags)}
+          tags={event.tags}
+        />
         <div className="feed-item-footer">
           <EngagementBar event={event} />
         </div>

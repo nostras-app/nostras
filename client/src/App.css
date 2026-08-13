@@ -1206,6 +1206,14 @@ a.profile-external-identity:hover {
   margin: 0;
 }
 
+.note-subject {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 4px 0;
+  overflow-wrap: anywhere;
+}
+
 .feed-item-footer {
   display: flex;
 }

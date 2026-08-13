@@ -18,6 +18,7 @@ function truncateSafely(content: string, limit: number) {
 export function NoteContent({
   content,
   contentWarning,
+  subject,
   tags,
 }: {
   content: string
@@ -25,6 +26,10 @@ export function NoteContent({
   // marked sensitive with no reason given; any other string is the
   // author's stated reason. See lib/contentWarning.ts.
   contentWarning?: string | null
+  // NIP-14: the note's own ["subject", ...] tag, if any — rendered as a
+  // distinct line above the body, the "email subject line" style the
+  // spec describes, not folded into the content itself.
+  subject?: string | null
   // NIP-30: the source event's own tags, so parseContentSegments can
   // resolve :shortcode: custom emoji against this event's ["emoji", ...]
   // tags — scoped to the emitting event, not a global registry.
@@ -39,6 +44,7 @@ export function NoteContent({
   if (contentWarning != null && !revealed) {
     return (
       <div className="note-content">
+        {subject && <p className="note-subject">{subject}</p>}
         <div className="content-warning-gate">
           <WarningIcon className="content-warning-icon" />
           <span className="content-warning-text">
@@ -72,6 +78,7 @@ export function NoteContent({
 
   return (
     <div className="note-content">
+      {subject && <p className="note-subject">{subject}</p>}
       <p className="feed-item-content">
         {textSegments.map((seg, i) => {
           if (seg.type === 'link') {

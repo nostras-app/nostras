@@ -7332,6 +7332,80 @@ clean "Mining cancelled" error with no hang, and confirmed the Publish
 button was immediately usable again afterward, not stuck. Confirmed
 zero console errors across a fresh reload.
 
+## NIP-14 subject tags added — picked directly after explaining the NIP
+to the user (2026-08-13)
+
+Fetched the real spec text before building: a single `["subject",
+"<text>"]` tag on kind:1 events, metadata kept separate from content
+(so a client can show a thread list "the more ad hoc approach of using
+the first few words of the message" the spec explicitly calls out as
+what this replaces), under 80 characters by convention, and — the part
+that makes this more than a display-only feature — "when responding to
+a message containing a subject, clients should preserve the tag...
+MAY adorn the subject... e.g. by prepending 'Re:'."
+
+**Scoped to all three pieces in one pass** (compose, display, reply
+preservation) rather than splitting across sessions, since NIP-14's
+own real value is specifically in the reply-preservation half — a
+subject field with no reply-threading behavior would be a much weaker,
+half-finished version of what the spec actually describes.
+
+**New `client/src/lib/subject.ts`**: `getSubject(tags)` reads the tag;
+`replySubject(parentSubject)` adorns it with "Re: " per the spec — but
+skips the prefix if the parent's subject already starts with "Re:"
+(case-insensitive), avoiding a "Re: Re: Re:" stack on a multi-level
+reply chain, matching ordinary email convention over the spec's more
+literal wording.
+
+**Compose side**: `Composer.tsx` gained an optional subject `<input>`
+(80-char max, matching the spec's own stated convention) above the
+main textarea, included as a `["subject", ...]` tag only when non-empty
+— reset to blank on successful publish along with every other
+per-post field.
+
+**Reply side**: `EngagementBar.tsx`'s inline reply composer gained the
+identical input, but *prefilled*: opening a reply now calls
+`replySubject(getSubject(event.tags))` and seeds the field with the
+result (or leaves it blank if the parent had no subject) — editable
+before sending, not force-applied. `handleReply` includes the tag in
+the outgoing reply only if the (possibly user-edited) field is
+non-empty.
+
+**Display side**: `NoteContent.tsx` gained an optional `subject` prop,
+rendered as a bold line (`.note-subject`) above the body — shown even
+while a NIP-36 content-warning gate is hiding the actual content,
+matching how an email subject line is visible before you open the
+message. Both real call sites that render kind:1 content directly
+(`Feed.tsx`'s `FeedItem`, covering the global/following feed, search,
+bookmarks, and any profile's own notes; `NotificationsView.tsx`) were
+updated together, the same "both places kind:1 content actually
+renders" precedent already established for NIP-30's emoji work.
+
+**Verified for real, end to end, against a real local relay and the
+actual UI — not just built clean**: `tsc -b`, `oxlint`, `vite build`
+clean (only the pre-existing unrelated `useNoteFeed.ts` warning).
+Published a real `nak` note carrying a subject tag and confirmed it
+rendered as a genuine bold line above the content in a live browser.
+Published a second note through the actual Composer UI (subject +
+body both filled via native property-setter + input-event dispatch,
+this session's established reliable-fill technique) and confirmed via
+a direct `nak` query that the resulting event carried the exact
+`["subject","Testing NIP-14 subject line"]` tag. Clicked Reply on the
+first (`nak`-published) note and confirmed the reply composer's own
+subject field was live-prefilled to `"Re: Relay recommendations"`;
+sent the reply through the real UI and confirmed via `nak` that the
+published reply event carried the correct `e`/`p`/`subject` tags
+together. Then replied to *that* reply (whose subject already started
+with "Re:") and confirmed the newly-opened reply composer's prefilled
+value stayed exactly `"Re: Relay recommendations"` — no stacked
+"Re: Re:" — proving the dedup logic, not just that adornment happens
+at all. Confirmed zero console errors across a fresh reload. **Same
+Chrome-extension-bridge flakiness hit again this session**
+(`Runtime.evaluate` timeouts on more than one interaction) — each time
+confirmed via a follow-up state check that the actual fill/click had
+already landed before the disconnect, rather than assumed; no real app
+hang at any point.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
