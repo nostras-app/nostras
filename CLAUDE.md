@@ -7486,6 +7486,96 @@ and the retest in a fresh tab confirmed the live-subscription result
 path works correctly. Confirmed zero console errors across a fresh
 reload.
 
+## NIP-78 app data added — the last remaining gap from the original
+compliance-doc scan, closing it with two real bugs found live
+(2026-08-13)
+
+Fetched the real spec text before building: kind 30078 (addressable —
+a fresh publish always replaces the prior snapshot), a `d` tag naming
+the app/context, content and tags free-form ("can be anything or in
+any format"). Spec is silent on encryption; chose NIP-44 self-
+encryption anyway (recipient = the same pubkey) since this is
+genuinely private preference data and every signer type here already
+implements encrypt/decrypt to an arbitrary pubkey, so encrypting to
+yourself costs nothing extra.
+
+**Scope, decided before writing code, not discovered after**: audited
+every real `localStorage` key in the client first
+(`identities.ts`/`nwc.ts`/`remoteSigner.ts` hold real private keys, a
+wallet connection secret, and signer session material — **never**
+synced, encrypted or not, since publishing any of that anywhere would
+be a real security regression against this project's whole bring-your-
+own-key stance) versus what's actually safe and worth syncing:
+`Feed.tsx`'s feed-mode choice and `customRelays.ts`'s relay list. Those
+two are the only fields `AppPreferences` covers.
+
+**New `client/src/lib/appData.ts`**: `fetchAppPreferences`/
+`publishCurrentPreferences`/`applyFetchedPreferences`. Wired in three
+places — `App.tsx` fetches once per boot (same ref-guarded, `state`/
+`authState`-gated pattern already established for the deep-link
+resolution effect) and applies the result to `localStorage`;
+`Feed.tsx`'s mode-change effect and `RelaySettings.tsx`'s add/remove
+handlers both fire a fire-and-forget republish of the *current* full
+snapshot (not a diff — kind 30078 is a plain overwrite, so every write
+just reads both fields fresh and publishes together). **Deliberately
+does not try to make a synced change take effect on the same load** —
+Feed's mode state and the relay pool's live connections are both
+already initialized by the time the fetch resolves, and a locally-
+added custom relay already needs a reload to actually connect (see
+`customRelays.ts`'s own established behavior) — so the synced value
+takes effect next load too, consistent with that existing behavior
+rather than adding a new loading gate just for this.
+
+**Two real bugs found and fixed during live two-device verification,
+not shipped**:
+
+1. `Feed.tsx`'s mode-change effect fires on the *initial* mount too,
+   not just on a real user toggle — a naive `useRef(false)` "have I
+   mounted yet" guard looked right but wasn't: React 18 StrictMode
+   (already enabled in `main.tsx`) deliberately double-invokes the
+   mount-time effect in dev specifically to catch exactly this class of
+   bug, and a boolean flipped by the first invocation reads as "already
+   mounted" to the second one — which then published anyway. Caught
+   live: a fresh "device" importing an already-synced identity
+   genuinely overwrote the other device's real preferences with its own
+   blank defaults, confirmed by decrypting the resulting kind:30078 and
+   finding `{"feedMode":"global","customRelays":[]}` where a real
+   synced value should have been. Fixed by comparing against the
+   *value* `mode` started at (captured once via `useRef(mode)`) instead
+   of a boolean — invariant to how many times the effect actually runs,
+   only ever publishes once `mode` has genuinely changed.
+2. `fetchAppPreferences` had no timeout on its `ndk.fetchEvent()` call —
+   the same real, previously-documented bug class already fixed in
+   `paidArticles.ts`/`remoteSigner.ts`/`dm.ts`, just never applied here.
+   Caught live: after the mount-guard fix, a fresh device's sync fetch
+   still showed no result after 3+ seconds with zero error. Fixed with
+   the same `withTimeout()` pattern already established elsewhere in
+   this codebase (8s) — confirmed the fetch was genuinely just slow, not
+   stuck, once wrapped: it resolved correctly well within the timeout
+   on retest.
+
+**Verified for real, end to end, against a real local relay and a real
+two-device simulation — not just built clean**: `tsc -b`, `oxlint`,
+`vite build` clean (only the pre-existing unrelated `useNoteFeed.ts`
+warning). Generated a real throwaway identity; as "device 1," set Feed
+mode to Following and added a real custom relay through the actual UI,
+then confirmed via a direct `nak` query that the resulting kind:30078
+event was genuinely NIP-44 self-encrypted (ciphertext, not readable
+JSON) and — independently, via `nak decrypt` with the same key — that
+it decrypted back to the exact correct
+`{"feedMode":"following","customRelays":["wss://nip78test.example.com/"]}`.
+Wiped all local storage and re-imported the *same* identity as a fresh
+"device 2": caught both bugs above live, in sequence, by decrypting
+each intermediate published event and finding the clobber; fixed each,
+rebuilt, and reconfirmed via the served dev bundle that the fix was
+actually live before retesting. Final clean run: device 2's sync fetch
+correctly populated `localStorage` with the exact device-1 values, the
+relay's stored event was confirmed byte-for-byte unchanged throughout
+(no clobber), and after one reload the real UI showed the Following
+tab genuinely active and the synced custom relay listed in Settings.
+Confirmed zero console errors across a 12-second full boot-and-sync
+window on a fresh reload.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

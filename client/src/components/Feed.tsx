@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { useProfile } from '../hooks/useProfile'
 import { useNoteFeed } from '../hooks/useNoteFeed'
@@ -10,6 +10,7 @@ import { getReplyToEventId } from '../lib/nip10'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { getContentWarningReason } from '../lib/contentWarning'
 import { getSubject } from '../lib/subject'
+import { type FeedMode, loadFeedMode, FEED_MODE_KEY, publishCurrentPreferences } from '../lib/appData'
 import { NoteContent } from './NoteContent'
 import { EngagementBar } from './EngagementBar'
 import { ArticleCard } from './ArticleCard'
@@ -145,19 +146,38 @@ export function FeedSkeleton() {
   )
 }
 
-type FeedMode = 'global' | 'following'
-const FEED_MODE_KEY = 'nostras:feed-mode'
-
-function loadFeedMode(): FeedMode {
-  return localStorage.getItem(FEED_MODE_KEY) === 'following' ? 'following' : 'global'
-}
-
 export function Feed() {
   const [mode, setMode] = useState<FeedMode>(loadFeedMode)
   const { pubkeys: followingPubkeys, loading: followingLoading } = useFollowing()
+  // Real bug caught during verification, not shipped: effects fire on
+  // the initial mount too, not just on subsequent changes. Without this
+  // guard, a fresh device's very first render — local mode still at
+  // whatever loadFeedMode()'s default is, before App.tsx's own NIP-78
+  // fetch-and-apply effect has had a chance to resolve — would publish
+  // that blank default and silently overwrite another device's already-
+  // synced preferences in the race. Only an actual user-driven mode
+  // change (Following/Global tab click) should ever publish.
+  //
+  // A plain "have I mounted yet" boolean ref isn't enough: React 18
+  // StrictMode (enabled in main.tsx) deliberately double-invokes the
+  // mount-time effect in dev to help surface exactly this class of bug
+  // — a boolean flip on the first invocation looks like "already
+  // mounted" to the second one, so it publishes anyway. Confirmed live:
+  // the boolean version genuinely double-published a blank snapshot
+  // right after a fresh import, before this fix. Comparing against the
+  // *value* mode started at is invariant to how many times the effect
+  // runs — it only ever publishes once mode has genuinely changed from
+  // what it was when this component was created.
+  const initialModeRef = useRef(mode)
 
   useEffect(() => {
     localStorage.setItem(FEED_MODE_KEY, mode)
+    if (mode === initialModeRef.current) return
+    // NIP-78: fire-and-forget — a toggle shouldn't block on a relay
+    // round trip, and a failure here just means this device's choice
+    // doesn't reach other devices this time, not that the toggle itself
+    // failed (it already took effect locally via the line above).
+    publishCurrentPreferences().catch(() => {})
   }, [mode])
 
   const { events, loading } = useNoteFeed(mode === 'following' ? followingPubkeys : undefined)

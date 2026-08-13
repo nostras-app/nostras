@@ -11,6 +11,7 @@ import {
   removeCustomRelayUrl,
   isValidRelayUrl,
 } from '../lib/customRelays'
+import { publishCurrentPreferences } from '../lib/appData'
 import { UploadIcon } from './icons'
 
 const normalizedLocalRelayUrl = normalizeRelayUrl(localRelayUrl)
@@ -51,6 +52,11 @@ export function RelaySettings() {
     setCustomRelays(getCustomRelays())
     setInput('')
     setError(null)
+    // NIP-78: fire-and-forget, same reasoning as Feed.tsx's feed-mode
+    // sync — a failure here doesn't undo the relay that was just added
+    // locally, it just means this device's change doesn't reach other
+    // devices this time.
+    publishCurrentPreferences().catch(() => {})
   }
 
   function handleRemove(url: string) {
@@ -58,6 +64,7 @@ export function RelaySettings() {
     ndk.pool.removeRelay(url)
     refreshRelayList()
     setCustomRelays(getCustomRelays())
+    publishCurrentPreferences().catch(() => {})
   }
 
   return (

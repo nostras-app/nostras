@@ -3,6 +3,7 @@ import { ndk } from './lib/ndk'
 import { hasAnyLocalIdentity, getBootSignerState } from './lib/identities'
 import { restoreSignerSession } from './lib/remoteSigner'
 import { resolveDeepLinkFromUrl } from './lib/deeplink'
+import { fetchAppPreferences, applyFetchedPreferences } from './lib/appData'
 import { setAuthState, useAuthState } from './lib/authState'
 import { AuthGate } from './components/AuthGate'
 import { UnlockIdentityGate } from './components/UnlockIdentityGate'
@@ -46,6 +47,7 @@ function App() {
   // renders one.
   const { view: activeView, profilePubkey, article, note, dmTarget, groupTarget } = useNavState()
   const deepLinkResolved = useRef(false)
+  const appPreferencesSynced = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -121,6 +123,28 @@ function App() {
     if (state !== 'connected' || authState !== 'ready') return
     deepLinkResolved.current = true
     resolveDeepLinkFromUrl()
+  }, [state, authState])
+
+  // NIP-78: pulls this identity's synced app preferences (feed mode,
+  // custom relay list — see lib/appData.ts for why only those two) once
+  // per boot, same gating as the deep-link effect above (signer/relay
+  // pool both settled). Deliberately does not try to make a synced
+  // change take effect on *this* load — Feed's own feed-mode state and
+  // the relay pool's live connections are both already initialized by
+  // the time this resolves, same as a locally-added custom relay
+  // already requires a reload to actually connect. This only updates
+  // storage so the *next* load picks it up, consistent with that
+  // existing behavior rather than adding a new loading gate just for
+  // this.
+  useEffect(() => {
+    if (appPreferencesSynced.current) return
+    if (state !== 'connected' || authState !== 'ready') return
+    const pubkey = ndk.activeUser?.pubkey
+    if (!pubkey) return
+    appPreferencesSynced.current = true
+    fetchAppPreferences(pubkey).then((prefs) => {
+      if (prefs) applyFetchedPreferences(prefs)
+    })
   }, [state, authState])
 
   function panelClass(view: View) {
