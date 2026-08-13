@@ -110,6 +110,67 @@ func geoLookupCountry(ip string) string {
 	return code
 }
 
+// geoCache avoids re-querying ipapi.co for an IP that was already resolved
+// recently — every connection previously triggered a brand-new lookup, even
+// a same-IP reconnect seconds later (a browser reload, NDK's own
+// reconnect-after-hiccup logic, repeated dev/testing connections from the
+// same machine). ipapi.co's free tier has a real daily request quota; once
+// it's exhausted, every lookup for the rest of that window silently
+// degrades to "unknown" regardless of true origin — confirmed as the likely
+// driver of this relay's real dashboard data showing "unknown" dominating
+// by two orders of magnitude over every real country combined. Caching
+// directly cuts how often that quota gets hit, so "unknown" going forward
+// more accurately reflects genuinely-unresolvable connections rather than
+// quota exhaustion from redundant lookups of IPs already seen.
+const (
+	geoCacheTTL = time.Hour
+	// Bounded so a long-running process can't slowly leak memory as it
+	// accumulates entries for thousands of unique IPs over weeks/months —
+	// this relay has already had real near-OOM incidents on this exact
+	// machine (see CLAUDE.md), so an unbounded cache isn't a risk worth
+	// taking for what's just a best-effort accuracy optimization.
+	geoCacheMaxSize = 5000
+)
+
+type geoCacheEntry struct {
+	country   string
+	expiresAt time.Time
+}
+
+var (
+	geoCacheMu sync.Mutex
+	geoCache   = map[string]geoCacheEntry{}
+)
+
+func geoLookupCountryCached(ip string) string {
+	if ip == "" {
+		return ""
+	}
+
+	geoCacheMu.Lock()
+	if entry, ok := geoCache[ip]; ok && time.Now().Before(entry.expiresAt) {
+		geoCacheMu.Unlock()
+		return entry.country
+	}
+	geoCacheMu.Unlock()
+
+	country := geoLookupCountry(ip)
+
+	geoCacheMu.Lock()
+	// Simplest possible bound: rather than a real LRU, just wipe the whole
+	// cache once it grows past the cap. This is a best-effort optimization,
+	// not a correctness-critical structure — losing early entries
+	// occasionally just costs one extra API call to re-resolve them, no
+	// more than if the cache didn't exist at all.
+	if len(geoCache) >= geoCacheMaxSize {
+		geoCache = map[string]geoCacheEntry{}
+	}
+	geoCache[ip] = geoCacheEntry{country: country, expiresAt: time.Now().Add(geoCacheTTL)}
+	geoCacheMu.Unlock()
+
+	return country
+}
+
 // newAnalyticsConnectHook returns a khatru OnConnect hook. Dispatches the
 // geo lookup and the store write in a goroutine so a slow/unreachable geo
 // API never adds latency to the connection handshake itself — the same
@@ -119,7 +180,7 @@ func newAnalyticsConnectHook(store *analyticsStore) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		ip := khatru.GetIP(ctx)
 		go func() {
-			country := geoLookupCountry(ip)
+			country := geoLookupCountryCached(ip)
 			store.record(country)
 		}()
 	}
