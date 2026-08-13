@@ -10,6 +10,7 @@ import (
 	"github.com/fiatjaf/eventstore/badger"
 	"github.com/fiatjaf/eventstore/bluge"
 	"github.com/fiatjaf/khatru"
+	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/sdk"
 )
 
@@ -241,6 +242,50 @@ func main() {
 	)
 	aggregatedQuery := newAggregatedQuery(&db, sys)
 	relay.QueryEvents = append(relay.QueryEvents, newSearchAwareQuery(&searchIndex, aggregatedQuery))
+
+	// NIP-43 Relay Access Metadata and Requests — see nip43.go. Does NOT
+	// gate this relay (it stays exactly as open as before); it's real
+	// protocol participation on top of that openness — a join request is
+	// always accepted, since there's no admission decision to make on an
+	// open relay. NOSTRAS_RELAY_PRIVATE_KEY (hex secret) gives the relay
+	// its own stable signing identity, required to mint the kind:8000/
+	// 8001/13534/33534 events this NIP defines — the first place this
+	// codebase signs and publishes an event the relay itself authored,
+	// rather than only reacting to client-published ones. Unset means the
+	// feature stays fully inert (not advertised in NIP-11, no hooks
+	// registered), same safe-by-default posture as NOSTRAS_ADMIN_PUBKEY.
+	//
+	// Placed here deliberately, after relay.StoreEvent/relay.QueryEvents
+	// are both fully wired above — a real bug caught during verification,
+	// not shipped: this block originally sat right after the NIP-86 setup
+	// (much earlier in main()), which meant the one-time boot call to
+	// publishRoleDefinition() ran relay.AddEvent against still-empty
+	// StoreEvent/QueryEvents hook chains. AddEvent's manual replaceable-
+	// event path iterates those chains and silently no-ops on an empty
+	// slice — no error, "success" reported, but the event was never
+	// actually persisted. Confirmed live: a real kind:33534 event
+	// published this way came back from both `nak req` and `nak count`
+	// as if it never existed, despite AddEvent reporting skipBroadcast=
+	// false, err=nil.
+	relayPrivateKey := os.Getenv("NOSTRAS_RELAY_PRIVATE_KEY")
+	if relayPrivateKey == "" {
+		fmt.Println("NIP-43 relay membership: OFF (NOSTRAS_RELAY_PRIVATE_KEY not set)")
+	} else {
+		relayPubkey, err := nostr.GetPublicKey(relayPrivateKey)
+		if err != nil {
+			panic(err)
+		}
+		nip43Cache := newNip43Cache()
+		if err := nip43Cache.loadFromStore(context.Background(), &db, relayPubkey); err != nil {
+			panic(err)
+		}
+		relay.Info.AddSupportedNIP(43)
+		relay.OnEphemeralEvent = append(relay.OnEphemeralEvent, newNip43EphemeralHook(relay, nip43Cache, relayPrivateKey))
+		if err := publishRoleDefinition(context.Background(), relay, relayPrivateKey); err != nil {
+			fmt.Println("nip43: could not publish role definition:", err)
+		}
+		fmt.Println("NIP-43 relay membership: ON, relay pubkey", relayPubkey)
+	}
 
 	fmt.Println("NOSTRAS relay running on :" + port)
 	http.ListenAndServe(":"+port, relay)

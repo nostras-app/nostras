@@ -6830,6 +6830,113 @@ genuinely empty `tags` array. Confirmed zero console errors across a
 fresh page reload and the whole interaction sequence, tracked from
 before any interaction began.
 
+## NIP-43 relay access metadata added — server-only, and a real ordering
+bug found and fixed mid-verification (2026-08-13)
+
+Direct follow-up: asked to fix NIP-43 specifically (not "pick the next
+one"). Fetched the real spec first: relay membership management via
+kind:33534 (role definitions, addressable), kind:13534 (membership
+list, replaceable), kind:8000/8001 (member added/removed, regular —
+signed by the relay's own key), and kind:28934/28936 (join/leave
+requests, ephemeral — signed by the requesting user). A third pair,
+kind:28935 (relay-generated invite codes), exists in the spec too.
+
+**Scoped deliberately, stated plainly rather than silently narrowed**:
+NOSTRAS's relay stays exactly as open as it's always been — this adds
+real protocol *participation* on top of that openness, not gating.
+Every kind:28934 join request is accepted unconditionally, since an
+open relay has no admission decision to make. kind:28935 (invite-code
+generation) is not implemented at all — the spec itself says a relay
+must "explicitly opt-in" to minting invite codes, and there's no
+reason to on a relay nobody needs an invite to use.
+
+**This is the first place in this codebase where the relay signs and
+publishes its own Nostr events**, rather than only reacting to client-
+published ones — everything else (NIP-29, NIP-62, NIP-86, NIP-45) only
+deletes, rejects, or mutates in response to what a client sends.
+Researched this specifically before writing code (dispatched an
+Explore agent to trace khatru's actual source): `relay.AddEvent(ctx,
+evt)` runs the same `RejectEvent`/`StoreEvent`/`OnEventSaved` pipeline
+a client-submitted event would; `relay.BroadcastEvent(evt)` is the
+separate fan-out-to-live-subscribers step; `nostr.Event.Sign(secretKey)`
+is go-nostr's own signer, not used anywhere else in this codebase
+before now. `NOSTRAS_RELAY_PRIVATE_KEY` (hex secret) gives the relay a
+*stable* signing identity — unlike the DVM's own signing key (regenerated
+fresh every boot, fine there since clients correlate by request id, not
+by a stable DVM pubkey), membership here is meaningless if the relay's
+own identity changes on every restart. Unset means the feature stays
+fully inert — not advertised in NIP-11, no hooks registered — same
+safe-by-default posture as every other optional feature in this file.
+
+**No new JSON store** — kind:8000/8001 are real, regular (stored, non-
+ephemeral) Nostr events per NIP-01's own kind-range convention, so
+current membership is derived by replaying them chronologically from
+badger at boot, the same "replay a real event history into an in-
+memory cache" pattern already used for NIP-29 group admin state.
+
+**A real, consequential ordering bug found live during verification,
+not shipped**: the first version placed the whole NIP-43 setup block —
+including the one-time boot call to `publishRoleDefinition()` — right
+after the NIP-86 setup, *before* `relay.StoreEvent`/`relay.QueryEvents`
+get wired up later in `main()`. `AddEvent`'s manual replaceable-event
+path iterates those two hook chains directly; against an empty slice,
+the loop trivially completes with no error — `AddEvent` reported
+`skipBroadcast=false, err=<nil>`, a clean "success" that had actually
+stored nothing at all. Caught by direct verification, not assumed
+correct from a clean build: a real `nak req -k 33534` and `nak count -k
+33534` both came back completely empty right after boot logged
+"NIP-43 relay membership: ON." Fixed by moving the whole block to the
+very end of `main()`, after `relay.StoreEvent`/`relay.QueryEvents` are
+fully assigned. A second, false lead chased during the same debugging
+session, corrected rather than left in the record uncorrected: an
+early re-test *appeared* to show the fix introduced a genuine ~8-10s
+startup delay (a real cost that would matter, since every join/leave
+republishes the replaceable kind:13534 list, and *that* code path also
+goes through the same expensive manual-replace check that triggers
+NIP-65 outbox aggregation for the relay's own — deliberately outbox-
+list-less — pubkey). Re-tested carefully in isolation (temporary debug
+timing prints, a clean single-process boot with no leftover test
+processes racing for the port) and found the real number was under a
+second — the earlier ~8s readings were artifacts of overlapping
+`go run` processes from the test session's own process-management
+mistakes, not a genuine performance problem in the design. Stated
+honestly rather than either quietly accepted or over-fixed: worth a
+real look if this relay ever needs to handle heavy join/leave volume,
+but not a problem today.
+
+**Verified for real, end to end, against a live local relay — not just
+built clean**: `go build`/`go vet`/`gofmt -l` all clean. With a
+throwaway relay signing key: confirmed NIP-11 advertises `43` and a
+real kind:33534 role-definition event is genuinely stored and queryable
+at boot. A real join request (kind:28934) produced a genuine kind:8000
+confirmation and a correctly-updated kind:13534 list; a second join
+correctly grew the list to two members; a leave request (kind:28936)
+produced a genuine kind:8001 and correctly shrank the list back to one.
+**Restart persistence specifically verified, not just assumed from the
+replay-on-boot design**: killed the relay (data directory preserved),
+restarted, confirmed the pre-restart member was still present, then
+triggered a *new* join and confirmed the resulting kind:13534 correctly
+included both the old and new member together — proving the in-memory
+cache genuinely reloaded from stored history, not just that an old
+stored event happened to still exist. A duplicate join request from an
+already-joined pubkey correctly no-op'd (verified via an unchanged
+kind:8000 event count, not just "no crash"). Live broadcast confirmed
+separately from storage: an open `nak req --stream` subscription
+received the new kind:8000 event in real time as it was published, not
+just retrievable afterward via a fresh query. Confirmed the safe-by-
+default path too: booted with no `NOSTRAS_RELAY_PRIVATE_KEY` set,
+confirmed NIP-11 correctly omits `43`, and confirmed a kind:28934 sent
+to that instance is a harmless no-op (no NIP-43 handling registered,
+nothing else in the relay reacts to it either).
+
+**Deliberately no client-side UI** — this is a server-only compliance
+feature. NOSTRAS's own client has no reason to build a "join this
+relay's membership" flow for its own relay (using the app already
+means full read/write access, unconditionally); any NIP-43-aware
+third-party client can already interoperate with this relay's real,
+now-live implementation without NOSTRAS needing to build anything on
+the client side.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
