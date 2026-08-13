@@ -6730,6 +6730,106 @@ exactly. Confirmed zero console errors across a fresh page reload and
 the whole interaction sequence, tracked from before any interaction
 began.
 
+## NIP-39 linked accounts added — the next NIP gap after NIP-38, and a
+real spec-drift correction found along the way (2026-08-13)
+
+Direct follow-up: asked to pick the next gap a third time. Chose NIP-39
+(Linking Profiles to Other Platforms) — familiar to anyone who's used a
+GitHub/Twitter/Mastodon "verify your profile" flow, well-defined tag
+format, and a clean fit with the settings/profile-display patterns
+already established this session for NIP-38.
+
+**Real correction found before writing any code, not after**: fetched
+the live spec text directly (twice, the second time specifically asking
+for the literal first paragraph, after the first fetch's summary looked
+inconsistent with this project's own compliance doc, which assumed the
+older understanding) and confirmed the current NIP-39 puts `i` tags on
+a dedicated addressable-replaceable list event, **kind:10011** — not
+kind:0 profile metadata, which is what an older draft of this NIP (and
+this project's own compliance doc, until now) assumed. This is good
+news structurally: kind:10011 is the same "list" event family this
+project already knows how to handle (kind:10000 mute, kind:10002 relay
+list, kind:10003 bookmarks) — fetch-then-republish, not a change to the
+kind:0 profile-editing code path at all.
+
+**Scoped to the four platforms the spec itself documents a
+verification method for** (GitHub, Twitter/X, Mastodon, Telegram) — a
+free-typed "platform" field would be real-world-common but
+unverifiable even in principle, and keeping the list to the spec's own
+known set keeps it meaningful rather than an arbitrary label.
+**Explicitly not independently verified** (would mean fetching and
+parsing a gist/tweet/post per platform, a real, separate feature) —
+shown as the profile owner's own claim, and the UI says so plainly,
+right next to the (real, independently-verified) NIP-05 checkmark
+elsewhere on the same profile, so the difference in trust level is
+visible, not glossed over.
+
+**`client/src/lib/externalIdentities.ts`** (new): the platform catalog
+(id, label, per-field hints, and a `proofHelp(identity)` function that
+writes the exact verification instructions — gist/tweet/post content
+and the resulting browsable URL — reactively as the user types their
+identity, not as static boilerplate text), plus the `i`-tag parse/build
+helpers and `externalIdentityProfileUrl()` (returns `null` for
+Telegram, whose numeric IDs have no browsable public page — the UI
+renders those as plain text, not a broken link).
+
+**Two hooks, deliberately not one**, matching this project's own
+established "duplication over premature abstraction" precedent
+(documented inline in the NIP-27 entry above for the same reason):
+`useExternalIdentities(pubkey)` is a plain read for *any* pubkey (used
+by `ProfileView` for both own and others' profiles), while
+`useMyExternalIdentities()` is the edit-side hook, scoped to the active
+user's own list only, and **built to the exact fetch-then-republish
+safety shape this project settled on after fixing the identical bug
+three times** (`useFollowing`/`useBookmark`/`useNip65RelayList`, see
+their own entries earlier in this file): a loading guard against
+mutating before the current list is known, an explicit 8s publish
+timeout, a real error surfaced on failure, and `add`/`removeIdentity`
+returning `Promise<boolean>` rather than `void` — reading the hook's
+own `error` state immediately after `await` risks a stale closure, the
+same reason `useNip65RelayList`'s `save()` was fixed to return a
+boolean. Both use `authorQueryRelaySet` for authors-filtered fetches,
+not left unscoped — the same NDK CONNECTED-only relay-race class of bug
+already hit and fixed several times this project (see `lib/ndk.ts`'s
+own comment on `authorQueryRelaySet`), applied proactively rather than
+rediscovered. `10011 as NDKKind` was needed for the `fetchEvent`
+filter's `kinds` array — the same NDKKind-enum gap already hit for the
+NIP-29 delete kinds, the paid-article-unlock result kind, and NIP-38's
+own status kind.
+
+**UI**: a new `LinkedAccountsSettings.tsx` (its own settings-panel
+section, not folded into `ProfileEditor.tsx` the way NIP-38's smaller
+status editor was — this one's a longer list-based UI with real
+per-platform help text, and this project already has a strong
+precedent of small standalone settings components rather than growing
+one file indefinitely). `ProfileView.tsx` renders each claimed identity
+as `Platform: identity`, clickable when a profile URL exists.
+
+**Verified for real, end to end, against a live local relay and the
+actual UI — not just built clean**: `tsc -b`, `oxlint` (only the
+pre-existing unrelated `useNoteFeed.ts` warning), `vite build` all
+clean. **A real test-data mistake caught before treating anything as a
+bug, not after**: the first `nak event --tag i=github:octocat=abc123gist`
+attempt produced a malformed 2-element tag (`nak`'s `--tag key=value`
+syntax only supports one `=`; a 3-element tag needs `--tag
+i="platform:identity;proof"`, semicolon-separated) — confirmed via the
+raw stored event before assuming the parser was at fault; the parser
+in fact correctly rejected the malformed tag, exactly the fail-closed
+behavior it was built for. With correctly-shaped test data, confirmed
+via the DOM accessibility tree (not just visually) that GitHub/Twitter
+identities render as real `<a href>` links to the right profile URLs
+and Telegram renders as plain, non-clickable text. Then drove the
+actual `LinkedAccountsSettings` UI end to end on the app's own active
+dev identity: typed a GitHub username, watched the help text update
+live with the real verification URL, added it, and independently
+confirmed via a direct `nak` query that the real published kind:10011
+event carried the exact `["i","github:realuser42","abcgistid123"]`
+tag — not just trusting the UI's own success state. Clicked Remove and
+confirmed via a second `nak` query that the republished event had a
+genuinely empty `tags` array. Confirmed zero console errors across a
+fresh page reload and the whole interaction sequence, tracked from
+before any interaction began.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

@@ -8,6 +8,8 @@ import { useFollowing } from '../hooks/useFollowing'
 import { useNip05Verified } from '../hooks/useNip05Verified'
 import { useWalletBalance } from '../hooks/useWalletBalance'
 import { useUserStatus } from '../hooks/useUserStatus'
+import { useExternalIdentities } from '../hooks/useExternalIdentities'
+import { EXTERNAL_IDENTITY_PLATFORMS, externalIdentityProfileUrl } from '../lib/externalIdentities'
 import { FeedItem, FeedSkeleton } from './Feed'
 import { FollowListModal } from './FollowListModal'
 import { UserIcon, CheckCircleIcon, ZapCircleIcon } from './icons'
@@ -60,6 +62,7 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
   } = useFollowing()
   const nip05Verified = useNip05Verified(viewedUser, profile?.nip05)
   const status = useUserStatus(viewedPubkey)
+  const externalIdentities = useExternalIdentities(viewedPubkey)
   // Wallet balance is always the ACTIVE user's own connected NWC wallet —
   // showing it while viewing someone else's profile would misleadingly
   // suggest it's theirs.
@@ -170,6 +173,29 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
                 </span>
               )}
             </div>
+            {externalIdentities.length > 0 && (
+              <div className="profile-external-identities" title="Claimed by this profile, not independently verified">
+                {externalIdentities.map((id) => {
+                  const url = externalIdentityProfileUrl(id.platform, id.identity)
+                  const label = EXTERNAL_IDENTITY_PLATFORMS.find((p) => p.id === id.platform)?.label ?? id.platform
+                  return url ? (
+                    <a
+                      key={`${id.platform}:${id.identity}`}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="profile-external-identity"
+                    >
+                      {label}: {id.identity}
+                    </a>
+                  ) : (
+                    <span key={`${id.platform}:${id.identity}`} className="profile-external-identity">
+                      {label}: {id.identity}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

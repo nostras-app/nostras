@@ -18,6 +18,7 @@ import { CommunitiesView } from './components/CommunitiesView'
 import { MessagesView } from './components/MessagesView'
 import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
+import { LinkedAccountsSettings } from './components/LinkedAccountsSettings'
 import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
 import { RelaySettings } from './components/RelaySettings'
@@ -234,6 +235,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Profile</span>
                 <ProfileEditor />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Linked Accounts</span>
+                <LinkedAccountsSettings />
               </div>
               <div className="settings-section">
                 <span className="settings-section-title">Relays</span>
