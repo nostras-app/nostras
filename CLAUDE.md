@@ -7180,6 +7180,87 @@ automation bridge itself; switched to precise JS-driven element lookups
 global feed reorders live) for the rest of the verification once this
 was confirmed.
 
+## NIP-88 polls added — the next NIP gap after NIP-75 (2026-08-13)
+
+Fetched the real NIP-88 spec text before building anything: kind 1068
+is the poll (content = the question; required `option` tags as
+`[id, label]` pairs; required `relay` tags naming where responses
+should be published; required `endsAt` unix timestamp; optional
+`polltype` — `singlechoice`/`multiplechoice`, defaults to single),
+kind 1018 is a response (`e` tag to the poll, one or more `response`
+tags with chosen option ids). The spec is explicit about tallying:
+**only the most recent vote per pubkey counts** — a later response
+event from the same voter replaces their earlier one entirely, not
+adds to it.
+
+**New**: `client/src/lib/poll.ts` (`parsePollMeta`, `isPollEnded`,
+`publishPoll`, `publishVote`), `hooks/usePollVotes.ts` (subscribes to
+kind:1018 responses tagging a poll's id, dedupes by pubkey keeping
+whichever response has the latest `created_at` — a genuinely different
+dedup shape from `useZapList`'s zap-receipt handling, which
+deliberately does *not* collapse repeat zaps from the same sender since
+each one is a separate real contribution; a repeat vote is a
+correction, not an addition), `PollComposer.tsx` (question, 2-8
+options, single/multiple-choice toggle, an end-time picker reusing
+`ProfileEditor.tsx`'s `STATUS_EXPIRY_OPTIONS` duration-button
+convention), and `PollCard.tsx` (radio/checkbox inputs pre-vote,
+percentage bars post-vote-or-ended, the voter's own choice marked with
+a ✓). **Threaded through the same shared feed machinery as articles and
+zap goals** — `useNoteFeed.ts`'s subscription `kinds` array gained
+`KIND_POLL` (`1068 as NDKKind`, the same NDK-enum-incompleteness pattern
+hit repeatedly this session) and `Feed.tsx`'s `FeedItem` branches on
+`event.kind === KIND_POLL` — so polls now render everywhere any other
+content type already does (global/following feed, search, bookmarks, a
+profile's own notes), no separate view needed. `ComposeView.tsx` gained
+a fourth "Poll" tab.
+
+**One real formatting bug caught before it shipped, not after**: the
+first draft reused `lib/time.ts`'s `formatRelativeTime()` for the "Ends
+in…" label — but that helper only ever handles *past* timestamps (every
+other call site passes a note's own `created_at`) and silently returns
+`"now"` for any future value, which would have shown "Ends now" on a
+poll that's actually still hours from closing. Fixed by adding a small,
+separate `formatEndsIn()` in `poll.ts` rather than changing
+`formatRelativeTime()` itself, since every other existing call site
+only ever needs the past-tense behavior and there was no reason to risk
+that shared code for one new future-tense use.
+
+**Verified for real, end to end, against a real local relay and a real
+browser — not just a clean build**: published a real kind:1068 poll via
+`nak` (3 options, singlechoice, 1h end time) plus two real kind:1018
+votes from two throwaway identities. Confirmed the card correctly shows
+voting inputs (not results) before the session's own identity had
+voted, with the running "2 votes" count already reflecting the two real
+existing votes. Voted through the actual UI and confirmed the card
+switched to live percentage bars (67%/0%/33%, matching 2-of-3 and
+1-of-3 exactly) with the own vote marked ✓. **Specifically verified the
+spec's own most-recent-vote-wins rule, not just assumed it worked from
+the code**: had one throwaway identity vote twice in sequence for two
+different options, reloaded, and confirmed the tally showed exactly 4
+distinct voters (not 5) with that identity's tally landing on their
+*second* vote only — proving the dedup-by-pubkey logic, not just that
+votes get counted at all. Separately published a real multiple-choice
+poll through the actual Compose UI (native property-setter + input-
+event dispatch, this session's established reliable-fill technique),
+confirmed via a direct `nak` query that the resulting event carried the
+exact right tags (two `option` tags, `polltype: multiplechoice`,
+`endsAt` = publish time + 24h, two `relay` tags pointing at the real
+public bootstrap relays), voted for both options through the real UI,
+and confirmed via `nak` that the single resulting kind:1018 event
+carried both `response` tags together (not two separate events) —
+correctly matching NIP-88's "the first response tag pointing to each
+id is considered the actual response" multi-select shape. Also
+published a poll with an already-past `endsAt` and confirmed it
+immediately rendered results with no voting inputs and no Vote button,
+correctly reading "Poll ended" instead of a countdown. Confirmed zero
+console errors across two separate fresh reloads. **Same tooling
+flakiness hit again this session** (`Runtime.evaluate` timeouts, and
+once the whole MCP tab group vanishing entirely) — recovered each time
+by waiting and re-querying state rather than assuming the app itself
+had hung; a fresh tab was needed once when a stuck tab didn't recover
+on its own, consistent with this project's own documented history of
+this exact class of environment flakiness.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
