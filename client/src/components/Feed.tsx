@@ -101,7 +101,7 @@ export function FeedItem({ event }: { event: NDKEvent }) {
           )}
         </div>
         {replyToId && <ReplyContext replyToId={replyToId} />}
-        <NoteContent content={event.content} contentWarning={getContentWarningReason(event.tags)} />
+        <NoteContent content={event.content} contentWarning={getContentWarningReason(event.tags)} tags={event.tags} />
         <div className="feed-item-footer">
           <EngagementBar event={event} />
         </div>

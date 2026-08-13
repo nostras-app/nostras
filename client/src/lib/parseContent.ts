@@ -22,6 +22,7 @@ export type ContentSegment =
   | { type: 'video'; url: string }
   | { type: 'audio'; url: string }
   | { type: 'mention'; decoded: MentionDecoded }
+  | { type: 'emoji'; shortcode: string; url: string }
 
 // NIP-27: mentions appear as nostr: URIs wrapping a NIP-19 (bech32) code —
 // only the nostr: form is matched (not a bare npub1.../note1... sitting in
@@ -29,8 +30,16 @@ export type ContentSegment =
 // [a-z0-9]+ is a superset of bech32's real charset (safe: nip19.decode()
 // below is the actual validator, this regex only needs to capture the
 // token boundary).
+//
+// NIP-30: a :shortcode: (alphanumeric/hyphen/underscore only, per the
+// spec's own restriction — this regex enforces exactly that character
+// set, not a superset) is only rendered as custom emoji if the SAME
+// event also carries a matching ["emoji", shortcode, url] tag — see
+// emojiTagMap()/the emojiTags parameter below. A shortcode with no
+// matching tag falls through to plain text, same fails-closed posture
+// as an unrecognized nostr: mention.
 const CONTENT_SPLIT_RE =
-  /(https?:\/\/[^\s]+|nostr:(?:npub|nprofile|note|nevent|naddr)1[a-z0-9]+)/g
+  /(https?:\/\/[^\s]+|nostr:(?:npub|nprofile|note|nevent|naddr)1[a-z0-9]+|:[a-zA-Z0-9_-]+:)/g
 const IMAGE_EXT_RE = /\.(jpg|jpeg|png|gif|webp|avif|bmp|svg)(\?.*)?$/i
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(\?.*)?$/i
 const AUDIO_EXT_RE = /\.(mp3|wav|ogg|m4a|flac)(\?.*)?$/i
@@ -75,7 +84,17 @@ function decodeMention(bech32: string): MentionDecoded | null {
 // data make the browser do something insecure" principle, applied to
 // rendering instead of networking. A plain link still lets a reader open
 // the media themselves; it just isn't auto-embedded.
-export function parseContentSegments(content: string): ContentSegment[] {
+// emojiTags: the source event's own ["emoji", shortcode, url] tags (NIP-30
+// scopes custom emoji to the emitting event, not a global registry) —
+// defaults to none, so existing callers that don't pass tags keep working
+// exactly as before, just with :shortcode:-shaped text always falling
+// through to plain text (no tags to match against).
+export function parseContentSegments(content: string, emojiTags: string[][] = []): ContentSegment[] {
+  const emojiMap = new Map<string, string>()
+  for (const tag of emojiTags) {
+    if (tag[0] === 'emoji' && tag[1] && tag[2]) emojiMap.set(tag[1], tag[2])
+  }
+
   return content
     .split(CONTENT_SPLIT_RE)
     .filter((part) => part.length > 0)
@@ -83,6 +102,15 @@ export function parseContentSegments(content: string): ContentSegment[] {
       if (part.startsWith('nostr:')) {
         const decoded = decodeMention(part.slice('nostr:'.length))
         if (decoded) return { type: 'mention', decoded }
+        return { type: 'text', value: part }
+      }
+      if (part.startsWith(':') && part.endsWith(':') && part.length > 2) {
+        const shortcode = part.slice(1, -1)
+        const url = emojiMap.get(shortcode)
+        // Same http:// mixed-content guard as every other embedded image
+        // in this app — an unmatched or insecure emoji URL falls back to
+        // plain text, never a broken/insecure <img>.
+        if (url && isSecureImageUrl(url)) return { type: 'emoji', shortcode, url }
         return { type: 'text', value: part }
       }
       if (!/^https?:\/\//.test(part)) {

@@ -1267,6 +1267,14 @@ a.profile-external-identity:hover {
   width: 100%;
 }
 
+.inline-emoji {
+  display: inline-block;
+  width: 1.2em;
+  height: 1.2em;
+  vertical-align: -0.25em;
+  object-fit: contain;
+}
+
 .show-more-btn {
   align-self: flex-start;
   font-size: 13px;

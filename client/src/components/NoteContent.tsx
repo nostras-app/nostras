@@ -18,12 +18,17 @@ function truncateSafely(content: string, limit: number) {
 export function NoteContent({
   content,
   contentWarning,
+  tags,
 }: {
   content: string
   // NIP-36: null/undefined means not marked sensitive at all; '' means
   // marked sensitive with no reason given; any other string is the
   // author's stated reason. See lib/contentWarning.ts.
   contentWarning?: string | null
+  // NIP-30: the source event's own tags, so parseContentSegments can
+  // resolve :shortcode: custom emoji against this event's ["emoji", ...]
+  // tags — scoped to the emitting event, not a global registry.
+  tags?: string[][]
 }) {
   const [expanded, setExpanded] = useState(false)
   // Gate starts closed for any sensitive note — "hide until acted on"
@@ -52,9 +57,9 @@ export function NoteContent({
   }
 
   const displayContent = expanded || !truncated ? content : preview
-  const segments = parseContentSegments(displayContent)
+  const segments = parseContentSegments(displayContent, tags ?? [])
   const textSegments = segments.filter(
-    (s) => s.type === 'text' || s.type === 'link' || s.type === 'mention',
+    (s) => s.type === 'text' || s.type === 'link' || s.type === 'mention' || s.type === 'emoji',
   )
   // Media stays hidden until a truncated note is expanded, so a long note
   // doesn't load heavy content the reader hasn't opted into yet.
@@ -84,6 +89,21 @@ export function NoteContent({
           }
           if (seg.type === 'mention') {
             return <MentionLink key={i} decoded={seg.decoded} />
+          }
+          if (seg.type === 'emoji') {
+            return (
+              <img
+                key={i}
+                src={seg.url}
+                alt={`:${seg.shortcode}:`}
+                title={`:${seg.shortcode}:`}
+                className="inline-emoji"
+                loading="lazy"
+                onError={(e) => {
+                  ;(e.currentTarget as HTMLImageElement).style.display = 'none'
+                }}
+              />
+            )
           }
           return <span key={i}>{seg.value}</span>
         })}

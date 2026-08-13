@@ -6937,6 +6937,89 @@ third-party client can already interoperate with this relay's real,
 now-live implementation without NOSTRAS needing to build anything on
 the client side.
 
+## NIP-30 custom emoji added — the next NIP gap, picked for a clean
+render-only scope after NIP-43's bigger server lift (2026-08-13)
+
+Direct follow-up: asked to pick the next gap again. Chose NIP-30
+(Custom Emoji) — a clean, self-contained rendering addition matching
+the exact shape of the already-proven NIP-27 mention work, deliberately
+after a heavier server-side feature (NIP-43). Fetched the real spec
+first: `["emoji", shortcode, url]` tags (a fourth, optional emoji-set
+address parameter exists too, not used here), shortcode restricted to
+alphanumeric/hyphen/underscore, `:shortcode:` in content gets
+"emojified." Applies to kind:0 name/about, kind:1/7 content, and
+kind:30315 (NIP-38 statuses) per the spec.
+
+**Scoped to kind:1 note content only** — the highest-value, most common
+case, and the only one this pass could reach without new plumbing.
+kind:0 (profile name/about) needs the *raw* kind:0 tags to resolve
+`emoji` tags against, and `useProfile.ts`'s cache only stores the
+NDK-mapped `NDKUserProfile` (built purely from `JSON.parse(event.
+content)` — tags were never part of that mapping, by NDK's own design,
+since kind:0's tags describe the *event*, not fields inside its JSON
+content). Adding a second raw-event fetch just for this would have
+been new plumbing, not a natural fit for this pass; deferred, not
+silently dropped. kind:7 (reactions) would need a whole compose-side
+custom-emoji-reaction picker — `EngagementBar.tsx`'s like button always
+sends a hardcoded `content: "+"` today — a real, separate feature.
+
+**`client/src/lib/parseContent.ts`**: `CONTENT_SPLIT_RE` gained a third
+alternative, `:[a-zA-Z0-9_-]+:` — the exact character class the spec
+itself restricts shortcodes to, not a superset (unlike the bech32
+pattern for NIP-27 mentions, where the real validator is `nip19.decode
+()` downstream; here the regex *is* the validator, since there's no
+separate decode step). `parseContentSegments` gained a second,
+optional `emojiTags` parameter (default `[]`, so the two existing call
+sites — `NoteContent.tsx` and `ProfileView.tsx`'s bio renderer — keep
+compiling and behaving exactly as before without changes forced on
+them) — builds a shortcode→url map from the *source event's own* emoji
+tags (NIP-30 scopes custom emoji to the emitting event, not a global
+registry) and resolves matches against it. A shortcode with no
+matching tag, or whose matched URL isn't `https://`, falls through to
+plain text — the same fails-closed posture as an unrecognized `nostr:`
+mention, and specifically reuses the existing `isSecureImageUrl()`
+guard rather than introducing a second insecure-image code path this
+project has already had to close once (the "Not Secure" mixed-content
+incident, audited and fixed across nine call sites earlier this
+project — this is the tenth, closed from the start this time instead
+of found later).
+
+**`NoteContent.tsx`** gained an optional `tags` prop, threaded through
+from `Feed.tsx`'s `FeedItem` and `NotificationsView.tsx` (the two real
+call sites) as `event.tags`; a resolved emoji segment renders as a real
+`<img class="inline-emoji">`, sized to `1.2em` and baseline-aligned so
+it sits inline with surrounding text rather than breaking the line
+height, with the same `onError`-hides-the-element fallback already
+established for regular note-media images (`note-media-image`) — an
+emoji URL that fails to actually load degrades to nothing shown, not a
+broken-image icon.
+
+**Verified for real, end to end, against a live local relay and the
+actual UI — not just built clean**: `tsc -b`, `oxlint` (only the
+pre-existing unrelated `useNoteFeed.ts` warning), `vite build` all
+clean. Published two real test notes via `nak`: one with a genuine
+`emoji` tag (`partyparrot` → a real betterttv CDN GIF URL) alongside an
+*unmatched* shortcode (`:unknownemoji:`, no tag) and a *malformed* one
+(`:notemoji` with no closing colon), and a second testing the security
+guard specifically — a shortcode whose tag pointed at an `http://` (not
+`https://`) URL. Confirmed via the client's own extracted page text
+that the insecure-URL note correctly showed the literal `:badscheme:`
+text, never an `<img>`. For the real-emoji note, confirmed via direct
+DOM inspection (`document.querySelectorAll('.inline-emoji')`, not just
+a screenshot) that a genuine `<img>` element existed with the *exact*
+right `src` (the real betterttv URL from the tag) and `alt`
+(`:partyparrot:`) — and separately confirmed the unmatched/malformed
+shortcodes correctly remained as literal text in the same note, right
+alongside the successfully-resolved one, proving the three cases are
+handled independently and correctly within a single note rather than
+just individually. The external CDN image itself failed to actually
+load in this sandboxed environment (`complete: true, naturalWidth: 0`
+via direct DOM inspection) — confirmed this triggered the real
+`onError` fallback (`display: none`) correctly, the same degrade
+already proven for ordinary note media, rather than leaving a broken-
+image icon on the page. Confirmed zero console errors across a fresh
+page reload.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
