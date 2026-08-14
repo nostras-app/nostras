@@ -9,6 +9,10 @@ export const GROUP_ADMIN_PUBLISH_TIMEOUT_MS = 8000
 // real, ratified NIP-29 kind NDK just hasn't added a constant for.
 const KIND_GROUP_DELETE_GROUP = 9008 as NDKKind
 
+// See useNoteFeed.ts's comment — same missing-EOSE-fallback bug found
+// across every long-lived subscription hook in this codebase.
+const EOSE_FALLBACK_MS = 12000
+
 // Exported so useGroupList.ts can reuse the exact same derivation to
 // hide deleted groups from the discovery list — see its own comment for
 // why this needs a real subscription across every group, not just the
@@ -98,7 +102,12 @@ export function useGroupMembership(groupId: string | null) {
 
     sub.on('eose', () => setLoading(false))
 
-    return () => sub.stop()
+    const eoseFallback = setTimeout(() => setLoading(false), EOSE_FALLBACK_MS)
+
+    return () => {
+      clearTimeout(eoseFallback)
+      sub.stop()
+    }
   }, [groupId, generation])
 
   const admins = deriveAdmins(history)

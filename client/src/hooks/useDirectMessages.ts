@@ -5,6 +5,12 @@ import { useActiveUser } from './useActiveUser'
 import { useRelayStatus } from './useRelayStatus'
 import { decryptGiftWrap, type DecryptedDm } from '../lib/dm'
 
+// Real bug found across every long-lived subscription hook in this
+// codebase, not just here (see useNoteFeed.ts's own comment for the
+// full writeup): `loading` only ever cleared via the subscription's
+// `eose` event, with no fallback if a queried relay never reports it.
+const EOSE_FALLBACK_MS = 12000
+
 export type Conversation = {
   peerPubkey: string
   messages: DecryptedDm[]
@@ -52,7 +58,12 @@ export function useDirectMessages() {
 
     sub.on('eose', () => setLoading(false))
 
-    return () => sub.stop()
+    const eoseFallback = setTimeout(() => setLoading(false), EOSE_FALLBACK_MS)
+
+    return () => {
+      clearTimeout(eoseFallback)
+      sub.stop()
+    }
   }, [activeUser, generation])
 
   const conversations = useMemo<Conversation[]>(() => {

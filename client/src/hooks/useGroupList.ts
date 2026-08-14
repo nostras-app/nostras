@@ -9,6 +9,10 @@ import { deriveIsDeleted, type HistoryEvent } from './useGroupMembership'
 // cast already needed in useGroupMembership.ts).
 const KIND_GROUP_DELETE_GROUP = 9008 as NDKKind
 
+// See useNoteFeed.ts's comment — same missing-EOSE-fallback bug found
+// across every long-lived subscription hook in this codebase.
+const EOSE_FALLBACK_MS = 12000
+
 export type Group = {
   id: string
   name: string
@@ -100,7 +104,12 @@ export function useGroupList() {
 
     sub.on('eose', () => setLoading(false))
 
-    return () => sub.stop()
+    const eoseFallback = setTimeout(() => setLoading(false), EOSE_FALLBACK_MS)
+
+    return () => {
+      clearTimeout(eoseFallback)
+      sub.stop()
+    }
   }, [generation])
 
   // `groups` (deleted ones filtered out) is for the discovery list.

@@ -9,6 +9,19 @@ import { KIND_POLL } from '../lib/poll'
 // paid-article-unlock, NIP-38/39, NIP-22 comments).
 const KIND_ZAP_GOAL = 9041 as NDKKind
 
+// Real, live bug caught in production, not hypothetical: `loading` only
+// ever cleared on the subscription's own `eose` event — if a single
+// relay in an author-scoped query (authorQueryRelaySet: local + two
+// public bootstrap relays) never reports EOSE, this skeleton hangs
+// forever, no matter how many events already arrived. This is the same
+// missing-timeout/no-fallback class already fixed for blossom.ts's
+// upload and zap.ts's invoice fetch this session, just on a subscription
+// instead of a promise. A generous ceiling (this covers every profile/
+// feed view in the app, not a single one-off action) that flips loading
+// off regardless — real events keep streaming in via the 'event'
+// listener either way, this only affects when the skeleton gives up.
+const EOSE_FALLBACK_MS = 12000
+
 // Subscribes to kind:1 notes, kind:30023 long-form articles, kind:9041
 // zap goals, and kind:1068 polls — either the global feed (authors
 // omitted) or a single author's notes (profile view). Shared here so
@@ -69,7 +82,12 @@ export function useNoteFeed(authors?: string[]) {
     // up the new count on the "seen on N relays" indicator.
     sub.on('event:dup', () => forceUpdate((n) => n + 1))
 
-    return () => sub.stop()
+    const eoseFallback = setTimeout(() => setLoading(false), EOSE_FALLBACK_MS)
+
+    return () => {
+      clearTimeout(eoseFallback)
+      sub.stop()
+    }
     // authorsKey (not authors itself) is the real dependency: a plain array
     // prop gets a new reference every render, which would resubscribe on
     // every render even when the actual author list hasn't changed.

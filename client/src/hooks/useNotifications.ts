@@ -6,6 +6,10 @@ import { useRelayStatus } from './useRelayStatus'
 
 const NOTIFICATION_KINDS = [1, 6, 7, 9735]
 
+// See useNoteFeed.ts's comment — same missing-EOSE-fallback bug found
+// across every long-lived subscription hook in this codebase.
+const EOSE_FALLBACK_MS = 12000
+
 // Live activity feed of things referencing the active user: replies/
 // mentions (kind 1), reposts (kind 6), likes (kind 7), zap receipts
 // (kind 9735). Stays subscribed for as long as the view is mounted, same
@@ -45,7 +49,12 @@ export function useNotifications() {
 
     sub.on('eose', () => setLoading(false))
 
-    return () => sub.stop()
+    const eoseFallback = setTimeout(() => setLoading(false), EOSE_FALLBACK_MS)
+
+    return () => {
+      clearTimeout(eoseFallback)
+      sub.stop()
+    }
     // generation bumps only on a genuine local-relay recovery — see
     // lib/relayStatus.ts — forcing a fresh REQ after a relay restart.
   }, [activeUser, generation])

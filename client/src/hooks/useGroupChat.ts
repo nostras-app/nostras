@@ -9,6 +9,10 @@ import { useRelayStatus } from './useRelayStatus'
 // `as NDKKind` through every call site.
 const KIND_GROUP_DELETE_EVENT = 9005 as NDKKind
 
+// See useNoteFeed.ts's comment — same missing-EOSE-fallback bug found
+// across every long-lived subscription hook in this codebase.
+const EOSE_FALLBACK_MS = 12000
+
 export type GroupMessage = {
   id: string
   pubkey: string
@@ -90,7 +94,12 @@ export function useGroupChat(groupId: string | null) {
 
     sub.on('eose', () => setLoading(false))
 
-    return () => sub.stop()
+    const eoseFallback = setTimeout(() => setLoading(false), EOSE_FALLBACK_MS)
+
+    return () => {
+      clearTimeout(eoseFallback)
+      sub.stop()
+    }
   }, [groupId, generation])
 
   const deleteMessage = useCallback(
