@@ -50,7 +50,26 @@ problem," not from the strategy doc's aspirational sections). Never
 invent a stance, credential, or experience the user doesn't actually
 have.
 
-## 4. Zap amounts, if any, should be proportionate and real
+## 4. Flag it plainly when a linked post only renders correctly in NOSTRAS
+
+Real gap found live (2026-08-14): a zap goal (kind:9041, NIP-75) opened
+in Yakihonne didn't render at all, and a paid article's NIP-44-encrypted
+content showed as raw ciphertext with no unlock UI — both expected,
+both correct behavior for those other clients (an unrecognized event
+kind should be safely ignored, not crash or show garbage), but both
+genuinely broken experiences for a reader who doesn't happen to be on
+NOSTRAS.
+
+Any note this skill drafts or replies with that links to a zap goal, a
+paid article, or any other NOSTRAS-specific feature not backed by a
+widely-adopted NIP should say plainly that it's best viewed in NOSTRAS
+— don't let a reader open a link expecting it to just work in whatever
+client they're already using. A short, honest line is enough ("renders
+correctly in NOSTRAS — app.nostras.app"), not an apology or a sales
+pitch. This is about setting the right expectation, not talking anyone
+into switching clients.
+
+## 5. Zap amounts, if any, should be proportionate and real
 
 Small, typical-for-Nostr amounts (a genuine mid-two-digit-to-low-
 hundreds sats range is the usual social norm here, not a fixed rule) —
@@ -58,7 +77,7 @@ this is appreciation, not a transaction. Same standing project rule as
 everywhere else: Claude builds/shows the option, the user's own wallet
 action sends it. Never assume a zap is wanted; ask.
 
-## 5. Never send anything without explicit sign-off
+## 6. Never send anything without explicit sign-off
 
 Same discipline as every other skill here. Present the exact reply
 text (and the target note, and the account it'll post from) and wait
@@ -67,7 +86,7 @@ several candidates for the user to pick from, edit, or reject outright
 is the point — this is about spending *their* limited time well, not
 replacing their judgment.
 
-## 6. Log the session
+## 7. Log the session
 
 Append a dated entry to `nostr-client-node-strategy.md`'s **Engagement
 log** section (create it if it doesn't exist yet, near the Content and
@@ -78,7 +97,7 @@ a real reciprocity signal instead of "still hasn't started," and lets
 the next `/engage` session pick up from real state instead of
 re-surfacing the same threads.
 
-## 7. Be honest about what this can't do
+## 8. Be honest about what this can't do
 
 This can make engagement time more targeted and can draft better
 replies faster. It cannot manufacture relationships, cannot guarantee
