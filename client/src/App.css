@@ -1141,6 +1141,22 @@ a.profile-external-identity:hover {
   padding: 0;
   text-align: left;
   margin: -2px 0 2px;
+  /* Real, live user-reported bug (2026-08-14): the parent-note snippet
+     shown here is arbitrary, often-unbroken third-party content (a raw
+     JSON blob, an unspaced URL, a wall of no-space-between-words text)
+     — this is a *different* rendering path than .feed-item-content
+     (which already got this same treatment for the same reason), so it
+     needed the identical fix independently. A flex row's default
+     min-width is `auto`, meaning it won't shrink below its content's
+     intrinsic width even when its own parent is otherwise correctly
+     constrained (.feed-item-body already has min-width: 0) — that gap,
+     not a missing wrap rule alone, is what let a single long snippet
+     force this whole card, and the page around it, wider than the
+     viewport. overflow-wrap is inherited, so setting it here also
+     covers the unnamed <span> and .feed-item-reply-context-snippet
+     nested inside without repeating the rule at each level. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .feed-item-reply-context svg {
