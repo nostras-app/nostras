@@ -8153,6 +8153,109 @@ mock LNURL server, throwaway identities), consistent with this
 project's standing practice of never exercising real payment
 infrastructure or real third-party services during verification.
 
+**Deployed to production the same day** — committed and pushed;
+confirmed via `gh run list` that `deploy-client.yml` completed
+`success`, and confirmed the deployed bundle at `app.nostras.app`
+genuinely contains the deploying commit's SHA and the new episode-
+unlock code (`EpisodeUnlockPanel`, `parseEncryptedAudioPayload`), not
+just trusted the green checkmark.
+
+## Real, previously-undiscovered NDK defect: every zap sent through
+NOSTRAS carried a malformed NIP-57 zap request (2026-08-14)
+
+A second real user, "SC," on iPhone with a real NWC wallet connected,
+reported "Failed to fetch an invoice from the recipient" trying to zap
+a real Zap Goal. This turned into a three-stage investigation, each
+stage's fix directly enabling the next one to actually be found —
+worth recording in full since the eventual root cause (a real defect
+in the vendored NDK library, not this project's own code) would not
+have been discoverable without each earlier step.
+
+**Stage 1 — the error message itself was hiding the real reason.**
+Direct code read of `client/src/lib/zap.ts` found NDK's own
+`NDKZapper.getLnInvoice()` fetches the recipient's LNURL callback and,
+on a `200` response with no `pr` field, just returns `null` — silently
+discarding whatever the recipient's Lightning service actually said.
+Confirmed this is the common LNURL error shape, not a hypothetical:
+sending a real amount-out-of-range request to the recipient's real
+endpoint (a safe, read-only GET — no funds move until an invoice is
+actually paid) returned `HTTP 200 {"status":"ERROR","reason":"Invalid
+amount..."}`, not a failing status code NDK's helper would have caught.
+Fixed by inlining the same single fetch NDK performs, so a missing
+`pr` now surfaces the recipient's own `reason`/`status` text instead of
+a one-size-fits-all message. Deployed as its own checkpoint — a real,
+independently useful fix on its own, before anything deeper was known.
+
+**Stage 2 — the newly-surfaced reason ("Invalid zap request") still
+wasn't enough to diagnose remotely.** Extensive protocol-level probing
+against the real recipient's real LNURL provider (Alby) — rebuilding
+faithful, properly self-signed replicas of the app's exact request
+shape each time, always via safe read-only GETs — ruled out relay-tag
+shape, the zap-goal-specific `k`/`e` tag convention, amount range, and
+clock skew as causes; every deliberately-broken variant (bad signature,
+missing `p` tag, mismatched amount) reproduced the exact same message,
+confirming it really does mean "the request didn't validate," not a
+generic catch-all. The user separately confirmed her signer works
+correctly in general (a real like from the same identity published
+fine), ruling out a broken key import. Rather than keep guessing
+blind, shipped a second small checkpoint: log the actual rejected zap
+request to the console alongside the thrown error, so a future
+reproduction could be compared byte-for-byte against a known-good one.
+
+**Stage 3 — reproduced it directly and found the real cause.** The
+decisive clue: the same identity successfully zapped a *different*
+recipient's note (a real, different Lightning provider) but failed
+specifically on this Zap Goal's recipient (Alby) — meaning zaps weren't
+broken in general, only against providers that validate strictly.
+Reproduced the exact failure directly against production with a fresh
+throwaway identity in a live browser (no access to SC's own device
+needed), pulled the actual failing request from the console logging
+shipped in Stage 2, and compared it field-by-field against a known-
+working hand-built reference. The only structural difference: the real
+app's `e` tag carried two extra elements — `["e", id, relayHint, "",
+targetPubkey]` instead of a plain `["e", id]`. Bisected this precisely
+against the real recipient's real callback, one element at a time
+(still just safe GETs), until the exact trigger was isolated: adding
+an empty-string third element to the `e` tag is what breaks it — a
+plain 2- or 3-element tag both work.
+
+**Root cause, confirmed by reading NDK's own installed source**: 
+`generateZapRequest()` calls `target.referenceTags()`, which
+*unconditionally* appends an empty-string NIP-10 marker to the `e` tag
+whenever none is explicitly given — `tag.push(marker ?? "")` — with no
+path to opt out. This is not specific to Zap Goals or to this one
+recipient: it is the shape of literally every zap request this app has
+ever built, for any event, to any recipient. It only surfaced now
+because Alby's LNURL implementation validates strictly enough to
+reject it, while every other recipient tested throughout this
+project's history (including the very first real zap payment,
+2026-08-04) happened to route through a more lenient provider.
+`generateZapRequest()` also sets the `lnurl` tag to the callback URL
+instead of the actual LNURL-pay metadata endpoint the spec describes —
+a second, smaller, real deviation, fixed at the same time for `lud16`
+recipients (the common case).
+
+**Fixed by no longer relying on NDK's tag construction at all** — the
+zap request is now built and signed directly in `zap.ts`, matching
+NIP-57's real minimum shape. Deliberately not patched inside the
+vendored NDK package itself (unlike this project's own khatru/
+eventstore forks) — NDK is a much larger, more actively-changing
+dependency than either of those, and the fix is fully self-contained
+at the one call site that needed it.
+
+**Verified twice, the second time for real with actual money — the
+first fix in this project's history confirmed via a real completed
+payment rather than just a returned invoice**: first through a local
+dev build driving real production-relay data and the real UI end to
+end (a genuine invoice returned on the very first attempt); then the
+original reporter tried again on her own real device and it worked —
+a real 21-sat invoice, paid from her own real connected NWC wallet,
+confirmed on both sides at once: "Received 21 sats" on the recipient's
+wallet, "Paid ✓" in her own UI. `tsc -b`, `oxlint`, `vite build` clean
+throughout all three stages. Deployed via the usual CI path each time;
+confirmed live via the production bundle containing each deploying
+commit's SHA.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
