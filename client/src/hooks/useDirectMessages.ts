@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk } from '../lib/ndk'
 import { useActiveUser } from './useActiveUser'
 import { useRelayStatus } from './useRelayStatus'
 import { decryptGiftWrap, type DecryptedDm } from '../lib/dm'
 
-// Real bug found across every long-lived subscription hook in this
-// codebase, not just here (see useNoteFeed.ts's own comment for the
-// full writeup): `loading` only ever cleared via the subscription's
-// `eose` event, with no fallback if a queried relay never reports it.
+// See useNoteFeed.ts's own comment — same missing-EOSE-fallback bug
+// found across every long-lived subscription hook in this codebase.
 const EOSE_FALLBACK_MS = 12000
 
 export type Conversation = {
@@ -17,25 +15,67 @@ export type Conversation = {
   lastMessage: DecryptedDm
 }
 
-// Live subscription to kind:1059 gift wraps tagging us, same long-lived
-// pattern as useNotifications — decrypts each as it arrives (giftUnwrap
-// needs the signer, so this can't be done relay-side) and groups the
-// result into per-peer conversations for MessagesView.
-export function useDirectMessages() {
+// Real, live performance issue caught directly (2026-08-14): every view
+// in this app stays mounted (see App.tsx), so this subscription used to
+// decrypt EVERY gift wrap the instant it arrived, regardless of whether
+// Messages was even the active view. For a NIP-07 browser extension
+// that's free — decryption happens in-process, no network cost — but
+// for a NIP-46 remote signer, every single decrypt is a full network
+// round trip (encrypt a request, publish it, wait for the bunker to
+// notice and respond). Confirmed live: a `nak bunker` terminal firing
+// ~20 rapid nip44_decrypt requests from ordinary background use, with
+// Messages never actually opened — NDK's own giftUnwrap() needs two
+// decrypt calls per wrap (unwrap the outer seal, then unseal the inner
+// rumor), so a real inbox of ~20 wraps means ~40 round-tripped bunker
+// calls, all firing in a burst no matter what page is actually open.
+//
+// Fixed by decrypting lazily: raw wraps are always collected as they
+// arrive (cheap — a plain subscription, no signer involved at all), but
+// actual decryption only runs once `active` (Messages is the view
+// actually being looked at) is true — catching up on whatever arrived
+// while inactive, then continuing to decrypt live while the view stays
+// open. `active` is read through a ref inside the event handler so the
+// subscription itself (keyed on [activeUser, generation]) never needs
+// to restart just because the user switches views.
+export function useDirectMessages(active: boolean) {
   const activeUser = useActiveUser()
   const [messages, setMessages] = useState<DecryptedDm[]>([])
   const [loading, setLoading] = useState(true)
+  const [pendingCount, setPendingCount] = useState(0)
   const { generation } = useRelayStatus()
+
+  const activeRef = useRef(active)
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
+
+  const pendingWrapsRef = useRef<Map<string, NDKEvent>>(new Map())
+  const decryptOneRef = useRef<(wrap: NDKEvent) => void>(() => {})
+  decryptOneRef.current = (wrap: NDKEvent) => {
+    pendingWrapsRef.current.delete(wrap.id)
+    setPendingCount(pendingWrapsRef.current.size)
+    decryptGiftWrap(wrap).then((decrypted) => {
+      if (!decrypted) return
+      setMessages((prev) => {
+        if (prev.some((m) => m.wrapId === decrypted.wrapId)) return prev
+        return [...prev, decrypted].sort((a, b) => a.createdAt - b.createdAt)
+      })
+    })
+  }
 
   useEffect(() => {
     if (!activeUser || !ndk.signer) {
       setMessages([])
       setLoading(false)
+      pendingWrapsRef.current.clear()
+      setPendingCount(0)
       return
     }
 
     setMessages([])
     setLoading(true)
+    pendingWrapsRef.current.clear()
+    setPendingCount(0)
     const seenWrapIds = new Set<string>()
 
     const sub = ndk.subscribe({
@@ -47,13 +87,12 @@ export function useDirectMessages() {
     sub.on('event', (wrap: NDKEvent) => {
       if (seenWrapIds.has(wrap.id)) return
       seenWrapIds.add(wrap.id)
-      decryptGiftWrap(wrap).then((decrypted) => {
-        if (!decrypted) return
-        setMessages((prev) => {
-          if (prev.some((m) => m.wrapId === decrypted.wrapId)) return prev
-          return [...prev, decrypted].sort((a, b) => a.createdAt - b.createdAt)
-        })
-      })
+      if (activeRef.current) {
+        decryptOneRef.current(wrap)
+      } else {
+        pendingWrapsRef.current.set(wrap.id, wrap)
+        setPendingCount(pendingWrapsRef.current.size)
+      }
     })
 
     sub.on('eose', () => setLoading(false))
@@ -65,6 +104,15 @@ export function useDirectMessages() {
       sub.stop()
     }
   }, [activeUser, generation])
+
+  // Catch up on anything that arrived while Messages wasn't open, the
+  // moment it becomes active — and nothing to do when it isn't.
+  useEffect(() => {
+    if (!active) return
+    for (const wrap of pendingWrapsRef.current.values()) {
+      decryptOneRef.current(wrap)
+    }
+  }, [active])
 
   const conversations = useMemo<Conversation[]>(() => {
     if (!activeUser) return []
@@ -84,5 +132,11 @@ export function useDirectMessages() {
       .sort((a, b) => b.lastMessage.createdAt - a.lastMessage.createdAt)
   }, [messages, activeUser])
 
-  return { conversations, loading }
+  // True while Messages is open and there's at least one raw wrap still
+  // waiting on a signer round trip — lets the UI show "Decrypting…"
+  // instead of a misleading "No messages yet" flash while a slow (e.g.
+  // bunker) signer catches up on a real inbox.
+  const decrypting = active && pendingCount > 0
+
+  return { conversations, loading, decrypting }
 }

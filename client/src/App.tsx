@@ -232,7 +232,7 @@ function App() {
             </div>
 
             <div className={panelClass('messages')}>
-              <MessagesView initialPeer={dmTarget} />
+              <MessagesView initialPeer={dmTarget} active={activeView === 'messages'} />
             </div>
 
             <section className={`card settings-panel ${panelClass('settings')}`}>

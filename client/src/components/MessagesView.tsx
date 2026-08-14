@@ -16,16 +16,30 @@ function peerLabel(peerPubkey: string, name: string | null | undefined) {
 function ConversationList({
   conversations,
   loading,
+  decrypting,
   onSelect,
 }: {
   conversations: Conversation[]
   loading: boolean
+  decrypting: boolean
   onSelect: (peerPubkey: string) => void
 }) {
   if (loading && conversations.length === 0) {
     return (
       <div className="feed-empty">
         <p>Loading conversations…</p>
+      </div>
+    )
+  }
+
+  // Distinct from "loading" — the subscription itself has settled, but a
+  // remote (bunker) signer is still working through decrypting a real
+  // inbox. Without this, conversations.length === 0 would misleadingly
+  // flash "No messages yet" while decryption is still genuinely pending.
+  if (decrypting && conversations.length === 0) {
+    return (
+      <div className="feed-empty">
+        <p>Decrypting messages…</p>
       </div>
     )
   }
@@ -176,8 +190,14 @@ function Thread({
   )
 }
 
-export function MessagesView({ initialPeer }: { initialPeer?: string | null } = {}) {
-  const { conversations, loading } = useDirectMessages()
+export function MessagesView({
+  initialPeer,
+  active,
+}: {
+  initialPeer?: string | null
+  active: boolean
+}) {
+  const { conversations, loading, decrypting } = useDirectMessages(active)
   const [selectedPeer, setSelectedPeer] = useState<string | null>(null)
   const [newPeerInput, setNewPeerInput] = useState('')
   const [newPeerError, setNewPeerError] = useState(false)
@@ -243,7 +263,12 @@ export function MessagesView({ initialPeer }: { initialPeer?: string | null } = 
         talking to whom.
       </p>
 
-      <ConversationList conversations={conversations} loading={loading} onSelect={setSelectedPeer} />
+      <ConversationList
+        conversations={conversations}
+        loading={loading}
+        decrypting={decrypting}
+        onSelect={setSelectedPeer}
+      />
     </div>
   )
 }
