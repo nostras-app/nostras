@@ -192,7 +192,15 @@ export function Feed() {
     publishCurrentPreferences().catch(() => {})
   }, [mode])
 
-  const { events, loading } = useNoteFeed(mode === 'following' ? followingPubkeys : undefined)
+  const { events, loading, newCount, showNew } = useNoteFeed(
+    mode === 'following' ? followingPubkeys : undefined,
+    { holdNewEvents: true },
+  )
+
+  function handleShowNew() {
+    showNew()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   function renderBody() {
     if (mode === 'following' && !followingLoading && followingPubkeys.length === 0) {
@@ -252,6 +260,11 @@ export function Feed() {
           Global
         </button>
       </div>
+      {newCount > 0 && (
+        <button type="button" className="feed-new-pill" onClick={handleShowNew}>
+          {newCount === 1 ? 'New note' : `${newCount} new notes`}
+        </button>
+      )}
       {renderBody()}
     </div>
   )

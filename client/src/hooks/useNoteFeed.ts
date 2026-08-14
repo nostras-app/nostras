@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NDKEvent, NDKKind } from '@nostr-dev-kit/ndk'
 import { ndk, authorQueryRelaySet } from '../lib/ndk'
 import { useRelayStatus } from './useRelayStatus'
@@ -32,23 +32,74 @@ const EOSE_FALLBACK_MS = 12000
 // FeedItem (Feed.tsx) branches on event.kind to render a normal note, an
 // article card, a zap goal card, a poll card, a thread card, or a
 // podcast episode card.
-export function useNoteFeed(authors?: string[]) {
+//
+// Real, live UX report (2026-08-14): on a busy feed, a note arriving
+// live got prepended straight into `events`, reflowing everything below
+// it — on mobile this reliably knocked a note the user was mid-action on
+// (reading, liking, bookmarking, zapping) out from under their thumb,
+// sometimes several times a minute on the Global feed. Matches the exact
+// "stop auto-inserting, batch behind a tappable pill" pattern every
+// other major feed-based client converged on for the same reason.
+// `holdNewEvents` opts a caller into that behavior: events arriving
+// *after* the initial backlog (post-EOSE) are buffered in `newEvents`
+// instead of merged, surfaced only as a count, and only actually spliced
+// into `events` when the caller calls `showNew()` — an explicit,
+// user-initiated action, not something arriving from the network.
+// Defaults to false (the original, always-merge behavior) so
+// ProfileView's own, much lower-velocity feed is unaffected — this
+// wasn't reported there, and changing its contract for free wasn't the
+// ask.
+export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: boolean }) {
+  const holdNewEvents = options?.holdNewEvents ?? false
   const [events, setEvents] = useState<NDKEvent[]>([])
+  const [newEvents, setNewEvents] = useState<NDKEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [, forceUpdate] = useState(0)
   const { generation } = useRelayStatus()
+  // A ref, not state: read synchronously inside the 'event' listener,
+  // which closes over whatever was true at subscribe time otherwise —
+  // state wouldn't reliably reflect "EOSE already fired" by the time a
+  // fast-arriving event's handler runs.
+  const eoseReachedRef = useRef(false)
 
   const authorsKey = authors?.join(',') ?? ''
+
+  const showNew = useCallback(() => {
+    setNewEvents((pending) => {
+      if (pending.length === 0) return pending
+      setEvents((prev) => {
+        const seen = new Set(prev.map((e) => e.id))
+        return [...pending.filter((e) => !seen.has(e.id)), ...prev].sort(
+          (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0),
+        )
+      })
+      return []
+    })
+  }, [])
 
   useEffect(() => {
     if (authors && authors.length === 0) {
       setEvents([])
+      setNewEvents([])
       setLoading(false)
       return
     }
 
     setEvents([])
+    setNewEvents([])
     setLoading(true)
+    eoseReachedRef.current = false
+    // Real, live bug caught during verification, not shipped: `sub.stop()`
+    // in the cleanup below doesn't synchronously guarantee no more
+    // 'event' callbacks fire from an already-torn-down subscription (NDK
+    // may still deliver something already in flight). Without this guard,
+    // switching feeds quickly enough (e.g. Global -> an empty Following)
+    // could have a stray late event from the *old* subscription land in
+    // `newEvents` for the *new* one, via the shared functional setter —
+    // reproduced live as a real "45 new notes" pill sitting over an
+    // otherwise-empty Following tab. Checked at the top of every listener
+    // below, flipped only in the cleanup function.
+    let stopped = false
 
     // Author-scoped subscriptions (profile view, Following feed) are
     // scoped to authorQueryRelaySet rather than left to NDK's own
@@ -67,6 +118,13 @@ export function useNoteFeed(authors?: string[]) {
     )
 
     sub.on('event', (event: NDKEvent) => {
+      if (stopped) return
+      if (holdNewEvents && eoseReachedRef.current) {
+        setNewEvents((prev) =>
+          prev.some((existing) => existing.id === event.id) ? prev : [event, ...prev],
+        )
+        return
+      }
       setEvents((prev) => {
         if (prev.some((existing) => existing.id === event.id)) return prev
         return [event, ...prev].sort(
@@ -76,18 +134,32 @@ export function useNoteFeed(authors?: string[]) {
     })
 
     // eose = relays have sent everything they currently have; after this,
-    // an empty list means "genuinely no notes", not "still loading".
-    sub.on('eose', () => setLoading(false))
+    // an empty list means "genuinely no notes", not "still loading" — and
+    // (when holdNewEvents is on) the point after which further arrivals
+    // get held back instead of merged straight in.
+    sub.on('eose', () => {
+      if (stopped) return
+      eoseReachedRef.current = true
+      setLoading(false)
+    })
 
     // event:dup fires when a relay we're already subscribed to confirms an
     // event we already have — it's how event.onRelays grows over time.
     // Nothing about `events` itself changes, so force a re-render to pick
     // up the new count on the "seen on N relays" indicator.
-    sub.on('event:dup', () => forceUpdate((n) => n + 1))
+    sub.on('event:dup', () => {
+      if (stopped) return
+      forceUpdate((n) => n + 1)
+    })
 
-    const eoseFallback = setTimeout(() => setLoading(false), EOSE_FALLBACK_MS)
+    const eoseFallback = setTimeout(() => {
+      if (stopped) return
+      eoseReachedRef.current = true
+      setLoading(false)
+    }, EOSE_FALLBACK_MS)
 
     return () => {
+      stopped = true
       clearTimeout(eoseFallback)
       sub.stop()
     }
@@ -97,7 +169,7 @@ export function useNoteFeed(authors?: string[]) {
     // generation bumps only when the local relay recovers from a real
     // disconnect — see lib/relayStatus.ts — forcing a fresh REQ instead of
     // leaving a stale subscription that NDK never automatically resends.
-  }, [authorsKey, generation])
+  }, [authorsKey, generation, holdNewEvents])
 
-  return { events, loading }
+  return { events, loading, newCount: newEvents.length, showNew }
 }

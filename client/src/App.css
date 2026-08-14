@@ -2139,6 +2139,40 @@ a.profile-external-identity:hover {
   border-bottom-color: var(--accent);
 }
 
+/* Real, live UX report (2026-08-14): new notes arriving live used to
+   splice straight into the feed, reflowing content the user was actively
+   reading/liking/bookmarking/zapping out from under them, especially on
+   mobile where this could happen several times a minute on a busy feed.
+   Matches the same fixed-pill pattern every other major feed client
+   converged on: new arrivals accumulate silently (see useNoteFeed's
+   holdNewEvents) and only merge in on this explicit tap. `position: fixed`
+   (not sticky) since this app's whole page scrolls as one document, not a
+   nested container — sticky would need a scroll-ancestor this layout
+   doesn't have. */
+.feed-new-pill {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent-gradient);
+  color: var(--accent-fg);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px -2px var(--accent-glow);
+}
+
+.feed-new-pill:hover {
+  box-shadow: 0 6px 20px -2px var(--accent-glow);
+}
+
 /* ---------- Articles (NIP-23) ---------- */
 
 .article-card {
