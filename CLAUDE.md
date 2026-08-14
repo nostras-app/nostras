@@ -7576,6 +7576,60 @@ tab genuinely active and the synced custom relay listed in Settings.
 Confirmed zero console errors across a 12-second full boot-and-sync
 window on a fresh reload.
 
+## Real live bug: Blossom media upload had no timeout, composer stuck
+on "Uploading…" indefinitely (2026-08-13)
+
+Live report while preparing the funding-campaign announcement note: an
+image attach sat on "Uploading…" with no progress and no way to know if
+it would ever resolve. Direct code read of `client/src/lib/blossom.ts`
+confirmed the actual bug: the `fetch()` call to
+`blossom.primal.net/upload` had no timeout at all — the same missing-
+timeout class already fixed several times elsewhere in this project
+(`remoteSigner.ts`, `dm.ts`, `appData.ts`, `paidArticles.ts`), just
+never applied to the media upload path. Fixed with an explicit 30s
+timeout (longer than this project's usual 8s convention, since a real
+file upload — including video/audio, which this same input also
+accepts — genuinely takes longer than a relay query).
+
+**Verified**: `tsc -b`, `oxlint`, `vite build` clean. Deployed via the
+usual CI path; confirmed the new error string present in the live
+production bundle. Immediate unblock given to the user in the moment
+(remove the stuck attachment via its own ✕ button) while the real fix
+deployed.
+
+## Real live bug: analytics "Unknown" country dominance traced to no
+per-IP geo-lookup caching — cache shipped, later found not to fully
+address it (2026-08-13, see the follow-up entry near NIP-7D below)
+
+User flagged the operator dashboard's "Unknown" bucket dominating by
+roughly two orders of magnitude over every real country combined.
+Checked `server/analytics.go` directly — the degrade-on-failure design
+was working as intended, not a logic bug. Live-tested `ipapi.co` from
+this sandbox's own outbound IP and got a genuine `RateLimited` response
+at the time, directly corroborating a rate-limit theory: every WebSocket
+connection triggered a brand-new lookup, even a same-IP reconnect
+seconds later (a browser reload, NDK's own reconnect-after-hiccup
+logic, repeated dev/testing connections from the same machine).
+
+**Fix**: an in-memory per-IP cache (`geoCache` in `server/analytics.go`,
+1h TTL, capped at 5000 entries with a full-wipe eviction policy to bound
+memory on a machine that's already had real near-OOM incidents this
+project's own history documents) so a same-IP reconnect is served from
+cache instead of spending another API call.
+
+**Verified**: `go build`/`go vet`/`gofmt -l` clean. A temporary Go test
+(not committed) confirmed: one lookup per distinct IP, a repeated IP
+served from cache with no new API call, a second distinct IP getting
+its own entry, and correct eviction once the cache hit its size cap.
+Deployed; confirmed the deployed relay version matches the fix's commit.
+**Honest framing even at the time**: this helps for *repeat* connections
+from the *same* IP within the cache window, but provides no benefit if
+the dominant traffic is many distinct, largely one-time IPs (plausible
+given this relay is now a publicly discoverable domain) — see the later
+entry (right after NIP-7D, below) where real per-day production numbers
+confirmed this didn't move the needle, and the actual dominant cause
+remains genuinely unresolved.
+
 ## NIP-66 relay self-discovery added — plus a real, previously-latent
 crash bug found and fixed in a vendored dependency (2026-08-13)
 
@@ -7680,6 +7734,186 @@ real. Deploying it — and, separately, deciding whether to finally set
 that secret in production at all — is a deliberate next step, not done
 as part of this fix.
 
+## Real live bug: zap invoice fetch had no timeout — plus a real
+self-zap non-issue ruled out in the same investigation (2026-08-14)
+
+Live report trying to zap a real zap goal: status changed to
+"Fetching…" and never resolved. Direct code read of `client/src/lib/
+zap.ts`'s `createZapInvoice()` found the same missing-timeout class as
+the Blossom fix above — no timeout anywhere in a chain making two real
+external HTTP calls (the recipient's LNURL-pay metadata endpoint, then
+its invoice callback) plus an *unscoped* profile fetch (the same NDK-
+internal-`fetchProfile()` bug class already fixed once for
+`useProfile.ts`, never applied here). Fixed with a single outer 20s
+timeout wrapping the whole chain, and scoped the profile fetch to
+`authorQueryRelaySet`.
+
+**A second, separate, non-bug finding surfaced in the same
+investigation**: after deploying the timeout fix, a *new*, fast (not
+hung) failure appeared — `"Failed to fetch an invoice from the
+recipient"` — specifically when a note's own author tried to zap their
+own zap goal. Tested the exact same code path directly with a real,
+correctly-signed **third-party** (non-self) zap request against the
+real recipient's actual LNURL server (`getalby.com`) and got a valid
+invoice back cleanly, proving NOSTRAS's own zap-request construction
+and the recipient's LNURL setup are both correct. Self-zaps are a known
+real-world anti-gaming pattern many Lightning/zap providers (plausibly
+Alby here) silently refuse — not a NOSTRAS defect, not independently
+fixable from this side.
+
+**Verified**: `tsc -b`, `oxlint`, `vite build` clean. Deployed; confirmed
+the new error string present in the live production bundle. The
+self-zap theory was tested with a real, correctly-signed request
+against the real production LNURL endpoint, not just reasoned about.
+
+## Real live bug: missing EOSE fallback across six long-lived
+subscription hooks — profile/feed views could hang forever
+(2026-08-14)
+
+Live, extensively-reproduced report: a profile's notes list stuck on
+its loading skeleton across many reloads, multiple browsers, multiple
+identities, not resolving even after long waits. Direct code read of
+`useNoteFeed.ts` found the real bug: `loading` only ever cleared on the
+subscription's own `eose` event, with no fallback if a single relay in
+the query set never reported it — and, separately, a direct `nak` query
+against the *exact same* relay set (local + damus + primal) for the
+exact same kinds returned 20 real events in 1.08s total, definitively
+ruling out a slow/stuck relay-side query as the cause.
+
+**Audited for the same pattern everywhere, not just the one confirmed
+instance** (matching this project's own established practice): the
+identical subscribe→process→clear-loading-only-on-`eose` shape, with no
+fallback, was found in five more hooks — `useDirectMessages`,
+`useGroupList`, `useGroupChat`, `useGroupMembership`,
+`useNotifications`. Added a 12s fallback timer (cleared on unmount or a
+genuine `eose`) to all six.
+
+**Verified**: `tsc -b`, `oxlint`, `vite build` clean across all six
+files. Deployed; confirmed the deploying commit's SHA present in the
+live production bundle.
+
+## Real incident: an hours-long service-worker reload loop, traced to
+this session's own rapid deploy cadence colliding with live testing,
+not a code defect (2026-08-14)
+
+Direct follow-up to the EOSE-fallback fix above: the user kept
+reporting the exact same "stuck skeleton" symptom even after that fix
+deployed, across many further checks — including a full 5-hour wait
+with zero new deploys in that window, which definitively ruled out
+every time-based/deploy-based theory tried up to that point. The
+browser console eventually showed the real signal: repeated `"The
+connection to wss://nostras.app/ was interrupted while the page was
+loading"` entries — Firefox's own phrasing for a connection aborted by
+an actual page navigation/reload event, not a network failure. The
+page was silently reloading itself over and over, not just hanging.
+
+**Root cause**: this project already has a real, working guard against
+exactly this class of bug — a `sessionStorage`-based 15s reload cooldown
+(`client/src/lib/swUpdate.ts`), added back on 2026-08-10 after an
+identical earlier incident. That guard is a *debounce*, not a hard
+suppression — it still allows one real reload per genuinely new
+service-worker version. This session alone shipped **four** separate
+client deploys (Blossom timeout, zap timeout, the EOSE-fallback fix,
+and — later — the lazy-DM-decrypt fix below) while the user's tab
+stayed open and was actively being reloaded/tested throughout — enough
+distinct, legitimate version-change events, each correctly triggering
+its own single reload exactly as the guard was designed to allow, to
+look and feel like an infinite loop to whoever was watching the screen.
+Ruled out server-side causes directly before landing on this
+explanation: the production relay was confirmed healthy via SSH (load
+average 0.07, ~1.6GB free memory, only 6 real client connections at the
+time of checking) — not under any strain.
+
+**Resolution — a workaround, not a code fix**: the trigger here is this
+session's own unusually rapid deploy cadence, not typical real-world
+usage (a real user's tab would normally see at most one deploy every so
+often, not four within about an hour). The user unregistered the stuck
+service worker via Firefox's `about:serviceworkers` and opened a fresh
+tab, which cleared the loop completely — confirmed live, the exact same
+profile view that had been stuck for hours loaded correctly with real
+content immediately afterward.
+
+**Flagged, not fixed further**: worth revisiting if this exact symptom
+ever recurs under *ordinary* usage (a tab surviving one routine deploy,
+not four in under two hours) — that would indicate a real, different
+bug in the existing debounce mechanism, not observed as of this entry.
+
+## Real live bug: DM decryption ran eagerly and unconditionally through
+a remote (NIP-46 bunker) signer, regardless of which view was open
+(2026-08-14)
+
+While investigating the reload-loop incident above, the user pointed at
+a real, concrete clue unrelated to the reload theory: a local `nak
+bunker` terminal (signing in as one identity in the affected session)
+was visibly processing a rapid burst of `nip44_decrypt` requests, with
+the Messages view never actually opened. Direct code read of
+`useDirectMessages.ts` found the real cause, and a direct relay query
+confirmed the real scale: 21 real gift-wrapped messages addressed to
+that identity across the relays its session connects to.
+
+**Root cause**: every view in this app deliberately stays mounted at
+all times (so switching tabs never loses state) — but this also meant
+`useDirectMessages()`'s subscription decrypted every incoming gift wrap
+the instant it arrived, regardless of whether Messages was the active
+view. NDK's own `giftUnwrap()` needs two decrypt calls per wrap (unwrap
+the outer seal, then unseal the inner rumor). Free for a NIP-07 browser
+extension (in-process, no network cost) — but for a NIP-46 remote
+signer, every single decrypt is a full network round trip. A real inbox
+of ~21 wraps meant up to ~42 round-tripped bunker calls firing in a
+burst on every single load, silently, no matter what page was actually
+being viewed.
+
+**Fixed by making DM decryption lazy**: raw gift wraps are still
+collected the instant they arrive (cheap — a plain subscription
+receive, no signer involved), but actual decryption now only runs once
+Messages is genuinely the active view, catching up on anything that
+arrived while inactive. Added a distinct "Decrypting…" UI state so a
+slow signer catching up on a real backlog doesn't flash a misleading
+"No messages yet" first.
+
+**Verified**: `tsc -b`, `oxlint`, `vite build` clean. Deployed; confirmed
+the deploying commit's SHA present in the live production bundle. Not
+independently re-confirmed via a live bunker-traffic before/after
+count — reproducing the exact live conditions again would mean
+generating another real burst of bunker traffic during an already-long
+live debugging session, judged not worth repeating given the fix
+follows directly and unambiguously from the code read.
+
+## Real finding: the geo-lookup cache did not meaningfully fix
+analytics "Unknown" dominance — genuinely left open, not overclaimed
+(2026-08-14)
+
+Direct follow-up to the earlier per-IP geo-cache fix (see its own entry
+above, right before NIP-66): the next day's real per-day connection
+numbers, pulled directly from the relay's own `analytics.json` via SSH
+rather than read off the dashboard's bar-height chart, showed the cache
+fix had **not** measurably improved the ratio — the newest day was
+*worse* (100.0% unknown, vs. a 96-99% range on prior days) despite the
+fix already being live. A live test confirmed the geo-lookup function
+itself still works correctly from the relay's own server IP right now,
+ruling out "the code broke" as an explanation.
+
+**Honest conclusion, not glossed over**: the per-IP cache genuinely
+helps only for *repeat* connections from the *same* IP within the cache
+window — it provides no benefit if the dominant traffic pattern is many
+distinct, largely one-time IPs (plausible given this relay is now a
+publicly discoverable domain, consistent with bot/crawler sweep
+traffic). A secondary theory — that the reload loop above was
+generating many reconnects from the user's own IP — was directly
+weighed against real evidence and judged *not* the dominant driver: the
+user's own country (Switzerland) showed **zero growth** in its
+connection count across the exact window in question, which the cache
+should have caught if that theory were correct (a repeat connection
+from the same IP within an hour should resolve from cache, not
+"unknown," after the first lookup).
+
+**Status, stated plainly**: the cache is real, correct, and stays
+deployed (verified independently on its own terms), but does not fully
+explain or fix the dominant real-world "Unknown" rate. No further
+action taken this session — a real fix would likely mean either a
+higher-quota/paid geo-IP service or documenting the limitation plainly;
+neither decided as of this entry.
+
 ## NIP-7D Forum Threads added — plus a real kind-number collision found
 and fixed at the relay level (2026-08-14)
 
@@ -7754,6 +7988,81 @@ with a valid "h" tag, and confirmed it published successfully but was
 correctly *excluded* from search — proving both branches of the fix
 (the reject-hook distinction and the search-index distinction) work
 correctly in both directions, not just for the new ungrouped case.
+
+## NIP-F4 Podcasts added — client-only, deliberately scoped down from
+the full spec (2026-08-14)
+
+Real kind:10154 show metadata (title/image/description/website) and
+kind:54 episodes (title/image/description/audio, Blossom upload for
+both, markdown show notes) — a new Podcast compose tab, feed cards, a
+full reading view with a native `<audio>` player, and a "Podcast Show"
+Settings section. Prompted directly by a real motivation: the user
+wants an additional DVM-based monetization path (paid episode unlock,
+same shape as the existing paid-article DVM flow) — this entry covers
+just the base protocol layer; the monetization piece is a separate,
+not-yet-built next step.
+
+**Collision check done proactively this time, not rediscovered live**:
+before writing any code, checked go-nostr's and NDK's own kind catalogs
+for kind 54/10154/10064/10054/10164 — none collide with anything this
+project already implements, unlike NIP-7D's kind:11, which broke
+outright the first time it was tested. Applying that lesson here paid
+off — no relay-side surprise this time.
+
+**"Show" = the publishing identity itself for this pass** — there's no
+dedicated "create a show as its own sub-identity" wizard. NIP-F4's own
+intent (a show as its own keypair, so co-hosting/portability doesn't
+depend on one person's identity) is still fully reachable today with
+zero new code: this app's existing multi-identity support (Settings >
+Identities > Create new identity, then switch) already lets someone
+publish a show under a dedicated keypair if they want one.
+
+**Deliberately deferred from the full spec, matching this project's own
+"smallest useful slice" precedent for every prior NIP**: kind:10064
+("Authored Podcasts," a list of shows a person hosts) and kind:10054
+("Favorite Podcasts," a listener's followed-shows list) are not
+implemented — both are the same simple fetch-then-republish list shape
+already proven for bookmarks/follows/linked accounts, just not the core
+publish-and-listen loop this pass covers.
+
+**A real spec ambiguity found while researching, not yet consequential
+since the affected kind isn't built**: the spec's own prose describes
+"Authored Podcasts" as kind 10164 in one place but its YAML frontmatter
+says 10064 — these disagree. Recorded in `lib/podcast.ts`'s own comment
+for whenever that kind gets picked up: the YAML value (the machine-
+readable source of truth) is the one to trust.
+
+**Reused, not rebuilt**: replies on an episode go through the exact same
+NIP-22 comment infrastructure already generalized for NIP-7D threads
+and NIP-23 articles (`lib/comments.ts`'s `isAddressableKind` branch) —
+kind:54 is a regular (non-addressable) event, so it automatically gets
+`E`/`e` tags with zero new code needed. `useShowMeta.ts` mirrors
+`useProfile.ts`'s exact module-level-cache shape (an episode feed can
+show many episodes from the same show, so this avoids a redundant fetch
+per card). `useMyShowMeta.ts` follows the safety shape this project
+settled on after fixing the identical bug three times
+(`useFollowing`/`useBookmark`/`useNip65RelayList`): a loading guard, an
+explicit fetch timeout scoped to `authorQueryRelaySet`, an explicit
+publish timeout, a real surfaced error, and preserving any tags the
+editor doesn't know about on save rather than overwriting wholesale —
+the same "spread, don't replace" discipline as `ProfileEditor`'s own
+kind:0 fix.
+
+**Verified for real, end to end, against a live local relay — not just
+built clean**: `go build`/`go vet`/`gofmt -l` weren't needed (client-
+only this pass, no relay-side code); `tsc -b`, `oxlint`, `vite build`
+all clean. Published a real show (kind:10154) and a real episode
+(kind:54) authored by the same throwaway show key, confirmed both are
+queryable exactly as the client's own hooks query them (`useShowMeta`'s
+authors-filtered fetch found the show correctly). Confirmed the
+`audio` tag's url+type shape round-trips correctly. Confirmed real
+NIP-50 full-text search indexes the episode correctly, once actually
+searching for a term genuinely in `content` rather than a title tag
+(the initial test searched for title-only text and correctly found
+nothing — consistent with this app's search always having been scoped
+to `content`, not a bug). Published a real kind:1111 reply matching
+`CommentSection`'s exact tag-building shape and confirmed it resolves
+via the identical `#E` filter `useComments` queries.
 
 ## Architecture
 

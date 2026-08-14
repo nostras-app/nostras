@@ -30,6 +30,7 @@ export type View =
   | 'article'
   | 'note'
   | 'thread'
+  | 'episode'
 
 export function NavRail({
   activeView,

@@ -4,8 +4,9 @@ import { ArticleComposer } from './ArticleComposer'
 import { ZapGoalComposer } from './ZapGoalComposer'
 import { PollComposer } from './PollComposer'
 import { ThreadComposer } from './ThreadComposer'
+import { PodcastComposer } from './PodcastComposer'
 
-type Mode = 'note' | 'article' | 'zap-goal' | 'poll' | 'thread'
+type Mode = 'note' | 'article' | 'zap-goal' | 'poll' | 'thread' | 'podcast'
 
 export function ComposeView() {
   const [mode, setMode] = useState<Mode>('note')
@@ -43,6 +44,15 @@ export function ComposeView() {
         <button
           type="button"
           role="tab"
+          aria-selected={mode === 'podcast'}
+          className={`feed-tab${mode === 'podcast' ? ' feed-tab-active' : ''}`}
+          onClick={() => setMode('podcast')}
+        >
+          Podcast
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={mode === 'zap-goal'}
           className={`feed-tab${mode === 'zap-goal' ? ' feed-tab-active' : ''}`}
           onClick={() => setMode('zap-goal')}
@@ -62,6 +72,7 @@ export function ComposeView() {
       {mode === 'note' && <Composer />}
       {mode === 'article' && <ArticleComposer />}
       {mode === 'thread' && <ThreadComposer />}
+      {mode === 'podcast' && <PodcastComposer />}
       {mode === 'zap-goal' && <ZapGoalComposer />}
       {mode === 'poll' && <PollComposer />}
     </div>

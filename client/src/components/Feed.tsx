@@ -17,8 +17,10 @@ import { ArticleCard } from './ArticleCard'
 import { ZapGoalCard } from './ZapGoalCard'
 import { PollCard } from './PollCard'
 import { ThreadCard } from './ThreadCard'
+import { PodcastEpisodeCard } from './PodcastEpisodeCard'
 import { KIND_POLL } from '../lib/poll'
 import { KIND_FORUM_THREAD } from '../lib/forum'
+import { KIND_PODCAST_EPISODE } from '../lib/podcast'
 import { ReplyIcon } from './icons'
 
 // Real user-reported gap (2026-08-07): replies rendered as ordinary,
@@ -89,6 +91,10 @@ export function FeedItem({ event }: { event: NDKEvent }) {
 
   if (event.kind === KIND_FORUM_THREAD) {
     return <ThreadCard event={event} />
+  }
+
+  if (event.kind === KIND_PODCAST_EPISODE) {
+    return <PodcastEpisodeCard event={event} />
   }
 
   return (

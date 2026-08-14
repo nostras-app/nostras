@@ -2351,6 +2351,10 @@ a.profile-external-identity:hover {
   border-radius: 14px;
 }
 
+.podcast-audio-player {
+  width: 100%;
+}
+
 .article-view-title {
   margin: 0;
   font-size: 28px;

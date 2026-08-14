@@ -11,6 +11,7 @@ import { ComposeView } from './components/ComposeView'
 import { ArticleView } from './components/ArticleView'
 import { SingleNoteView } from './components/SingleNoteView'
 import { ThreadView } from './components/ThreadView'
+import { PodcastEpisodeView } from './components/PodcastEpisodeView'
 import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
 import { ProfileView } from './components/ProfileView'
@@ -20,6 +21,7 @@ import { CommunitiesView } from './components/CommunitiesView'
 import { MessagesView } from './components/MessagesView'
 import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
+import { PodcastShowSettings } from './components/PodcastShowSettings'
 import { LinkedAccountsSettings } from './components/LinkedAccountsSettings'
 import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
@@ -46,7 +48,7 @@ function App() {
   // from anywhere (e.g. clicking an author's name deep inside FeedItem)
   // without prop-drilling a callback through every component that
   // renders one.
-  const { view: activeView, profilePubkey, article, note, thread, dmTarget, groupTarget } = useNavState()
+  const { view: activeView, profilePubkey, article, note, thread, episode, dmTarget, groupTarget } = useNavState()
   const deepLinkResolved = useRef(false)
   const appPreferencesSynced = useRef(false)
 
@@ -212,6 +214,10 @@ function App() {
               {thread && <ThreadView event={thread} />}
             </div>
 
+            <div className={panelClass('episode')}>
+              {episode && <PodcastEpisodeView event={episode} />}
+            </div>
+
             <section className={`card ${panelClass('ask-claude')}`}>
               <AskClaudeCard />
             </section>
@@ -264,6 +270,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Profile</span>
                 <ProfileEditor />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Podcast Show</span>
+                <PodcastShowSettings />
               </div>
               <div className="settings-section">
                 <span className="settings-section-title">Linked Accounts</span>
