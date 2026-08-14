@@ -4,7 +4,7 @@ import { parseEpisodeMeta } from '../lib/podcast'
 import { formatRelativeTime } from '../lib/time'
 import { viewEpisode } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
-import { MicIcon } from './icons'
+import { LockIcon, MicIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
 
 export function PodcastEpisodeCard({ event }: { event: NDKEvent }) {
@@ -34,7 +34,10 @@ export function PodcastEpisodeCard({ event }: { event: NDKEvent }) {
               <span className="feed-item-time">{formatRelativeTime(event.created_at)}</span>
             )}
           </div>
-          <h3 className="article-card-title">{meta.title}</h3>
+          <h3 className="article-card-title">
+            {meta.encrypted && <LockIcon className="article-card-lock" />}
+            {meta.title}
+          </h3>
           {meta.description && <p className="article-card-summary">{meta.description}</p>}
         </div>
       </button>

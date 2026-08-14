@@ -1,5 +1,6 @@
 import { NDKEvent, type NDKKind } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, authorQueryRelaySet } from './ndk'
+import { encryptArticleBody } from './paidArticles'
 
 // NIP-F4 Podcasting. Not in NDK's own kind catalog — same gap already
 // hit for several other project-specific kinds this session.
@@ -81,16 +82,50 @@ export type EpisodeMeta = {
   description: string
   audioUrl: string
   audioType: string
+  // DVM-gated paid episodes (2026-08-14): reuses the exact same
+  // encrypted/price convention — and the exact same DVM job (kind
+  // 5904->6904) — already proven for paid articles (lib/paidArticles.ts).
+  // handleArticleUnlockJob on the server was already fully generic over
+  // which event kind it unlocks (it only ever looks at `encrypted`/
+  // `price` tags and the referenced event's own content/pubkey, never
+  // its kind), so zero server changes were needed. What's encrypted here
+  // is the audio URL itself (as a small JSON blob carrying type too, so
+  // it survives the round trip), not the show notes — mirroring how a
+  // paid article encrypts its body: only one "the real thing being sold"
+  // slot exists per event, and for an episode that's the audio, not the
+  // notes. A paid episode has no plaintext `audio` tag at all — the real
+  // URL only ever exists inside the ciphertext.
+  encrypted: boolean
+  priceSats: number | null
 }
 
 export function parseEpisodeMeta(tags: string[][]): EpisodeMeta {
   const audioTag = tags.find((t) => t[0] === 'audio')
+  const priceRaw = tags.find((t) => t[0] === 'price')?.[1] ?? null
   return {
     title: tags.find((t) => t[0] === 'title')?.[1] ?? 'Untitled episode',
     image: tags.find((t) => t[0] === 'image')?.[1] ?? '',
     description: tags.find((t) => t[0] === 'description')?.[1] ?? '',
     audioUrl: audioTag?.[1] ?? '',
     audioType: audioTag?.[2] ?? '',
+    encrypted: tags.some((t) => t[0] === 'encrypted'),
+    priceSats: priceRaw ? Number(priceRaw) : null,
+  }
+}
+
+// Encrypted as one small JSON blob (not just the bare URL string) so the
+// media type survives the round trip too — parsed back out by the reader
+// side once requestArticleUnlock (reused as-is, see lib/paidArticles.ts —
+// it's generic over which event id it unlocks despite the article-flavored
+// name) returns the decrypted plaintext.
+type EncryptedAudioPayload = { url: string; type: string }
+
+export function parseEncryptedAudioPayload(plaintext: string): EncryptedAudioPayload {
+  try {
+    const parsed = JSON.parse(plaintext) as Partial<EncryptedAudioPayload>
+    return { url: parsed.url ?? '', type: parsed.type ?? '' }
+  } catch {
+    return { url: '', type: '' }
   }
 }
 
@@ -101,14 +136,31 @@ export async function publishEpisode(input: {
   audioUrl: string
   audioType: string
   content: string
+  // When set, requires a dvmPubkey too (fetched via
+  // fetchDvmArticleEncryptionPubkey() at the call site, same as
+  // ArticleComposer) — publishEpisode itself doesn't fetch it, so a
+  // composer can surface "DVM not available" as its own error before
+  // ever attempting to publish.
+  paid?: { priceSats: number; dvmPubkey: string }
 }): Promise<void> {
   const tags: string[][] = [['title', input.title.trim()]]
   if (input.image.trim()) tags.push(['image', input.image.trim()])
   if (input.description.trim()) tags.push(['description', input.description.trim()])
-  tags.push(
-    input.audioType ? ['audio', input.audioUrl, input.audioType] : ['audio', input.audioUrl],
-  )
-  const event = new NDKEvent(ndk, { kind: KIND_PODCAST_EPISODE, content: input.content, tags })
+
+  let content = input.content
+
+  if (input.paid) {
+    const payload: EncryptedAudioPayload = { url: input.audioUrl, type: input.audioType }
+    content = await encryptArticleBody(JSON.stringify(payload), input.paid.dvmPubkey)
+    tags.push(['encrypted'])
+    tags.push(['price', String(input.paid.priceSats)])
+  } else {
+    tags.push(
+      input.audioType ? ['audio', input.audioUrl, input.audioType] : ['audio', input.audioUrl],
+    )
+  }
+
+  const event = new NDKEvent(ndk, { kind: KIND_PODCAST_EPISODE, content, tags })
   await event.publish(devPublishRelaySet, PUBLISH_TIMEOUT_MS)
 }
 

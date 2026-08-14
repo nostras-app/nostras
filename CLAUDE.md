@@ -8064,6 +8064,95 @@ to `content`, not a bug). Published a real kind:1111 reply matching
 `CommentSection`'s exact tag-building shape and confirmed it resolves
 via the identical `#E` filter `useComments` queries.
 
+## DVM-gated paid podcast episodes — the monetization piece NIP-F4 was
+built for, and it needed zero server changes (2026-08-14)
+
+Direct follow-up, same session, per the user's explicit "go ahead with
+the DVM-gated paid episode unlock." Investigated `handleArticleUnlockJob`
+(`server/cmd/dvm/main.go`) before writing any code and confirmed it is
+**completely generic over which event kind it unlocks** — it only ever
+looks at the referenced event's own `encrypted`/`price` tags, its
+`content` (decrypted via the DVM's persisted `articleKeySk`), and its
+`PubKey` (for the LNURL author-payout lookup); nothing in the function
+body branches on `event.Kind` anywhere. Same for the client half
+(`lib/paidArticles.ts`'s `fetchDvmArticleEncryptionPubkey`/
+`encryptArticleBody`/`requestArticleUnlock`) — the `articleEventId`
+parameter is really just "the event id to unlock." **Zero server code
+and zero changes to `lib/paidArticles.ts` were needed** — both were
+reused completely as-is, the lowest-risk path available (duplicating
+~150 lines of already-proven real-money payment/LNURL logic for a
+second job kind was considered and rejected, both because it was
+unnecessary and because two parallel payment code paths risk drifting
+apart over time).
+
+**What actually paywalls an episode**: for a paid episode, the audio URL
+itself (not the show notes) is the thing being sold — mirroring how a
+paid article's `content` field holds ciphertext of the article body,
+there's only one "real content" slot per event. `publishEpisode()`
+(`lib/podcast.ts`) now accepts an optional `paid` config: when set, it
+NIP-44-encrypts a small `{url, type}` JSON payload (type included so it
+survives the round trip, not just the bare URL string) via the existing
+`encryptArticleBody()`, publishes it as the event's `content`, and adds
+`["encrypted"]`/`["price", sats]` tags — deliberately with **no
+plaintext `audio` tag at all**, so the real URL only ever exists inside
+the ciphertext. `PodcastComposer.tsx` gained the identical paywall
+toggle UI as `ArticleComposer.tsx` (lud16 gate, price input, disclosure
+copy), and — since `content` is now repurposed for the ciphertext — the
+full show notes textarea is hidden while the toggle is on, with the
+tradeoff stated plainly in the UI copy rather than silently dropped.
+
+**Reader side**: `EpisodeUnlockPanel` in `PodcastEpisodeView.tsx`
+mirrors `ArticleView.tsx`'s `ArticleUnlockPanel` almost line-for-line —
+same state machine, same `requestArticleUnlock()` call reused as-is.
+The one genuinely new piece of logic is `parseEncryptedAudioPayload()`
+(`lib/podcast.ts`), which parses the decrypted JSON back into
+`{url, type}` so the unlocked result can feed straight into the same
+`<audio>` element the free path already uses.
+
+**Verified for real, in full, not just reasoned about from the code
+read** — server-side proof first, via `nak` against a fresh local relay
++ a real DVM process (free mode: a deliberately invalid
+`NOSTRAS_DVM_NWC_URI` override, throwaway `NOSTRAS_DVM_ARTICLE_KEY`)
+and a real mock LNURL-pay + LUD-21-verify server (Python, self-signed
+TLS, `SSL_CERT_FILE` scoped to the DVM process — same established
+pattern as the original paid-articles author-payout verification): a
+real throwaway "author" identity published a kind:0 profile with
+`lud16` pointing at the mock, then a hand-built kind:54 episode with a
+NIP-44-encrypted `{url,type}` payload and `encrypted`/`price` tags. A
+kind:5904 unlock request against that episode's id correctly produced
+`payment-required` (payee=`author`, amount=250000 msat, matching the
+episode's price exactly) with a real invoice from the mock, then
+(post-settlement, free mode skipping NOSTRAS's own fee)
+`processing` → a genuine `kind:6904` result — proving the unchanged
+server code correctly recognizes and dispatches a **kind:54** event
+through the identical code path proven for kind:30023 articles, not
+just claimed generic from a code read. Decrypting the result confirmed
+the exact original `{"url":"https://example.com/secret-episode.mp3",
+"type":"audio/mpeg"}` JSON round-tripped byte-for-byte.
+
+**Then the real client UI, end to end, in a live browser** — imported a
+throwaway author identity (with the same lud16 already published),
+opened Compose > Podcast, filled in a real episode, checked "Require
+payment to unlock," set a price, and published: confirmed via `nak`
+that the resulting event carried exactly `["encrypted"]`/`["price",
+"333"]` and no `audio` tag, with genuine ciphertext as `content`.
+Switched to a second throwaway "reader" identity, opened the episode,
+and clicked Unlock: watched it go straight through the real
+payment-required → processing → done sequence (the mock LNURL server
+settles instantly, so no manual payment step was needed to observe the
+full transition) and confirmed via direct DOM inspection that the
+rendered `<audio>` element's `src` was the *exact* original URL typed
+into the composer — the full compose → encrypt → publish → request →
+pay → decrypt → render loop, working correctly on the first real
+attempt. Zero console errors. `tsc -b`, `oxlint`, `vite build` all
+clean; no server-side checks needed since no server code changed.
+
+Not yet deployed to production as of this entry — verified entirely
+against local test infrastructure (a disposable relay/DVM instance, a
+mock LNURL server, throwaway identities), consistent with this
+project's standing practice of never exercising real payment
+infrastructure or real third-party services during verification.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
