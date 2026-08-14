@@ -7576,6 +7576,110 @@ tab genuinely active and the synced custom relay listed in Settings.
 Confirmed zero console errors across a 12-second full boot-and-sync
 window on a fresh reload.
 
+## NIP-66 relay self-discovery added — plus a real, previously-latent
+crash bug found and fixed in a vendored dependency (2026-08-13)
+
+Server-only, deliberately scoped: `server/nip66.go` publishes a real
+kind:30166 relay discovery event describing NOSTRAS's own relay —
+supported NIPs, access requirements, network type, and *honestly
+measured* self-RTT, not fabricated numbers. The self-probe dials the
+relay's own live listener as an ordinary client would (`ws://localhost:
+<port>`, since it always runs on the same host as the listener), times
+opening the connection, sends a real REQ and times until EOSE, then
+publishes a throwaway ephemeral kind:20166 "ping" (never stored, per
+NIP-01's ephemeral-kind rules — used purely to time a genuine write
+round trip without leaving junk data behind) before finally signing and
+publishing the real kind:30166 event carrying all three numbers plus
+the live `relay.Info.SupportedNIPs` list as `N` tags — read directly
+from the relay's own live state, so this can never drift out of sync as
+future NIPs get added elsewhere in this codebase. Refreshed every 6h.
+Reuses the exact same `NOSTRAS_RELAY_PRIVATE_KEY` identity already
+established for NIP-43 — not a new key, not a new activation flag;
+unset means this stays fully inert too. **Deliberately does not**
+implement kind:10166 (Relay Monitor Announcement) or become a real
+monitor of *other* relays on the network — that's a materially bigger,
+different feature (impartially probing the wider relay ecosystem, not
+just describing yourself), and publishing a 10166 without actually
+doing that work would misrepresent intent. This is self-description
+only, the same category as the NIP-89 handler announcement and the
+landing page.
+
+**Real, serious bug found while trying to verify this locally, not
+shipped, and not actually caused by this feature**: the very first test
+run panicked the whole relay process immediately, inside vendored
+`eventstore@v0.17.9`'s badger backend — not in any code written for
+NIP-66. Root cause: `badger/helpers.go`'s tag-indexing loop checks
+`len(tag) < 2 || len(tag[0]) != 1 || len(tag[1]) == 0 || len(tag[1]) >
+100` to decide whether a tag needs the `IndexLongerTag` escape hatch
+(added earlier this session for NIP-22's long article-address tags) —
+but the branch it falls into then unconditionally evaluates `tag[1]` as
+a call argument to `IndexLongerTag`, and Go evaluates arguments before
+the call, so this panics on an out-of-range index for any tag with
+`len(tag) < 2`, *before* `IndexLongerTag`'s own body (which handles a
+short/empty value safely) ever runs. The trigger, this time, was NIP-43's
+own `publishRoleDefinition` — its role-definition event includes a bare
+`["-"]` NIP-70 protected-event marker tag (a real, spec-correct,
+single-element tag), which panics on save the instant `IndexLongerTag`
+is configured. And `IndexLongerTag` **is** configured, for every event
+this relay stores, not just relay-self-authored ones — meaning **any
+real client publishing any event containing a bare single-element tag
+would crash the entire relay process**, not just fail one publish. This
+was never caught before because `NOSTRAS_RELAY_PRIVATE_KEY` had never
+actually been set in production (confirmed via `flyctl secrets list` —
+NIP-43 was verified locally with a throwaway key only, never deployed
+live), so `publishRoleDefinition` — which runs unconditionally on every
+boot once that key is set — had simply never executed against
+production's real, IndexLongerTag-configured badger store until this
+investigation.
+
+**Fixed the same way this project already fixed a real khatru defect**:
+forked the vendored dependency locally rather than working around it at
+one call site (changing NIP-43's tag shape would only protect this
+app's own publishes, not the underlying vulnerability any external
+client's event could still trigger). `eventstore` is public domain
+(Unlicense, same as khatru — verified before touching anything).
+`server/internal/eventstorefork/` is a minimal local copy — just the
+root package files, `badger/`, `bluge/`, `nullstore/`, `slicestore/`,
+and the small `internal/`/`internal/binary/` helpers actually imported
+(dynamodb/firestore/mongo/mysql/postgres/sqlite/elasticsearch/
+opensearch/lmdb/edgedb/turso/strfry/cmd/test dropped, same "only what's
+actually imported" precedent as the khatru fork), wired in via
+`replace github.com/fiatjaf/eventstore => ./internal/eventstorefork` in
+`server/go.mod`. The actual patch in `badger/helpers.go`: only ever call
+`IndexLongerTag` once `len(tag) >= 2` is already confirmed, matching
+what its own `(evt, key, value string)` signature already assumes.
+
+**Verified for real, in layers, not just built clean**: `go build`/
+`go vet`/`gofmt -l`/`go mod tidy` all clean across the whole module
+including the fork. Reproduced the actual crash first (a fresh local
+relay with a throwaway `NOSTRAS_RELAY_PRIVATE_KEY` panicked
+immediately, exact stack trace pointing at `getIndexKeysForEvent` inside
+`publishRoleDefinition`), confirmed the fix resolves it (same boot
+sequence, no crash, NIP-43's role definition and NIP-66's discovery
+event both save successfully), then went further to prove the *general*
+severity, not just this one call site: published a real NIP-70-tagged
+note from an unrelated throwaway identity (correctly rejected by NIP-70
+enforcement itself, but critically — no crash) and, more directly, a
+real note carrying an arbitrary bare single-element tag unrelated to
+NIP-70 (`["z"]`) from a second throwaway identity — genuinely accepted
+and stored, relay still responding to NIP-11 requests immediately after,
+proving the exact previously-crashing code path now completes
+successfully for an ordinary client publish, not just a relay-authored
+one. Confirmed the real published kind:30166 discovery event via `nak`:
+correct `d`/`n`/`R` tags, real non-fabricated `rtt-open`/`rtt-read`/
+`rtt-write` values (near-zero, correctly reflecting a genuine loopback
+self-connection, not invented numbers), and an `N` tag list matching the
+live supported-NIPs set exactly. Confirmed the ephemeral kind:20166
+timing-ping left zero trace in the store (`nak req -k 20166` returned
+nothing), and confirmed NIP-11 correctly advertises `66`. **Not yet
+deployed to production** — `NOSTRAS_RELAY_PRIVATE_KEY` still isn't set
+there (per `flyctl secrets list`), so this whole code path (NIP-43 and
+now NIP-66 together) has only ever run against a live production
+badger store during this session's own local testing, not yet for
+real. Deploying it — and, separately, deciding whether to finally set
+that secret in production at all — is a deliberate next step, not done
+as part of this fix.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

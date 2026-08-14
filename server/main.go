@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	dgraphBadger "github.com/dgraph-io/badger/v4"
 	"github.com/fiatjaf/eventstore/badger"
@@ -337,6 +338,22 @@ func main() {
 			fmt.Println("nip43: could not publish role definition:", err)
 		}
 		fmt.Println("NIP-43 relay membership: ON, relay pubkey", relayPubkey)
+
+		// NIP-66 relay self-discovery — see nip66.go. Reuses the exact
+		// same relay identity as NIP-43 above rather than a separate key
+		// or activation flag; the self-probe dials the relay's own real
+		// listener on localhost (this always runs on the same host as
+		// the listener, so no dependency on external DNS/TLS availability
+		// at probe time), while NOSTRAS_RELAY_PUBLIC_URL is the address
+		// advertised *in* the discovery event's own d tag — what an
+		// external client would actually use to reach this relay.
+		// Defaults to the same localhost address for local dev; set to
+		// wss://nostras.app in production (fly.toml).
+		relay.Info.AddSupportedNIP(66)
+		nip66DialURL := "ws://localhost:" + port
+		nip66PublicURL := envOr("NOSTRAS_RELAY_PUBLIC_URL", nip66DialURL)
+		startNip66SelfDiscoveryLoop(relay, relayPrivateKey, nip66DialURL, nip66PublicURL, 6*time.Hour)
+		fmt.Println("NIP-66 relay self-discovery: ON, publishing every 6h, advertised as", nip66PublicURL)
 	}
 
 	fmt.Println("NOSTRAS relay running on :" + port)

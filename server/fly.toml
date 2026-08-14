@@ -61,6 +61,11 @@ primary_region = "fra"
   # ban/allow/moderation-queue/admin-grant store (adminapi.go) also needs
   # the persistent volume, set here from the start.
   NOSTRAS_NIP86_STORE_PATH          = "/data/nip86-admin.json"
+  # NIP-66 relay self-discovery (nip66.go): the address advertised *in*
+  # the discovery event's own d tag, not what the self-probe dials (that
+  # always stays localhost, same host as the listener). Not a secret —
+  # this is exactly the address anyone would already reach the relay at.
+  NOSTRAS_RELAY_PUBLIC_URL          = "wss://nostras.app"
   # <process-group>.process.<app>.internal is Fly's private-networking
   # hostname convention for reaching a specific process group without
   # going out over the public internet — confirmed working in production

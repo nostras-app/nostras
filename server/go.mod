@@ -8,6 +8,17 @@ go 1.26.5
 // so vendoring and patching it directly is unrestricted.
 replace github.com/fiatjaf/khatru => ./internal/khatrufork
 
+// NOSTRAS PATCH: local fork with a fix for a real crash bug found while
+// building NIP-66 (2026-08-13) — badger/helpers.go's tag-indexing loop
+// evaluated tag[1] as a call argument to IndexLongerTag even when
+// len(tag) < 2 (Go evaluates arguments before the call), panicking on
+// any event containing a bare single-element tag (e.g. NIP-70's ["-"]
+// marker) once IndexLongerTag is configured, which it is for every
+// event this relay stores. See internal/eventstorefork/badger/helpers.go
+// and CLAUDE.md for the full writeup. eventstore is public domain
+// (Unlicense), same as khatru above.
+replace github.com/fiatjaf/eventstore => ./internal/eventstorefork
+
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/anthropics/anthropic-sdk-go v1.61.0
