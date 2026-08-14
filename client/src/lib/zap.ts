@@ -1,7 +1,4 @@
-import {
-  generateZapRequest,
-  getNip57ZapSpecFromLud,
-} from '@nostr-dev-kit/ndk'
+import { NDKEvent as NDKEventClass, getNip57ZapSpecFromLud } from '@nostr-dev-kit/ndk'
 import type { NDKEvent, NDKLnUrlData } from '@nostr-dev-kit/ndk'
 import { ndk, authorQueryRelaySet, publicRelayUrls } from './ndk'
 
@@ -69,20 +66,72 @@ async function createZapInvoiceInner(
   }
 
   const amountMsat = amountSats * 1000
-  const zapRequest = await generateZapRequest(
-    target,
-    ndk,
-    lnUrlData,
-    target.pubkey,
-    amountMsat,
-    publicRelayUrls,
-    comment,
-  )
-  if (!zapRequest) {
-    throw new Error('Failed to build zap request')
-  }
+  const zapRequest = await buildZapRequest(target, target.pubkey, amountMsat, lud16, lnUrlData.callback, comment)
 
   return fetchInvoiceFromCallback(zapRequest, amountMsat, lnUrlData)
+}
+
+// Real, live bug found and confirmed live in production, not hypothetical
+// (2026-08-14): every zap through this app was building a malformed NIP-57
+// zap request, and it only surfaced once a recipient's LNURL service (Alby,
+// confirmed) happened to validate strictly enough to reject it. Traced by
+// reproducing the failure myself against a live recipient with a throwaway
+// identity, capturing the exact request via the console logging added just
+// before this fix, then bisecting it tag-by-tag against the real recipient's
+// real endpoint (safe — LNURL-pay invoice requests are plain GETs, no funds
+// move until the returned invoice is actually paid) until the single element
+// that broke it was isolated.
+//
+// Root cause: NDK's own generateZapRequest() calls target.referenceTags(),
+// which — read directly in NDK's installed source — *unconditionally*
+// appends an empty-string NIP-10 marker to the "e" tag when none is given:
+// `tag.push(marker ?? "")`. The result is a 5-element tag
+// (`["e", id, relayHint, "", targetPubkey]`) for literally every zap this
+// app has ever sent to any event. A plain `["e", id]` or `["e", id,
+// relayHint]` — both independently confirmed against the real recipient —
+// work correctly; adding the empty marker element is what breaks it.
+// generateZapRequest() also sets the "lnurl" tag to the *callback* URL
+// (`data.callback`) rather than the actual LNURL-pay endpoint the spec
+// describes — a separate, real deviation, fixed here too for lud16
+// recipients (the common case) since it costs nothing once tags are being
+// built by hand anyway; lud06-only recipients keep the callback URL, same
+// as before, rather than pulling in a bech32 decoder for a rarer legacy
+// format.
+//
+// Rather than patch NDK's vendored referenceTags() (a much larger, more
+// actively-changing library than this project's own khatru/eventstore
+// forks) or try to mutate its output after the fact (signatures cover the
+// exact tag bytes — any post-sign mutation invalidates them, a mistake
+// made and caught during this very investigation), the zap request is
+// built and signed directly here, matching NIP-57's real minimum shape.
+async function buildZapRequest(
+  target: NDKEvent,
+  pubkey: string,
+  amountMsat: number,
+  lud16: string | undefined,
+  callbackUrl: string,
+  comment?: string,
+): Promise<NDKEvent> {
+  // lud06-only recipients keep the callback URL here (matching this app's
+  // pre-existing behavior) rather than pulling in a bech32 decoder just to
+  // recover the true LNURL endpoint for a now-rare legacy format.
+  const lnurlTagValue =
+    lud16 && !lud16.startsWith('LNURL')
+      ? `https://${lud16.split('@')[1]}/.well-known/lnurlp/${lud16.split('@')[0]}`
+      : callbackUrl
+
+  const tags: string[][] = [
+    ['relays', ...publicRelayUrls.slice(0, 4)],
+    ['amount', amountMsat.toString()],
+    ...(lnurlTagValue ? [['lnurl', lnurlTagValue]] : []),
+    ['p', pubkey],
+    ['e', target.id],
+    ...(target.kind !== undefined ? [['k', target.kind.toString()]] : []),
+  ]
+
+  const event = new NDKEventClass(ndk, { kind: 9734, content: comment || '', tags })
+  await event.sign()
+  return event
 }
 
 // Real, live bug reported by a real user (2026-08-14): zapping a real Zap
