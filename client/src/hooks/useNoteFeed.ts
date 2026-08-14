@@ -3,6 +3,7 @@ import type { NDKEvent, NDKKind } from '@nostr-dev-kit/ndk'
 import { ndk, authorQueryRelaySet } from '../lib/ndk'
 import { useRelayStatus } from './useRelayStatus'
 import { KIND_POLL } from '../lib/poll'
+import { KIND_FORUM_THREAD } from '../lib/forum'
 
 // Not in NDK's own kind catalog — same gap already hit for several
 // other project-specific kinds this session (NIP-29 delete kinds,
@@ -23,12 +24,12 @@ const KIND_ZAP_GOAL = 9041 as NDKKind
 const EOSE_FALLBACK_MS = 12000
 
 // Subscribes to kind:1 notes, kind:30023 long-form articles, kind:9041
-// zap goals, and kind:1068 polls — either the global feed (authors
-// omitted) or a single author's notes (profile view). Shared here so
-// both call sites get the same dedup/sort/eose/event:dup handling
-// instead of two copies. FeedItem (Feed.tsx) branches on event.kind to
-// render a normal note, an article card, a zap goal card, or a poll
-// card.
+// zap goals, kind:1068 polls, and kind:11 forum threads — either the
+// global feed (authors omitted) or a single author's notes (profile
+// view). Shared here so both call sites get the same dedup/sort/eose/
+// event:dup handling instead of two copies. FeedItem (Feed.tsx) branches
+// on event.kind to render a normal note, an article card, a zap goal
+// card, a poll card, or a thread card.
 export function useNoteFeed(authors?: string[]) {
   const [events, setEvents] = useState<NDKEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -57,7 +58,7 @@ export function useNoteFeed(authors?: string[]) {
     // in the filter, NDK already queries the full explicit relay list
     // unconditionally, not gated on which relays happen to be CONNECTED
     // yet, so it was never subject to this race.
-    const kinds = [1, 30023, KIND_ZAP_GOAL, KIND_POLL as NDKKind]
+    const kinds = [1, 30023, KIND_ZAP_GOAL, KIND_POLL as NDKKind, KIND_FORUM_THREAD]
     const sub = ndk.subscribe(
       authors ? { kinds, authors, limit: 50 } : { kinds, limit: 50 },
       authors ? { relaySet: authorQueryRelaySet } : undefined,

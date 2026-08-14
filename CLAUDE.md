@@ -7680,6 +7680,81 @@ real. Deploying it — and, separately, deciding whether to finally set
 that secret in production at all — is a deliberate next step, not done
 as part of this fix.
 
+## NIP-7D Forum Threads added — plus a real kind-number collision found
+and fixed at the relay level (2026-08-14)
+
+Real kind:11 forum threads (a title + a body, per the spec's own
+minimal requirement), a new Compose tab, feed cards, and a full reading
+view. Replies are genuine NIP-22 kind:1111 comments per NIP-7D's own
+explicit requirement ("Replies to kind 11 MUST use NIP-22 kind 1111
+comments... always to the root, to avoid arbitrarily nested reply
+hierarchies") — reusing the exact comment infrastructure already built
+for NIP-23 articles rather than a second, parallel reply system.
+
+**Real generalization needed, not just a copy-paste**: `lib/comments.ts`
+was hardcoded to the addressable-event shape (`A`/`a` tags via
+`tagAddress()`) — correct for a NIP-23 article, wrong for a kind:11
+thread, which is a *regular* (non-addressable) event and needs `E`/`e`
+(event id) tags instead per NIP-22's own real convention. Added
+`isAddressableKind()` (30000-39999 per NIP-01) and branched both
+`publishComment` and `useComments` on it — `useComments` needed two
+separate static filter literals (`#A` vs `#E`), not one with a computed
+key, since TypeScript can't cleanly narrow a computed index-signature
+key alongside the sibling `kinds` field in one object literal.
+`CommentSection.tsx` itself needed zero changes — already generic over
+`rootEvent: NDKEvent`, so it just works for both root types now.
+NDK already ships a real `NDKKind.Thread = 11` constant and an
+`NDKThread` convenience class — the first project-specific-feeling kind
+this session didn't need to hand-cast, since it's foundational enough
+that NDK already models it.
+
+**Real, previously-undiscovered bug found live during verification, not
+shipped**: the very first test publish of a real kind:11 thread was
+rejected by the relay itself — `"invalid: missing or ambiguous group
+tag"`. Root cause: `go-nostr`'s own `KindSimpleGroupThread` constant is
+*also* 11 — an older, NIP-29-adjacent convention for group-scoped
+threads that predates NIP-7D's separate, later claim on the same kind
+number for general, ungrouped public threads. NOSTRAS's own
+`server/nip29.go` treated every kind:11 event as NIP-29-governed purely
+by kind number, requiring an `h` (group) tag unconditionally — meaning
+every real NIP-7D thread would have been rejected by this relay,
+100% of the time, forever, without this fix.
+
+**Fixed precisely, not broadly**: added a `hasTag()` helper and scoped
+the fix to exactly the one kind with a confirmed real collision —
+`if evt.Kind == nostr.KindSimpleGroupThread && !hasTag(evt, "h") { return false, "" }`
+in the `RejectEvent` hook, so a kind:11 with no group tag at all (never
+valid NIP-29 content to begin with, by NIP-29's own definition) is
+treated as ordinary content instead of rejected — while kind:9/10/12
+keep their existing strict requirement unchanged, since nothing else
+this relay implements claims those specific kinds. Same distinction
+applied to the NIP-50 search-index exclusion
+(`newGroupChatSearchIndexHook`), which previously excluded *any*
+kind:9/10/11/12 from search unconditionally — now only excludes a
+kind:11 that actually carries a real "h" tag, so an ungrouped NIP-7D
+thread stays searchable like any other public content, while a genuine
+NIP-29 group thread stays excluded exactly as before.
+
+**Verified for real, in layers, against a live local relay — not just
+built clean**: `go build`/`go vet`/`gofmt -l` and `tsc -b`/`oxlint`/
+`vite build` all clean. Reproduced the actual rejection first (a real
+kind:11 publish attempt failing with the exact "missing or ambiguous
+group tag" error) before touching any fix code. After the fix: a real
+ungrouped kind:11 thread published successfully, was queryable by kind,
+and was genuinely findable via a live NIP-50 search on its own real
+content. Published a real kind:1111 reply matching the client's exact
+tag-building shape (`E`/`K`/`P` + lowercase, with the `[id, relay,
+pubkey]` shape NIP-7D's own spec text describes) and confirmed it
+resolves via the identical `#E` filter `useComments` actually queries.
+**Regression-checked the existing NIP-29 behavior wasn't broken, not
+just assumed safe**: a kind:11 with a real "h" tag pointing at a
+nonexistent group was still correctly rejected (`"blocked: group does
+not exist"`); created a real group, published a real kind:11 *into* it
+with a valid "h" tag, and confirmed it published successfully but was
+correctly *excluded* from search — proving both branches of the fix
+(the reject-hook distinction and the search-index distinction) work
+correctly in both directions, not just for the new ungrouped case.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

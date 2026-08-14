@@ -10,6 +10,7 @@ import { UnlockIdentityGate } from './components/UnlockIdentityGate'
 import { ComposeView } from './components/ComposeView'
 import { ArticleView } from './components/ArticleView'
 import { SingleNoteView } from './components/SingleNoteView'
+import { ThreadView } from './components/ThreadView'
 import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
 import { ProfileView } from './components/ProfileView'
@@ -45,7 +46,7 @@ function App() {
   // from anywhere (e.g. clicking an author's name deep inside FeedItem)
   // without prop-drilling a callback through every component that
   // renders one.
-  const { view: activeView, profilePubkey, article, note, dmTarget, groupTarget } = useNavState()
+  const { view: activeView, profilePubkey, article, note, thread, dmTarget, groupTarget } = useNavState()
   const deepLinkResolved = useRef(false)
   const appPreferencesSynced = useRef(false)
 
@@ -205,6 +206,10 @@ function App() {
 
             <div className={panelClass('note')}>
               {note && <SingleNoteView event={note} />}
+            </div>
+
+            <div className={panelClass('thread')}>
+              {thread && <ThreadView event={thread} />}
             </div>
 
             <section className={`card ${panelClass('ask-claude')}`}>

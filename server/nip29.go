@@ -265,9 +265,36 @@ func applyNip29CacheEvent(cache *groupCache, evt *nostr.Event) {
 // incoming event regardless of kind, so the kind-check is the very first
 // thing done — a cheap map lookup that costs the overwhelming majority of
 // non-group traffic essentially nothing.
+// hasTag reports whether evt carries at least one tag named name,
+// regardless of the tag's length (a bare marker tag like ["-"] still
+// counts) — used below for a presence check, not a value extraction.
+func hasTag(evt *nostr.Event, name string) bool {
+	for _, tag := range evt.Tags {
+		if len(tag) >= 1 && tag[0] == name {
+			return true
+		}
+	}
+	return false
+}
+
 func newNip29RejectEventHook(cache *groupCache) func(ctx context.Context, evt *nostr.Event) (bool, string) {
 	return func(ctx context.Context, evt *nostr.Event) (bool, string) {
 		if !isNip29Kind(evt.Kind) {
+			return false, ""
+		}
+
+		// Real conflict found while building NIP-7D (2026-08-14):
+		// go-nostr's own KindSimpleGroupThread constant is 11 — the exact
+		// same kind NIP-7D independently claims for general, ungrouped
+		// public forum threads. Per NIP-29's own definition, a group-
+		// chat-family event only means anything with a real "h" (group)
+		// tag; one of these kinds with no "h" tag at all was never valid
+		// NIP-29 content to begin with, so it's treated as ordinary
+		// content here instead of rejected. Deliberately scoped to just
+		// this one kind, the only one with a confirmed real collision —
+		// kind:9/10/12 keep requiring "h" unchanged, since nothing else
+		// this relay implements claims them.
+		if evt.Kind == nostr.KindSimpleGroupThread && !hasTag(evt, "h") {
 			return false, ""
 		}
 
@@ -325,7 +352,15 @@ func newNip29CacheUpdateHook(cache *groupCache) func(ctx context.Context, evt *n
 // content after the fact.
 func newGroupChatSearchIndexHook(searchIndex *bluge.BlugeBackend) func(ctx context.Context, evt *nostr.Event) error {
 	return func(ctx context.Context, evt *nostr.Event) error {
-		if groupChatKinds[evt.Kind] {
+		// hasTag(evt, "h") mirrors the same real-vs-collision distinction
+		// as the reject hook above: kind:9/10/12 always carry a real "h"
+		// tag by the time they reach here (the reject hook still requires
+		// it for those, unchanged), so this check is a no-op for them: a
+		// genuine group message stays excluded either way. For kind:11,
+		// this is what correctly excludes a real NIP-29 group thread
+		// while still indexing an ungrouped NIP-7D forum thread — the
+		// latter is ordinary public content, same as an article or note.
+		if groupChatKinds[evt.Kind] && hasTag(evt, "h") {
 			return nil
 		}
 		return searchIndex.SaveEvent(ctx, evt)
