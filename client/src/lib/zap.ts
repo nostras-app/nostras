@@ -120,6 +120,15 @@ async function fetchInvoiceFromCallback(
   const body = await response.json()
   if (!body.pr) {
     const reason = body.reason || body.status || 'no invoice returned'
+    // Real report (2026-08-14): a recipient's LNURL service rejected a real
+    // zap request as malformed ("Invalid zap request"), on a device whose
+    // signer was independently confirmed working (a like from the same
+    // identity published fine) — so the failure is specific to this exact
+    // request, not the signer. Logging the actual bytes sent is the only
+    // way to compare a real failing request against a known-good one; the
+    // event is about to be broadcast to a Lightning service regardless, so
+    // there's nothing here that isn't already leaving the device.
+    console.error('[zap] recipient rejected zap request', { reason, zapRequest: zapRequest.rawEvent(), callbackUrl: url.toString() })
     throw new Error(`Recipient's Lightning service did not return an invoice: ${reason}`)
   }
   return body.pr
