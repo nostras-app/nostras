@@ -1,9 +1,8 @@
 import {
   generateZapRequest,
   getNip57ZapSpecFromLud,
-  NDKZapper,
 } from '@nostr-dev-kit/ndk'
-import type { NDKEvent } from '@nostr-dev-kit/ndk'
+import type { NDKEvent, NDKLnUrlData } from '@nostr-dev-kit/ndk'
 import { ndk, authorQueryRelaySet, publicRelayUrls } from './ndk'
 
 // Real, live bug caught in production, not hypothetical: this whole chain
@@ -83,10 +82,45 @@ async function createZapInvoiceInner(
     throw new Error('Failed to build zap request')
   }
 
-  const zapper = new NDKZapper(target, amountMsat, 'msat')
-  const invoice = await zapper.getLnInvoice(zapRequest, amountMsat, lnUrlData)
-  if (!invoice) {
-    throw new Error('Failed to fetch an invoice from the recipient')
+  return fetchInvoiceFromCallback(zapRequest, amountMsat, lnUrlData)
+}
+
+// Real, live bug reported by a real user (2026-08-14): zapping a real Zap
+// Goal from a real device failed with the generic "Failed to fetch an
+// invoice from the recipient" message, with no way to tell why. Traced to
+// NDK's own NDKZapper.getLnInvoice() — it fetches the LNURL callback and,
+// on a 200 response with no `pr` field, just returns `null`, discarding
+// whatever the recipient's Lightning service actually said (many LNURL
+// implementations respond 200 with `{status:"ERROR", reason:"..."}`
+// instead of a non-200 status). A faithful replica of this exact request
+// (same zap goal, same amount, same tag shape) against the real recipient's
+// real LNURL provider was independently confirmed to succeed while
+// investigating this, which rules out the amount/provider/zap-goal-shape
+// as the general cause — but without the recipient's own `reason` text,
+// any *future* occurrence of this same generic message is equally
+// undiagnosable. This hand-rolls the same single fetch NDK's own
+// getLnInvoice performs (same URL construction, same amount+nostr query
+// params) so a non-200 or missing-`pr` response surfaces the recipient's
+// own stated reason instead of a one-size-fits-all string. NDKZapper
+// itself is no longer needed here now that its one call site (this
+// function) is inlined — nothing else in this file used it.
+async function fetchInvoiceFromCallback(
+  zapRequest: NDKEvent,
+  amountMsat: number,
+  data: NDKLnUrlData,
+): Promise<string> {
+  const url = new URL(data.callback)
+  url.searchParams.append('amount', amountMsat.toString())
+  url.searchParams.append('nostr', JSON.stringify(zapRequest.rawEvent()))
+  const response = await fetch(url.toString())
+  if (response.status !== 200) {
+    const text = await response.text()
+    throw new Error(`Recipient's Lightning service rejected the request (${response.status}): ${text}`)
   }
-  return invoice
+  const body = await response.json()
+  if (!body.pr) {
+    const reason = body.reason || body.status || 'no invoice returned'
+    throw new Error(`Recipient's Lightning service did not return an invoice: ${reason}`)
+  }
+  return body.pr
 }
