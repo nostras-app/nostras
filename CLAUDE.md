@@ -8256,6 +8256,109 @@ throughout all three stages. Deployed via the usual CI path each time;
 confirmed live via the production bundle containing each deploying
 commit's SHA.
 
+## Feed no longer auto-scrolls on live updates — held behind a tappable
+pill instead (2026-08-14)
+
+Real user report, on mobile: while reading, liking, bookmarking, or
+zapping a note, a live update arriving from the relay would reflow the
+feed and knock the note being interacted with out from under the
+user's thumb — frequent enough on a busy feed to make focusing on any
+one note genuinely difficult. The user described the exact fix other
+clients use for the same reason: freeze the visible list, show new
+arrivals as a count behind a fixed icon, only merge and scroll to top
+on an explicit tap.
+
+`useNoteFeed.ts` gained an opt-in `holdNewEvents` mode: once the
+initial backlog's `eose` fires, further live arrivals are buffered
+separately (`newEvents`) instead of merged, surfaced only as a count,
+and spliced into the visible list — with a deliberate scroll-to-top —
+solely on an explicit `showNew()` call. `Feed.tsx` (Global/Following)
+opts in; `ProfileView`'s own, much lower-velocity notes list keeps the
+original always-merge behavior unchanged, since that wasn't the
+report and changing it for free wasn't the ask.
+
+**Real race condition caught and fixed during verification, not
+shipped**: reproducing the fix live (a local dev build against real
+production traffic) surfaced a genuine bug — switching from a busy
+Global feed to an empty Following tab quickly enough left a stale "45
+new notes" pill floating over what should have been an empty list.
+Root cause: `sub.stop()` in the effect's cleanup does not synchronously
+guarantee no more `'event'` callbacks fire from an already-torn-down
+subscription; a late-arriving event from the *old* subscription could
+still call `setNewEvents` for what was now a *different* logical feed,
+via the same shared state setter. Fixed with a plain `stopped` flag,
+closed over per effect run, checked at the top of every listener
+(`event`/`eose`/`event:dup`) and set only in the cleanup function —
+the standard pattern for guarding against exactly this class of
+stale-closure race. Four rapid tab switches afterward produced zero
+stale state and zero console errors.
+
+**Verified live against real, genuinely high-velocity production
+traffic, not synthetic data**: the pill correctly appeared and
+accumulated a live count while scrolled deep into the feed with zero
+disruption to the currently-visible content; correctly merged and
+scrolled to top on tap; and — a real stress-test of the mechanism, not
+a flaw — immediately began accumulating a fresh count afterward, since
+this particular unfiltered Global feed is genuinely a firehose of all
+public content from the bootstrap relays with no filter. `tsc -b`,
+`oxlint`, `vite build` clean. Deployed via the usual CI path; confirmed
+live via the production bundle containing the deploying commit's SHA
+and the new `feed-new-pill` CSS class.
+
+## Real horizontal-overflow bug found and fixed — a second, independent
+instance of a class already flagged once and left unresolved
+(2026-08-14)
+
+Direct follow-up, same day, to the auto-scroll fix above: a live
+user report with a screenshot showed feed cards rendering narrower
+than the viewport, a large blank gap on the right, the nav rail
+compressed to a sliver on the left — real horizontal page overflow.
+
+This project's own history already had an entry for a superficially
+similar symptom ("some notes with very long unbroken raw JSON content
+... cause horizontal overflow on narrow viewports despite
+`.feed-item-content` already having `overflow-wrap: anywhere` and the
+flex chain already having `min-width: 0` at every level checked. Root
+cause not yet isolated") — flagged once, never actually fixed. Rather
+than assume this was the same still-open bug, reproduced it live at a
+narrow viewport and scanned every element on the real page via
+`scrollWidth` vs. viewport width, then walked down to the deepest
+offending elements instead of guessing from the old entry's own
+starting point. Found genuine overflow (`document.documentElement.
+scrollWidth` 715px against a 485px viewport) traced to `<span>`
+elements rendering `Feed.tsx`'s `ReplyContext` component — the
+"Replying to X: 'snippet'" line, a preview of the *parent* note's raw
+content. This is a structurally different rendering path from
+`.feed-item-content` (plain-text interpolation, not
+`parseContentSegments`), added in a later session than the original
+fix and never covered by it — a genuinely separate, previously
+unaudited bug, not a recurrence of the old one.
+
+**Root cause**: `.feed-item-reply-context` is a flex row with no
+`min-width: 0` set on itself. A flex item's default `min-width` is
+`auto`, meaning it won't shrink below its content's intrinsic width
+even when its own parent (`.feed-item-body`, already correctly set to
+`min-width: 0`) is otherwise properly constrained — that gap, one
+level deeper than where the original investigation stopped looking,
+is what let a single long unbroken snippet (a raw JSON blob, an
+unspaced URL — both present in the actual reported screenshot) force
+the row, the card, and the whole page wider than the viewport.
+
+**Fixed** by adding `min-width: 0` and `overflow-wrap: anywhere` to
+`.feed-item-reply-context`. `overflow-wrap` is an inherited property,
+so setting it once at the container level also covers the unnamed
+`<span>` wrapper and `.feed-item-reply-context-snippet` nested inside,
+without needing to repeat the rule at every level.
+
+**Verified live via direct DOM measurement, not visual inspection
+alone**: scanned the full DOM for overflowing elements before the fix
+(34 found, matching the reported symptom precisely) and after (zero),
+at the same real narrow viewport against real production content, plus
+a visual screenshot confirming cards now correctly fill the available
+width with no blank gap. `tsc -b`, `oxlint`, `vite build` clean.
+Deployed via the usual CI path; confirmed live via the production
+bundle containing the deploying commit's SHA and the fixed CSS rule.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
