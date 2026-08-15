@@ -264,7 +264,14 @@ func main() {
 		fmt.Println("dashboard: ON")
 	}
 	relay.Router().HandleFunc("GET /dashboard", requireDashboardAuth(dashboardPassword, handleDashboard))
-	relay.Router().HandleFunc("GET /dashboard/data", requireDashboardAuth(dashboardPassword, handleDashboardData(analytics)))
+	// Deliberately public, unlike every other /dashboard/* route — this
+	// is the exact same aggregate, no-PII connection-count/country data
+	// the public /stats page (see stats.go) fetches directly from a
+	// visitor's own browser, which can't attach the dashboard password.
+	// Real health/DVM-health/waitlist data stays gated below; this
+	// endpoint was already the one genuinely safe-to-publish piece of
+	// what /dashboard/data-adjacent routes expose.
+	relay.Router().HandleFunc("GET /dashboard/data", handleDashboardData(analytics))
 	relay.Router().HandleFunc("GET /dashboard/health", requireDashboardAuth(dashboardPassword, handleDashboardHealth))
 
 	// NOSTRAS Node waitlist — see waitlist.go/waitlist_handlers.go/
@@ -299,6 +306,11 @@ func main() {
 
 	// NOSTRAS Node waitlist page — see node.go/node.html.
 	relay.Router().HandleFunc("GET /node", handleNode)
+
+	// Public live usage stats — see stats.go/stats.html. The public half
+	// of the dashboard split: real connection/geography data, no
+	// password, backed by the now-public GET /dashboard/data above.
+	relay.Router().HandleFunc("GET /stats", handleStats)
 
 	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent, newGroupChatSearchIndexHook(&searchIndex),
 		newPushNotifyHook(pushSubs, vapidPublicKey, vapidPrivateKey, vapidSubscriber))

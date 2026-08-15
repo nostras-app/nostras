@@ -9143,6 +9143,70 @@ signup was submitted to the live `/node/waitlist` endpoint using
 key) at the user's own explicit request, confirmed afterward via
 `/dashboard/waitlist` to have actually landed in the persisted store.
 
+## Public `/stats` page — the dashboard split into admin vs. public data
+(2026-08-16)
+
+Closes the last piece from the original three-part landing-page
+conversation: making usage analytics public ("we don't have any
+secret there") without exposing anything operator-facing. A real,
+still-open question from that first discussion — whether to strip auth
+off the *existing* `dashboard.html` or build a separate page — got
+resolved in favor of a separate page once the dashboard grew a second
+real reason it needed to stay private: the NOSTRAS Node waitlist panel
+added since then contains actual visitor email addresses, not just
+operational metrics. Trying to conditionally show/hide gated panels on
+one shared page for two different audiences was judged riskier than a
+second page whose own template simply never contains anything gated at
+all — safer by construction, not by careful conditional logic.
+
+**The actual split**: `GET /dashboard/data` (connection totals, by-day
+history, by-country breakdown — the exact same aggregate, no-PII data
+this project's own honest-methodology caption has always described) is
+now genuinely public, no Basic Auth. `GET /dashboard` (the full
+operator view: live server health, DVM health, and the waitlist panel),
+`GET /dashboard/health`, and `GET /dashboard/waitlist` all stay exactly
+as password-gated as before — nothing about their own auth requirement
+changed. New `server/stats.go`/`stats.html`, served at `/stats`, is a
+public page in the same site-nav/hero/footer shell as `/why` and
+`/node` (not the operator dashboard's own utilitarian look), whose own
+JS fetches the now-public `/dashboard/data` directly from a visitor's
+browser — reuses the *exact* chart-drawing and country-table JS
+(`drawChart`/`renderCountries`/`flagEmoji`/`countryName`) already
+proven correct in `dashboard.html`, copied rather than shared (this
+project's landing pages have never had a shared JS/CSS asset mechanism
+— each is a fully self-contained `go:embed`ded document). Linked from
+the nav bar and footer of all three other site pages (home, `/why`,
+`/node`), each highlighting its own current page.
+
+**Verified for real, not just built clean**: `go build`/`go vet`/
+`gofmt -l` clean. Ran the local relay, confirmed via direct `curl` that
+`/stats` and `/dashboard/data` both return `200` with zero credentials
+while `/dashboard`, `/dashboard/health`, and `/dashboard/waitlist` all
+still correctly `401` without them — and that all four still work
+correctly *with* valid credentials, confirming the split didn't
+accidentally break the operator view. Generated one real connection via
+`nak` and confirmed live in a real browser that `/stats` genuinely
+renders that data — the summary cards, the 30-day bar chart, and the
+country table all populated with the real value, not placeholder
+zeros — and that the nav bar correctly highlights "Stats" as the
+current page. Checked at a real narrow viewport (~523px) — zero
+horizontal overflow, consistent with the same nav-bar wrap behavior
+already accepted on `/why`/`/node` at this width (not a new regression
+introduced here).
+
+**A real SMTP email-notification feature was drafted for the waitlist
+in the same conversation and then explicitly dropped by the user**
+before being committed — "for now waitlist notification into the
+dashboard is enough." The code (`smtp_notify.go` + wiring into
+`waitlist_handlers.go`/`main.go`) was written, verified to build clean
+and degrade gracefully when unconfigured, then fully reverted via `git
+checkout` once the user reconsidered — nothing from that attempt
+shipped or remains in the tree. Worth remembering if email
+notifications come up again later: the design (`net/smtp` +
+`crypto/tls`, no new dependency, supporting both STARTTLS and implicit
+TLS depending on `NOSTRAS_SMTP_PORT`) was sound and can be rebuilt
+quickly rather than redesigned from scratch.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
