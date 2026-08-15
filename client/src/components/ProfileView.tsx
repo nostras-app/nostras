@@ -12,6 +12,7 @@ import { useExternalIdentities } from '../hooks/useExternalIdentities'
 import { EXTERNAL_IDENTITY_PLATFORMS, externalIdentityProfileUrl } from '../lib/externalIdentities'
 import { FeedItem, FeedSkeleton } from './Feed'
 import { FollowListModal } from './FollowListModal'
+import { ProfileBadgeRow } from './ProfileBadgeRow'
 import { UserIcon, CheckCircleIcon, ZapCircleIcon } from './icons'
 import { parseContentSegments, shortenUrl, isSecureImageUrl } from '../lib/parseContent'
 import { MentionLink } from './MentionLink'
@@ -196,6 +197,7 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
                 })}
               </div>
             )}
+            <ProfileBadgeRow pubkey={viewedPubkey} />
           </div>
         </div>
       </div>

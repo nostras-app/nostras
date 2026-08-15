@@ -314,3 +314,15 @@ export function MicIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+// NIP-58 badges settings — a generic medal/ribbon glyph, standard
+// icon-library shape (Feather's own "award" outline), not a
+// reproduction of any specific product's logo.
+export function AwardIcon({ className }: IconProps) {
+  return (
+    <svg {...shared} fill="none" stroke="currentColor" className={className}>
+      <circle cx="12" cy="8" r="6" />
+      <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
+    </svg>
+  )
+}

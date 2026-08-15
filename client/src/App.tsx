@@ -23,6 +23,7 @@ import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
 import { PodcastShowSettings } from './components/PodcastShowSettings'
 import { LinkedAccountsSettings } from './components/LinkedAccountsSettings'
+import { BadgesSettings } from './components/BadgesSettings'
 import { MuteListSettings } from './components/MuteListSettings'
 import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
@@ -279,6 +280,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Linked Accounts</span>
                 <LinkedAccountsSettings />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Badges</span>
+                <BadgesSettings />
               </div>
               <div className="settings-section">
                 <span className="settings-section-title">Muted Accounts</span>
