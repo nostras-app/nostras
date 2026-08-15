@@ -50,12 +50,31 @@ var outboxSem = make(chan struct{}, maxConcurrentOutboxFetches)
 // side effect (via sdk.System), so repeat queries get progressively faster
 // and cheaper. Filters with no Authors (e.g. a straight kind/tag lookup)
 // skip aggregation entirely and just hit the local store.
+//
+// Real, serious bug found and fixed while building NIP-58 (2026-08-15),
+// not hypothetical: sys.FetchFeedPage only accepts (authors, kinds, until,
+// limit) — it has no way to honor a filter's Tags constraint at all, so
+// any Authors+Tags filter silently got outbox-"aggregated" results that
+// ignore the Tags entirely. This is exactly the filter shape khatru's own
+// manual-replace logic (internal/khatrufork/adding.go) uses to find "the
+// existing addressable event to delete" before storing a new one — Kinds
+// + Authors + Tags:{"d":[...]}. Reproduced directly: publishing a second
+// kind:30009 badge definition with a different `d` tag caused the FIRST
+// one to be silently deleted, because FetchFeedPage's own fallback
+// (consulting the same local store via sdk.WithStore) returned it as a
+// false match for a query that should have been scoped to the new `d`
+// value alone. The same gap would just as easily corrupt a real client
+// REQ combining Authors with any tag filter (e.g. "my own reactions to
+// this specific note"), not just this relay's own internal delete-lookup
+// — skipping aggregation whenever Tags is present is the only generally
+// safe fix, not a badges-specific patch, since FetchFeedPage structurally
+// cannot honor a tag constraint regardless of which caller sent it.
 func newAggregatedQuery(
 	db *badger.BadgerBackend,
 	sys *sdk.System,
 ) func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
 	return func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
-		if len(filter.Authors) == 0 {
+		if len(filter.Authors) == 0 || len(filter.Tags) > 0 {
 			return db.QueryEvents(ctx, filter)
 		}
 
