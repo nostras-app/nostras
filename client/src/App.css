@@ -2815,6 +2815,15 @@ a.profile-external-identity:hover {
   margin: 0 0 20px;
 }
 
+/* A second, quieter lede explaining paid groups — sits right below the
+   main description so an occasional user learns the option exists
+   before ever creating or opening a group, not only after stumbling
+   into a specific group's Admin tools. */
+.communities-paid-lede {
+  font-size: 13px;
+  margin-top: -12px;
+}
+
 .communities-create-form {
   display: flex;
   flex-direction: column;

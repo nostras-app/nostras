@@ -157,6 +157,13 @@ export function CommunitiesView({ groupTarget }: { groupTarget?: string | null }
         Real-time group chat hosted on NOSTRAS's own relay (NIP-29) — your
         existing Nostr identity, no separate account.
       </p>
+      <p className="communities-lede communities-paid-lede">
+        Any group owner can also charge to post — set a price after
+        creating a group (Admin tools → "Require payment to post"). Sats
+        go straight to the owner, plus a small NOSTRAS fee for running
+        the payment check. Reading a group's chat is always free; only
+        posting can ever be gated.
+      </p>
 
       <CreateGroupForm onCreated={(id) => viewGroup(id)} />
 
