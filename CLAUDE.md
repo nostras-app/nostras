@@ -8607,6 +8607,114 @@ confirmed the reverse (hidden live, no reload) — closing the loop on
 both directions and both originally-reported gaps together. Not yet
 committed or deployed as of this entry.
 
+## NIP-58 badges added — plus a real, previously-undiscovered relay bug
+found and fixed while building it (2026-08-15)
+
+User pointed at `nostras-nips-compliance.md`'s NIP-58 row (⬜ Not
+implemented) and asked for it. Fetched the real spec text before
+building anything: kind 30009 (Badge Definition, addressable — `d`
+required, `name`/`description`/`image`/`thumb` optional), kind 8 (Badge
+Award — an `a` tag to the definition, one or more `p` tags naming
+recipients), kind 10008 (Profile Badges — a plain **replaceable** list,
+not addressable, of ordered `a`/`e` pairs a user opts into displaying),
+and kind 30008 (Badge Set — a named grouping, deliberately out of scope
+this pass, matching this project's own "smallest useful slice"
+precedent). **Real, worth-recording discrepancy found before writing
+any code**: NDK's own `NDKKind.ProfileBadge = 30008` reflects an older
+draft of this NIP — the current spec moved the real per-user display
+list to kind:10008 (which NDK has no constant for at all) and
+repurposed 30008 for the newer Badge Set concept. Same class of
+library-vs-current-spec drift already hit once for NIP-39 (kind:0 vs
+kind:10011) — trusted the live spec text over NDK's naming.
+
+**Client**: `client/src/lib/badges.ts` (kinds, address parsing/building,
+tag-pair walking, publish helpers), `useBadgeDefinition.ts` (a
+module-level `useSyncExternalStore` cache for looking up a badge by
+address, same pattern as `useProfile.ts`), `useMyBadgeDefinitions.ts`
+(badges the active user has created), `useReceivedBadgeAwards.ts`
+(awards genuinely `p`-tagging a given pubkey), `useProfileBadges.ts`
+(read-only display list for any profile), `useMyProfileBadges.ts`
+(accept/remove/reorder, the standard fetch-then-republish safety shape
+already settled on after fixing the identical bug three times
+elsewhere). `BadgesSettings.tsx` (Settings > Badges: create, award,
+manage) and `ProfileBadgeRow.tsx` (a small badge strip on `ProfileView`,
+own or someone else's). **Real security boundary, not just a UI
+nicety**: "Accept" in `BadgesSettings.tsx` is only ever wired to awards
+sourced from `useReceivedBadgeAwards(activeUser.pubkey)`, which by
+construction only returns awards whose own `p` tags genuinely include
+that pubkey — documented inline in `useMyProfileBadges.ts` so a future
+change doesn't wire `accept()` to some other, unverified source.
+
+**A real, previously-undiscovered relay bug found and fixed during live
+verification, not shipped**: creating a second badge definition with a
+different `d` tag silently deleted the first one. Root-caused via a
+standalone Go repro against the real running code (not guessed):
+khatru's own manual-replace logic for addressable events
+(`internal/khatrufork/adding.go`) correctly builds a Kinds+Authors+
+Tags{"d":[...]} query to find "the existing event to delete" — but that
+query runs through `relay.QueryEvents`, which in this relay is wrapped
+by `newAggregatedQuery` (`server/outbox.go`) for NIP-65 outbox
+aggregation. Since `Authors` was set, aggregation kicked in and called
+`sys.FetchFeedPage(ctx, filter.Authors, filter.Kinds, until, limit)` —
+**that function has no parameter for Tags at all**, so it silently
+ignored the `d` constraint and returned the *other*, differently-`d`
+-tagged badge as a false match, which khatru then correctly (given the
+bad input) deleted as "an older version of the same address." Confirmed
+via a minimal reproduction calling the exact real `newAggregatedQuery`
+function with `sdk.WithStore` pointed at the same local store `main.go`
+uses: `FetchFeedPage` returned the wrong event for a query that should
+have matched nothing. **Fixed generally, not narrowly for badges**:
+`newAggregatedQuery` now skips aggregation (falls straight to
+`db.QueryEvents`) whenever `filter.Tags` is non-empty, not just when
+`filter.Authors` is empty — `FetchFeedPage` structurally cannot honor a
+tag constraint regardless of which caller sent it, so this same gap
+could just as easily have corrupted a real client `REQ` combining
+`Authors` with any tag filter (e.g. "my own reactions to this specific
+note"), not only this relay's own internal delete-lookup. Re-ran the
+same repro against the fixed code and confirmed zero false matches.
+
+**A second, separate real bug found in the same verification pass**:
+`useReceivedBadgeAwards` originally left its `#p`-tag-only query
+completely unscoped, reasoning (correctly, on its own narrow point)
+that a tag-only filter doesn't hit the authors-filtered CONNECTED-only
+relay race this project has fixed several times before. That reasoning
+missed a different problem: `ndk.fetchEvents()` is a one-shot Promise
+(unlike `ndk.subscribe()`, which has its own eose-driven state and this
+app's established fallback-timer convention), and left unscoped it
+queries NDK's full *default* relay pool — which can grow large via
+outbox discovery during ordinary browsing, this app's own documented,
+expected behavior. Confirmed live, directly, not assumed: a raw
+`fetchEvents()` call with this exact filter genuinely never resolved
+within 45+ real seconds in a session that had done heavy Global-feed
+browsing beforehand. Fixed by scoping to `authorQueryRelaySet` (the
+same small, explicit, already-proven-fast relay set used throughout
+this app for exactly this class of concern), keeping the existing
+`withTimeout` wrapper as defense in depth rather than the primary fix.
+
+**Verified for real, end to end, against a local relay and two
+throwaway identities — not just built clean**: `tsc -b`, `oxlint`
+(only the pre-existing, permanently-unsuppressed warnings), `vite
+build` clean on the client; `go build`/`go vet`/`gofmt -l` clean on the
+server. Created two real badge definitions from an issuer identity,
+confirmed via `nak` that both genuinely coexisted after the relay fix
+(reproduced the delete bug first, on the unfixed code, then confirmed
+it was gone); awarded both to a real recipient identity, confirmed via
+`nak` that both kind:8 events carried the correct `a`/`p` tags;
+imported and switched to the recipient identity, confirmed "Badges
+awarded to you" correctly listed both (only after the
+`authorQueryRelaySet` fix — reproduced the 45s+ hang live first);
+accepted both via "Show on profile," confirmed via `nak` the resulting
+kind:10008 event had two correctly-alternating a/e pairs; used the
+↑/↓ reorder buttons and confirmed via `nak` the tag order in the
+republished event genuinely flipped; navigated to the recipient's own
+profile view and confirmed via direct DOM inspection that
+`.profile-badges-row` rendered both badges' fallback initials in the
+reordered sequence. All temporary debug hooks (`window.__ndk`,
+`window.__authorQueryRelaySet`, and a throwaway `cmd/badgerrepro/`
+diagnostic tool) were removed before finalizing — confirmed via a clean
+`git status` showing only the intended file set. Not yet committed or
+deployed as of this entry.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
