@@ -70,6 +70,11 @@ func main() {
 	// knows to check it.
 	relay.Info.Name = "NOSTRAS Relay"
 	relay.Info.Description = "Self-hosted relay/node for the NOSTRAS client."
+	// A real, spec-defined NIP-11 field (commonly a URL, npub, or mailto)
+	// left unset until now. Populated with the client's own landing page
+	// rather than an npub/email, matching what a relay explorer's "contact"
+	// display most usefully resolves to for a project like this one.
+	relay.Info.Contact = "https://nostras.app"
 	relay.Info.Software = "https://github.com/fiatjaf/khatru"
 	relay.Info.Version = envOr("NOSTRAS_VERSION", "dev")
 	relay.Info.AddSupportedNIP(50) // search — khatru doesn't auto-detect this one
