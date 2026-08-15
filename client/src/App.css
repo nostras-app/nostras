@@ -2435,6 +2435,19 @@ a.profile-external-identity:hover {
   font-size: 16px;
   line-height: 1.7;
   color: var(--text);
+  /* Real, live-found bug (2026-08-15), a third independent instance of
+     the same class already fixed once for .feed-item-content and once
+     for .feed-item-reply-context: markdown article/episode bodies
+     (ArticleView and PodcastEpisodeView both share this class) render
+     raw author-written text, including bare URLs not wrapped in
+     markdown link syntax — those never got the overflow-wrap treatment
+     regular note content already has via NoteContent/parseContentSegments,
+     since a markdown body is rendered directly by react-markdown, a
+     completely different path. A real production article's own bare
+     URL (https://shopstr.store/marketplace/SOVEREIGN_CITIZENS) forced a
+     genuine ~12px page-level overflow, confirmed live before this fix
+     and confirmed gone after it. */
+  overflow-wrap: anywhere;
 }
 
 .article-unlock-panel {
