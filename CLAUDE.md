@@ -9064,6 +9064,85 @@ correctly collapse to a single column. Cross-linked from `/why`'s and
 the main landing page's footers; `node.html`'s own footer links back to
 both.
 
+## Real top nav bar across all three site pages, cross-page teaser
+sections, and the hero mesh animation extended to `/why` and `/node`
+(2026-08-16)
+
+Direct user feedback on the three pages shipped so far: the home page's
+animated-dot hero should also appear on `/why` and `/node` (previously
+only the home page had the canvas network animation — `/why`/`/node`
+had plain static heroes); "Why NOSTRAS" deserved more visibility than a
+small footer link, with a real section, not just a link; and `/why` had
+no way to reach `/node` at all beyond that same easy-to-miss footer
+link.
+
+**A real, persistent top nav bar** (`.site-nav`) was added to all three
+pages — logo + "Why NOSTRAS" / "NOSTRAS Node" / "Open app" — rather than
+only strengthening the footer, since the ask was specifically about
+visibility and a footer is the least visible part of any page. Each
+page highlights its own link in the accent color (`.current`) so it's
+obvious which page you're on. The nav's own SVG logo uses a distinct
+gradient id (`navg`) from the hero mark's own (`g`) on the same page —
+both need a real gradient fill and duplicate SVG element ids in one
+document would either silently collide or (if only one copy of `defs`
+existed) create a fragile forward-reference between unrelated page
+regions; giving the nav its own copy keeps the two visually identical
+but structurally independent.
+
+**Cross-page teaser sections**, not just nav links — a "Why NOSTRAS"
+section added to the home page (between the audit section and the final
+footer) and a "NOSTRAS Node" section added to `/why` (between the
+methodology section and its footer), each with its own kicker/title/
+lede/CTA following the exact same `section.block` shell every other
+section on these pages already uses. `/node` doesn't get a reciprocal
+teaser back to `/why` — the nav bar and footer link already cover that
+direction, and a three-way teaser chain (home → why → node → why → ...)
+would start feeling repetitive rather than additive.
+
+**The hero mesh animation** (`landing.html`'s existing canvas-based
+drifting-node network background) was copied verbatim into `why.html`
+and `node.html` — same IIFE, same node count/link distance, same
+`prefers-reduced-motion`/`prefers-color-scheme` handling. Required
+restructuring both pages' `.hero` from a plain centered block into the
+same `position:relative; overflow:hidden` + absolutely-positioned
+`.hero-mesh` canvas + `z-index:1` `.hero-inner` content layering
+`landing.html` already used, not just dropping the canvas element in —
+without that layering the canvas would either sit on top of the hero
+text (blocking it) or behind everything with no stacking context.
+Deliberately duplicated per-page rather than factored into a shared
+asset — this project's landing pages have never had a shared CSS/JS
+file mechanism (each is a fully self-contained embedded HTML document,
+consistent with `go:embed`'s own file-per-page model), and introducing
+one for three files wasn't worth the indirection.
+
+**A real, dedicated contact address**: the user provided `hello@nostras.app`
+(purchased with the domain) as an alternative to the waitlist form.
+Added as a plain `mailto:` line directly under the existing "used only
+to follow up" hint on `/node` — deliberately not wired into any backend
+email-sending path (this project has no SMTP/outbound-email capability
+anywhere, and building one wasn't asked for or needed here); it's just
+a second, human-mediated channel alongside the structured form.
+
+**Verified for real, all three pages, in a real browser — not just
+built clean**: `go build`/`go vet`/`gofmt -l` clean (no client-side
+build applies here — server-only static HTML). Loaded `/`, `/why`, and
+`/node` live against the local relay and confirmed via screenshot that
+the mesh animation genuinely renders (drifting dots + connecting lines
+visible in the hero background) on all three, that each page's nav bar
+correctly highlights its own current-page link in the accent color, and
+that both new teaser sections render with working CTAs linking to the
+right page. Checked all three pages at a real narrow viewport
+(~523px, this environment's practical resize floor) — zero horizontal
+overflow on any of them, confirmed via
+`document.documentElement.scrollWidth` directly, not assumed from the
+CSS alone.
+
+**Deployed to production and verified live**, then a real test
+signup was submitted to the live `/node/waitlist` endpoint using
+`hello@nostras.app` — a real, deliberate entry (not a throwaway test
+key) at the user's own explicit request, confirmed afterward via
+`/dashboard/waitlist` to have actually landed in the persisted store.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

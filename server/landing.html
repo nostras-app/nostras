@@ -65,11 +65,23 @@
     padding: 0 28px;
   }
 
+  /* ---------- Site nav ---------- */
+
+  .site-nav { border-bottom: 1px solid var(--border); }
+  .site-nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; }
+  .site-nav-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15.5px; color: var(--text-h); text-decoration: none; letter-spacing: -0.01em; }
+  .site-nav-brand svg { width: 20px; height: auto; }
+  .site-nav-links { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+  .site-nav-links a:not(.btn) { text-decoration: none; color: var(--text-dim); font-weight: 600; font-size: 14.5px; }
+  .site-nav-links a:not(.btn):hover { color: var(--accent); }
+  .site-nav-links a.current { color: var(--accent); }
+  .btn-sm { padding: 9px 18px; font-size: 14px; }
+
   /* ---------- Hero ---------- */
 
   .hero {
     position: relative;
-    padding: 120px 0 100px;
+    padding: 76px 0 100px;
     overflow: hidden;
     border-bottom: 1px solid var(--border);
   }
@@ -395,9 +407,37 @@
     display: flex;
     gap: 22px;
   }
+
+  /* ---------- Cross-page teaser ---------- */
+
+  .teaser { text-align: center; }
+  .teaser .kicker, .teaser .title, .teaser .lede { margin-left: auto; margin-right: auto; }
+  .teaser .lede { margin-bottom: 32px; }
 </style>
 </head>
 <body>
+
+<header class="site-nav">
+  <div class="wrap site-nav-inner">
+    <a class="site-nav-brand" href="https://nostras.app">
+      <svg viewBox="0 0 48 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill="url(#navg)" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
+        <defs>
+          <linearGradient id="navg" x1="0" y1="0" x2="48" y2="46" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#863bff"/>
+            <stop offset="1" stop-color="#47bfff"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      NOSTRAS
+    </a>
+    <nav class="site-nav-links">
+      <a href="/why">Why NOSTRAS</a>
+      <a href="/node">NOSTRAS Node</a>
+      <a class="btn btn-primary btn-sm" href="https://app.nostras.app">Open app</a>
+    </nav>
+  </div>
+</header>
 
 <section class="hero">
   <canvas class="hero-mesh" id="mesh" aria-hidden="true"></canvas>
@@ -515,6 +555,24 @@
   <span class="k">"tags"</span>: [],
   <span class="k">"sig"</span>: <span class="s">"a1b2c3…f9e8d"</span>
 }</pre>
+    </div>
+  </div>
+</section>
+
+<section class="block teaser" id="why-teaser">
+  <div class="wrap">
+    <p class="kicker">Not just another Nostr client</p>
+    <h2 class="title">See exactly what renders here that doesn't render elsewhere.</h2>
+    <p class="lede">
+      We published real polls, forum threads, podcasts, and paid articles,
+      then opened them in another popular Nostr client to see what showed
+      up. The results are dated, labeled, and documented.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="/why">
+        See what we tested
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+      </a>
     </div>
   </div>
 </section>

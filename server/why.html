@@ -62,13 +62,30 @@
 
   .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
 
+  /* ---------- Site nav ---------- */
+
+  .site-nav { border-bottom: 1px solid var(--border); }
+  .site-nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; }
+  .site-nav-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15.5px; color: var(--text-h); text-decoration: none; letter-spacing: -0.01em; }
+  .site-nav-brand svg { width: 20px; height: auto; }
+  .site-nav-links { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+  .site-nav-links a:not(.btn) { text-decoration: none; color: var(--text-dim); font-weight: 600; font-size: 14.5px; }
+  .site-nav-links a:not(.btn):hover { color: var(--accent); }
+  .site-nav-links a.current { color: var(--accent); }
+  .btn-sm { padding: 9px 18px; font-size: 14px; }
+
   /* ---------- Hero ---------- */
 
   .hero {
-    padding: 96px 0 80px;
+    position: relative;
+    padding: 56px 0 80px;
+    overflow: hidden;
     border-bottom: 1px solid var(--border);
     text-align: center;
   }
+
+  .hero-mesh { position: absolute; inset: 0; z-index: 0; opacity: 0.55; }
+  .hero-inner { position: relative; z-index: 1; }
 
   .mark {
     display: inline-flex;
@@ -299,12 +316,41 @@
   .foot-links a:hover { color: var(--accent); }
   .foot-links .brand { font-weight: 700; color: var(--text-h); letter-spacing: -0.01em; }
   .foot-nav { display: flex; gap: 22px; flex-wrap: wrap; }
+
+  /* ---------- Cross-page teaser ---------- */
+
+  .teaser { text-align: center; }
+  .teaser .kicker, .teaser .title, .teaser .lede { margin-left: auto; margin-right: auto; }
+  .teaser .lede { margin-bottom: 32px; }
 </style>
 </head>
 <body>
 
+<header class="site-nav">
+  <div class="wrap site-nav-inner">
+    <a class="site-nav-brand" href="https://nostras.app">
+      <svg viewBox="0 0 48 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill="url(#navg)" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
+        <defs>
+          <linearGradient id="navg" x1="0" y1="0" x2="48" y2="46" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#863bff"/>
+            <stop offset="1" stop-color="#47bfff"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      NOSTRAS
+    </a>
+    <nav class="site-nav-links">
+      <a class="current" href="/why">Why NOSTRAS</a>
+      <a href="/node">NOSTRAS Node</a>
+      <a class="btn btn-primary btn-sm" href="https://app.nostras.app">Open app</a>
+    </nav>
+  </div>
+</header>
+
 <section class="hero">
-  <div class="wrap">
+  <canvas class="hero-mesh" id="mesh" aria-hidden="true"></canvas>
+  <div class="wrap hero-inner">
     <span class="mark" aria-hidden="true">
       <svg viewBox="0 0 48 46" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path fill="url(#g)" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
@@ -523,7 +569,7 @@
   </div>
 </section>
 
-<section class="block" id="method" style="border-bottom: none;">
+<section class="block" id="method">
   <div class="wrap">
     <p class="kicker">Methodology</p>
     <h2 class="title">How "confirmed" actually gets earned on this page.</h2>
@@ -535,6 +581,23 @@
       here isn't marked confirmed with a date, we haven't tested it yet,
       and we say so rather than assume it. A claim that later turns out
       false costs more trust than one we just hadn't made yet.
+    </div>
+  </div>
+</section>
+
+<section class="block teaser" id="node-teaser" style="border-bottom: none;">
+  <div class="wrap">
+    <p class="kicker">Want to run this yourself?</p>
+    <h2 class="title">NOSTRAS Node — the same stack, on your own instance.</h2>
+    <p class="lede">
+      Self-hosted or fully managed, without building outbox aggregation,
+      payment-gated DVM jobs, and push notifications from scratch.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="/node">
+        Join the waitlist
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+      </a>
     </div>
   </div>
 </section>
@@ -562,5 +625,84 @@
     </div>
   </div>
 </footer>
+
+<script>
+  (function () {
+    var canvas = document.getElementById('mesh');
+    var ctx = canvas.getContext('2d');
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var w, h, nodes = [];
+    var NODE_COUNT = 46;
+    var LINK_DIST = 140;
+
+    function isDark() {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
+    function resize() {
+      var rect = canvas.parentElement.getBoundingClientRect();
+      w = canvas.width = rect.width;
+      h = canvas.height = rect.height;
+    }
+
+    function makeNodes() {
+      nodes = [];
+      for (var i = 0; i < NODE_COUNT; i++) {
+        nodes.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          vx: (Math.random() - 0.5) * 0.18,
+          vy: (Math.random() - 0.5) * 0.18,
+          r: 1.2 + Math.random() * 1.6
+        });
+      }
+    }
+
+    function step() {
+      ctx.clearRect(0, 0, w, h);
+      var dark = isDark();
+      var dot = dark ? 'rgba(169,112,255,0.55)' : 'rgba(126,20,255,0.4)';
+      var line = dark ? 'rgba(71,191,255,' : 'rgba(8,145,178,';
+
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        n.x += n.vx; n.y += n.vy;
+        if (n.x < 0 || n.x > w) n.vx *= -1;
+        if (n.y < 0 || n.y > h) n.vy *= -1;
+      }
+
+      for (var i = 0; i < nodes.length; i++) {
+        for (var j = i + 1; j < nodes.length; j++) {
+          var a = nodes[i], b = nodes[j];
+          var dx = a.x - b.x, dy = a.y - b.y;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < LINK_DIST) {
+            ctx.strokeStyle = line + (0.16 * (1 - dist / LINK_DIST)) + ')';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
+      }
+
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        ctx.fillStyle = dot;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (!reduceMotion) requestAnimationFrame(step);
+    }
+
+    resize();
+    makeNodes();
+    step();
+    window.addEventListener('resize', function () { resize(); makeNodes(); if (reduceMotion) step(); });
+  })();
+</script>
 </body>
 </html>
