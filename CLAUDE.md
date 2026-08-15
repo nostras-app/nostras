@@ -8460,6 +8460,69 @@ both `web` and `dvm` as `started`, standby machine correctly idle.
 healthy at the time of checking. Not paid, per the standing rule that
 Claude only ever requests/displays invoices.
 
+## Real regression: the new-notes pill itself froze the browser on a
+large Following list — a bug introduced by the prior day's own fix
+(2026-08-15)
+
+Live user report with screenshots, one day after the feed auto-scroll
+fix shipped: a Following feed with a large follow list showed "16147
+new notes" on the new pill, and tapping it made the tab completely
+unresponsive — a real Chrome "Page Unresponsive" dialog, not just a
+slow render. The user also correctly flagged that the number itself
+looked wrong.
+
+Direct code read of `useNoteFeed.ts` — the file touched most recently
+by the auto-scroll fix, the natural first place to look — confirmed
+neither the pending `newEvents` buffer nor the rendered `events` list
+had any size cap anywhere: the live-merge path, the buffering path,
+and `showNew()`'s consolidation all grew or merged without bound. A
+large Following list (hundreds of accounts) left open for a long
+session can genuinely accumulate tens of thousands of distinct
+buffered notes — the number itself wasn't a counting bug, just an
+honest count with no ceiling. The actual freeze came from `showNew()`:
+tapping the pill merged the *entire* buffer into `events` in one
+synchronous state update, and React then tried to mount 16,000+
+`<FeedItem>` components — each triggering its own avatar/profile fetch
+and a full engagement bar — in a single commit, exactly the kind of
+unbounded-list-in-DOM problem that freezes a tab, worst on mobile.
+
+**Fixed** with a `MAX_RENDERED_EVENTS = 200` rolling-window cap,
+applied consistently at all three merge points (the live-merge path
+when not holding, the pending-buffer accumulation when holding, and
+`showNew()`'s consolidation) — always keeping the most recent 200 by
+`created_at`. The pill label now reads "200+ new notes" once the
+buffer has actually had to drop older entries — tracked via a ref set
+at the exact point truncation happens — rather than silently showing a
+number it can no longer back up.
+
+**Verified live against the fixed code**, not just reasoned about:
+reproduced the real-world accumulation scenario directly — a local
+relay, two throwaway identities (one following the other), the
+Following tab left open past its initial EOSE, then 250 real notes
+published rapidly from the followed identity. Confirmed the pill
+correctly read "200+ new notes" (not 250), confirmed tapping it merged
+cleanly with the tab staying fully responsive throughout (a live JS
+execution completing normally, not just assumed), confirmed the active
+view panel held exactly 200 `<FeedItem>` elements afterward, and
+confirmed zero console errors. The pre-fix freeze itself wasn't
+separately re-reproduced — the root cause was already unambiguous from
+direct code inspection (an unconditional, uncapped merge of a state
+slice with no upper bound), and deliberately freezing a real test
+browser just to watch it happen wasn't worth doing once the mechanism
+was already clear. `tsc -b`, `oxlint`, `vite build` clean. Deployed via
+the usual CI path; confirmed live via the production bundle containing
+the deploying commit's SHA.
+
+**Worth remembering**: the prior day's auto-scroll fix was genuinely
+verified live before shipping — but only against a feed velocity and
+session length that happened to stay well under this cap. A feature
+tested against typical conditions can still hide a real bug that only
+shows up at real scale (a large follow list, a long-lived tab), which
+is exactly why this surfaced from a live user report rather than
+verification, and why testing for this fix specifically included
+deliberately pushing the buffer past its new limit rather than just
+confirming the happy path works.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
