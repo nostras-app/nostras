@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { nip19 } from '@nostr-dev-kit/ndk'
 import type { Group } from '../hooks/useGroupList'
 import { useGroupChat } from '../hooks/useGroupChat'
@@ -6,11 +6,152 @@ import { useGroupMembership } from '../hooks/useGroupMembership'
 import { useProfile } from '../hooks/useProfile'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { sendGroupMessage } from '../lib/groups'
+import { requestGroupJoin, fetchDvmCommunityAdminPubkey } from '../lib/communities'
+import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
 import { formatRelativeTime } from '../lib/time'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { GroupAdminPanel } from './GroupAdminPanel'
 import { GroupMemberList, type GroupParticipant } from './GroupMemberList'
 import { ArrowLeftIcon, UsersIcon, SettingsIcon, LinkIcon, TrashIcon } from './icons'
+
+type JoinState = 'locked' | 'requesting' | 'payment-required' | 'joined' | 'error'
+
+// Reuses the exact processing/payment-required/done/error shape already
+// proven in ArticleView.tsx's ArticleUnlockPanel, adapted for a two-step
+// payment (the group's own price, tagged "group", then NOSTRAS's flat
+// fee — see lib/dvm.ts's DvmJobUpdate comment). No content to unlock
+// here — on success the composer takes over naturally once
+// useGroupMembership's own live subscription picks up the real kind:9000
+// the DVM published; this just shows a brief transient confirmation to
+// bridge the gap between the kind:6906 result landing and that
+// subscription state updating.
+function JoinAndPayPanel({ groupId, priceSats }: { groupId: string; priceSats: number }) {
+  const [state, setState] = useState<JoinState>('locked')
+  const [error, setError] = useState('')
+  const [invoice, setInvoice] = useState('')
+  const [amountSats, setAmountSats] = useState(priceSats)
+  const [payee, setPayee] = useState<'group' | 'nostras'>('group')
+  const [paying, setPaying] = useState(false)
+  const cancelRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => () => cancelRef.current?.(), [])
+
+  function handleJoin() {
+    setState('requesting')
+    setError('')
+    cancelRef.current = requestGroupJoin(groupId, (update) => {
+      if (update.status === 'processing') {
+        setState('requesting')
+      } else if (update.status === 'payment-required') {
+        setInvoice(update.invoice)
+        setAmountSats(Math.round(update.amountMsat / 1000))
+        setPayee(update.payee === 'group' ? 'group' : 'nostras')
+        setState('payment-required')
+      } else if (update.status === 'done') {
+        setState('joined')
+      } else if (update.status === 'error') {
+        setError(update.message)
+        setState('error')
+      }
+    })
+  }
+
+  async function handlePayWithWallet() {
+    const nwcUri = getSavedNwcUri()
+    if (!nwcUri) return
+    setPaying(true)
+    try {
+      await payInvoiceWithNwc(nwcUri, invoice)
+      // Same as ArticleUnlockPanel: the DVM publishes "processing" once
+      // it observes settlement, then either the next payment-required
+      // (NOSTRAS's own fee) or the final result — onUpdate above carries
+      // us the rest of the way.
+      setState('requesting')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Payment failed')
+      setState('error')
+    } finally {
+      setPaying(false)
+    }
+  }
+
+  function handleReset() {
+    cancelRef.current?.()
+    cancelRef.current = null
+    setState('locked')
+    setError('')
+    setInvoice('')
+  }
+
+  if (state === 'joined') {
+    return <p className="field-hint">Paid and joined — you can post now.</p>
+  }
+
+  return (
+    <div className="article-unlock-panel group-join-panel">
+      <p className="field-hint">
+        This group requires payment to post — anyone can still read the chat.
+        {priceSats > 0 && (
+          <>
+            {' '}
+            Joining costs <strong>{priceSats.toLocaleString()} sats</strong>, paid directly to the
+            group, plus a small flat fee to NOSTRAS for running the join service.
+          </>
+        )}
+      </p>
+
+      {state === 'locked' && (
+        <button type="button" className="btn btn-primary btn-sm" onClick={handleJoin}>
+          Join{priceSats > 0 ? ` for ${priceSats.toLocaleString()} sats` : ''}
+        </button>
+      )}
+
+      {state === 'requesting' && <p className="field-hint">Joining…</p>}
+
+      {state === 'payment-required' && (
+        <div className="stack">
+          <p className="field-hint">
+            {payee === 'group' ? 'Step 1 of 2 — pay the group' : "Step 2 of 2 — pay NOSTRAS's fee"}
+            {' — you are paying '}
+            <strong>{amountSats} sats</strong>.
+          </p>
+          <textarea className="textarea" readOnly value={invoice} rows={3} />
+          <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => navigator.clipboard.writeText(invoice)}
+            >
+              Copy invoice
+            </button>
+            {getSavedNwcUri() && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handlePayWithWallet}
+                disabled={paying}
+              >
+                {paying ? 'Paying…' : 'Pay with connected wallet'}
+              </button>
+            )}
+            <button type="button" className="btn btn-secondary btn-sm" onClick={handleReset}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state === 'error' && (
+        <div className="stack">
+          <p className="alert-error">{error}</p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={handleReset}>
+            Try again
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function authorLabel(pubkey: string, name: string | null | undefined) {
   return name || `${nip19.npubEncode(pubkey).slice(0, 12)}…`
@@ -72,8 +213,28 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
   const [adminPanelOpen, setAdminPanelOpen] = useState(false)
   const [memberListOpen, setMemberListOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
+  const [communityAdminPubkey, setCommunityAdminPubkey] = useState<string | null>(null)
 
   const viewerIsAdmin = !!activeUser && membership.isAdmin(activeUser.pubkey)
+  const viewerIsMember = !!activeUser && membership.isMember(activeUser.pubkey)
+  // Paid joining only actually gates posting once the group is
+  // restricted AND the viewer is neither an admin nor a paid-in member —
+  // an unrestricted group (the v1 default) never shows this regardless.
+  const needsToJoin = group.restricted && !viewerIsAdmin && !viewerIsMember
+
+  // Fetched lazily, only once the admin actually opens the panel — most
+  // group-chat visits never need this, and it's a real relay round trip
+  // (see lib/communities.ts's fetchDvmCommunityAdminPubkey).
+  useEffect(() => {
+    if (!viewerIsAdmin || !adminPanelOpen) return
+    let cancelled = false
+    fetchDvmCommunityAdminPubkey().then((pk) => {
+      if (!cancelled) setCommunityAdminPubkey(pk)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [viewerIsAdmin, adminPanelOpen])
 
   // The group id alone is enough to deep-link back in — see deeplink.ts's
   // own comment on why this doesn't reuse the `?nostr=` naddr/nevent
@@ -87,18 +248,21 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
     setTimeout(() => setLinkCopied(false), 2000)
   }
 
-  // v1 has no formal membership concept (open groups — see
-  // server/nip29.go), so "members" is everyone actually visible here:
-  // every current admin plus every distinct pubkey that's posted a
-  // message. Derived from data both hooks already fetched — no new
+  // An unrestricted group (v1's original default) has no formal
+  // membership concept, so "participants" there is everyone actually
+  // visible: every current admin plus every distinct pubkey that's
+  // posted a message. A restricted (Paid Communities) group also
+  // includes the real "member" tier — paid-in pubkeys who may not have
+  // posted yet. Derived from data both hooks already fetched — no new
   // subscription, no kind:39002 involved (nothing in this app ever
   // publishes that).
   const participants = useMemo<GroupParticipant[]>(() => {
     const seen = new Map<string, boolean>()
     for (const admin of membership.admins) seen.set(admin, true)
+    for (const member of membership.members) if (!seen.has(member)) seen.set(member, false)
     for (const msg of messages) if (!seen.has(msg.pubkey)) seen.set(msg.pubkey, false)
     return Array.from(seen.entries()).map(([pubkey, isAdmin]) => ({ pubkey, isAdmin }))
-  }, [membership.admins, messages])
+  }, [membership.admins, membership.members, messages])
 
   async function handleSend() {
     const trimmed = draft.trim()
@@ -168,11 +332,18 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
           about={group.about}
           picture={group.picture}
           admins={membership.admins}
+          restricted={group.restricted}
+          priceSats={group.priceSats}
+          payoutLud16={group.payoutLud16}
+          communityAdminPubkey={communityAdminPubkey}
           busy={membership.busy}
           error={membership.error}
           onPromote={membership.promote}
           onDemote={membership.demote}
           onEditMetadata={membership.editMetadata}
+          onSetPaidJoining={(restricted, priceSats, payoutLud16) =>
+            membership.setPaidJoining(group.name, group.about, group.picture, restricted, priceSats, payoutLud16)
+          }
           onDeleteGroup={membership.deleteGroup}
         />
       )}
@@ -209,6 +380,9 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
         ))}
       </div>
 
+      {needsToJoin && !membership.isDeleted ? (
+        <JoinAndPayPanel groupId={group.id} priceSats={group.priceSats} />
+      ) : (
       <div className="dm-compose">
         <textarea
           className="textarea"
@@ -231,6 +405,7 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
         {error && <p className="alert-error">{error}</p>}
         {deleteError && <p className="alert-error">{deleteError}</p>}
       </div>
+      )}
     </div>
   )
 }

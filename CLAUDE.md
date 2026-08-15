@@ -8759,6 +8759,148 @@ NIP-11 doc before deploying. Deployed via the usual CI path (commit
 `bc0dc13`); confirmed live via a direct `curl` against
 `https://nostras.app`'s real, production NIP-11 document.
 
+## Paid Communities — pay to post in a NIP-29 group (2026-08-15)
+
+Brainstormed by the user as a possible new-user-acquisition angle
+alongside a "Markets"/marketplace idea (logged separately, un-scoped,
+in `nostr-client-node-strategy.md`'s "Exploratory: Marketplaces / P2P
+selling" section — the user chose to scope Paid Communities first).
+Full design lives in `/home/user/.claude/plans/crystalline-puzzling-
+gosling.md`. Scoped via one explicit user choice up front: **pay to
+post, not pay to read** — a restricted group's chat stays fully public
+to read; paying only removes the *posting* gate. Read-gating ("private"
+groups) remains explicitly out of scope — it would need the relay to
+filter every subscriber's reads by membership, a materially bigger
+change with no precedent anywhere in this codebase, unlike write-gating
+which reuses the exact admin-enforcement machinery Communities already
+has.
+
+**Real spec correction caught before writing any code**: an early pass
+assumed NIP-29's `"closed"` flag was the posting gate — a second,
+targeted spec fetch corrected this. `"closed"` (join-requests-ignored)
+and `"restricted"` (only members may write) are two different, real
+NIP-29 flags; this feature uses `restricted`, not `closed`.
+
+**Server** (`server/nip29.go`): `cachedGroup` gained a real `members`
+set, genuinely separate from `admins`, and a `restricted bool`.
+`applyPutUser` became role-aware — a `kind:9000` `p` tag with an
+explicit `"member"` role goes to `members` only; `"admin"` or no role
+at all still goes to `admins`, preserving every existing group's real
+admin state exactly, since this app's own `promote()` action has always
+sent an explicit `"admin"` role. `restricted` is deliberately sourced
+from `kind:9002` (a chronologically-replayed, single-history,
+already-admin-gated event), **not** `kind:39000` — the identical
+multi-admin addressable-event staleness hazard already documented once
+for `kind:39001` (a stale self-declaration surviving a later demotion)
+would apply equally to trusting `39000` for enforcement. `RejectEvent`'s
+chat-kind branch is unchanged for any group with no `restricted` history
+— byte-for-byte the original always-open v1 behavior — and only requires
+`isAdmin || isMember` once a group opts in via a real `kind:9002`
+`["restricted"]` event.
+
+**DVM** (`server/cmd/dvm/main.go`): new job kind **5906→6906** ("Group
+Join"), checked free in both the vendored `go-nostr` kind registry and
+the live upstream `nostr-protocol/data-vending-machines` registry
+before picking it (5900/5901/5905/5970 were taken nearby).
+`handleGroupJoinJob` parses the `i` tag as a group id, short-circuits
+with a clear error if the payer already qualifies (`isAlreadyGroupMember`
+replays the same 9007/9000/9001 history the relay's own cache and the
+client's `useGroupMembership.ts` both replay, so all three can never
+disagree), reads the group's `restricted`/`price`/`payout` tags off its
+newest `kind:39000` metadata event, and reuses the exact dual-invoice
+LNURL flow already proven for paid articles
+(`fetchLnurlPayParams`/`fetchLnurlInvoice`/`pollLnurlVerify` from
+`lnurl.go`/`bolt11.go`) to pay the group's own price directly to its
+declared payout address, then `requirePayment` for NOSTRAS's own small
+flat fee. On success it signs and publishes a real `kind:9000`
+(`["p", payerPubkey, "member"]`) using a **new, separately persisted**
+`NOSTRAS_DVM_COMMUNITY_KEY` — same reasoning as the existing
+`NOSTRAS_DVM_ARTICLE_KEY`: the pubkey a group promotes to admin has to
+stay stable across DVM restarts, and kept as its own key (not reused
+from the article key) so a bug in this newer path can't touch the
+article-unlock identity. This only succeeds if that key is already an
+admin of the target group — the relay's own existing `isAdmin` check
+enforces that unconditionally, surfaced back to the payer as a clear
+"is the community admin key actually promoted in this group?" error
+rather than a new failure mode. The NIP-89 handler announcement gained
+`k=5906` and a `communityAdminPubkey` field (mirroring
+`articleEncryptionPubkey`) so a client can discover which pubkey a
+group owner needs to promote.
+
+**Client**: `useGroupMembership.ts`'s `deriveAdmins` became role-aware
+(skips `"member"`-tagged grants) and gained a matching `deriveMembers` +
+`isMember`, plus `setPaidJoining()` — publishes both the `kind:9002`
+directive and a replacement `kind:39000` (preserving existing
+name/about/picture, "spread don't replace" as elsewhere in this
+codebase) carrying `restricted`/`price`/`payout`. `useGroupList.ts`'s
+`Group` type gained the same three fields, parsed straight from
+`kind:39000`. `lib/dvm.ts`'s generic `requestDvmJob()` gained an
+optional `relaySet` param (defaulting to unchanged `devPublishRelaySet`
+behavior for every existing caller) and now forwards a `payee` tag on
+`payment-required` — both needed so the new `lib/communities.ts`'s
+`requestGroupJoin()` could stay a thin wrapper reusing the generic
+helper as the plan intended, scoped to `localRelaySet` like every other
+group operation in this app (never `devPublishRelaySet`, which includes
+public relays in production). `GroupAdminPanel.tsx` gained a "Require
+payment to post" toggle + price/payout inputs, pre-populated from the
+group's current state, with live copy telling the owner whether the
+DVM's community-admin pubkey is already promoted. `GroupChatView.tsx`
+gates the composer behind a new `JoinAndPayPanel` (mirrors
+`ArticleView.tsx`'s `ArticleUnlockPanel` state machine, including the
+"Step 1 of 2 — pay the group" / "Step 2 of 2 — pay NOSTRAS's fee"
+two-payment UI) whenever a group is restricted and the viewer is
+neither admin nor member; chat stays fully readable regardless.
+
+**Verified for real, in full, server-side and then live in the browser
+— not just built clean**: `go build`/`go vet`/`gofmt -l` and `tsc -b`/
+`oxlint`/`vite build` all clean. Server-side via `nak` against a local
+relay + a real local DVM (free mode — a deliberately invalid
+`NOSTRAS_DVM_NWC_URI` override, throwaway `NOSTRAS_DVM_COMMUNITY_KEY`)
+and a real mock LNURL-pay + LUD-21-verify server (Python, self-signed
+TLS with a proper SAN — a legacy CN-only cert was tried first and
+correctly rejected by Go, a real gotcha worth remembering): confirmed
+an unrestricted group still allows any post (byte-for-byte backward
+compatibility); confirmed a `["restricted"]` `kind:9002` genuinely
+blocks a non-member with the new clear error message; ran the full paid
+job end-to-end — `payment-required` (correct amount, `payee: "group"`
+tag, real invoice) → mock settlement detected → `processing` → a real
+`kind:9000` `"member"` grant from the community key → `kind:6906`
+`"joined"` — then confirmed the payer could now post and a third,
+never-paid identity still could not. Also verified three edge cases
+directly: an already-member's repeat request short-circuits with no
+charge; an unrestricted group's job cleanly refuses ("doesn't require
+joining"); and a restricted+priced group whose community key was never
+promoted correctly settles the payment leg but then surfaces the exact
+"could not admit you... is the community admin key actually promoted"
+error rather than silently failing. Confirmed the NIP-89 announcement
+correctly advertises `k=5906` and the real `communityAdminPubkey`.
+
+**Then live in the actual browser, not just server-side**, driving the
+real UI as two separate imported throwaway identities: opened the admin
+panel as the group owner and confirmed the paid-joining section
+correctly pre-populated (checkbox checked, price `250`, the real payout
+address) and correctly reported the community key as "already
+promoted"; confirmed the member count read "3" (2 real admins — the
+owner plus the promoted community key — plus 1 paid member), proving
+the client's own role-aware admin/member split matches the server's
+exactly, not double-counting the member grant as a second admin.
+Switched to a fresh, never-joined identity, confirmed the real
+`JoinAndPayPanel` rendered in place of the composer with the correct
+price while the existing chat history stayed fully visible, clicked
+Join, and confirmed via a direct `nak` query afterward that a genuine
+`kind:9000` `"member"` grant had landed for that exact pubkey and that
+it could now really publish a `kind:9` message — the full compose →
+request → pay → admit → post loop, working correctly through the real
+UI on the first attempt. Zero console errors observed throughout.
+
+Not yet deployed to production as of this entry — verified entirely
+against local test infrastructure (a disposable relay/DVM, a mock LNURL
+server, throwaway identities), consistent with this project's standing
+practice of never exercising real payment infrastructure during
+verification. `NOSTRAS_DVM_COMMUNITY_KEY` is not yet set on the
+production DVM either; deploying the code and generating/setting that
+secret are both deliberate next steps, not done as part of this pass.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

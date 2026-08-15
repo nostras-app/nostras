@@ -10,11 +10,17 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-// NIP-29 (relay-based groups). v1 scope, deliberate: public + open groups
-// only — any authenticated pubkey may read and post kind:9 chat once a
-// group exists; only admin actions are permission-gated. Private groups
-// (read-gating) and closed groups (join-approval before posting) are a
-// later phase, not implemented here. See CLAUDE.md for the full writeup.
+// NIP-29 (relay-based groups). Groups are open (any authenticated pubkey
+// may read and post kind:9 chat) by default, matching the original v1
+// scope — but a group can now opt into "restricted" (per the real NIP-29
+// spec's own flag: "only members can write messages to the group"),
+// which is what Paid Communities builds on top of. Read-gating
+// ("private" — only members can read at all) remains out of scope,
+// deliberately: it would need the relay to filter every subscriber's
+// *reads* by membership, a materially bigger change with no precedent
+// anywhere in this codebase, unlike write-gating which reuses the exact
+// admin-enforcement machinery already proven here. See CLAUDE.md for the
+// full writeup.
 
 // maxGroupIDLength is a cheap sanity bound on client-supplied group ids
 // (the "h"/"d" tag value) — not a spec requirement, just guards against a
@@ -83,38 +89,55 @@ func groupIDFromEvent(evt *nostr.Event) (string, bool) {
 	return id, true
 }
 
-// cachedGroup tracks only what v1 enforcement actually needs: which
-// pubkeys are admins. v1 has no membership-gated behavior (open groups —
-// posting isn't checked against a member list at all), so there's
-// deliberately no separate "members" set to keep in sync — one less
-// thing that can drift from reality.
+// cachedGroup tracks what enforcement actually needs: which pubkeys are
+// admins, which are plain members, and whether the group is currently
+// "restricted" (per NIP-29's own real flag — only admins/members may
+// write; unrestricted groups stay exactly as open as v1's original
+// design). members exists as a genuinely separate set from admins, not
+// just "isAdmin OR something" — added by Paid Communities (2026-08-15),
+// see nip29CacheAuthority below for why it's still driven by the exact
+// same reliable event history as admin state, not by a naive addition.
 //
-// Only kind:9007 (create-group), kind:9000 (put-user/promote), and
-// kind:9001 (remove-user/demote) ever drive this cache — never
-// kind:39001/39002 (admins/members), even though those are real,
-// admin-gated, storable/queryable events. Found this the hard way during
-// Piece 1's own live verification, not theorized in advance: a promoted
-// admin published their own real, legitimately-accepted kind:39001
-// self-declaration while they WERE admin; a later kind:9001 demotion
-// updated the live cache correctly, but that self-declaration event
-// stayed in storage untouched (kind:39001 is addressable per (kind,
-// pubkey, d) — a different admin's self-declaration is a DIFFERENT
-// address, so nothing about a demotion supersedes or removes it). A
-// relay restart's boot scan, if it trusted 39001 events as
-// cache-authoritative, would re-merge that stale self-declaration and
-// silently resurrect the revoked admin status — confirmed live: this
-// exact scenario let a demoted user pass an admin-only check again
-// immediately after a restart. 9007/9000/9001 are a single, unambiguous,
+// Only kind:9007 (create-group), kind:9000 (put-user/promote), kind:9001
+// (remove-user/demote), and kind:9002 (edit-metadata) ever drive this
+// cache — never kind:39000/39001/39002 (metadata/admins/members), even
+// though those are real, admin-gated, storable/queryable events. Found
+// the 39001 case the hard way during Piece 1's own live verification,
+// not theorized in advance: a promoted admin published their own real,
+// legitimately-accepted kind:39001 self-declaration while they WERE
+// admin; a later kind:9001 demotion updated the live cache correctly,
+// but that self-declaration event stayed in storage untouched (kind:
+// 39001 is addressable per (kind, pubkey, d) — a different admin's
+// self-declaration is a DIFFERENT address, so nothing about a demotion
+// supersedes or removes it). A relay restart's boot scan, if it trusted
+// 39001 events as cache-authoritative, would re-merge that stale
+// self-declaration and silently resurrect the revoked admin status —
+// confirmed live: this exact scenario let a demoted user pass an
+// admin-only check again immediately after a restart. The identical
+// hazard would apply to sourcing `restricted` from kind:39000 (also
+// addressable, also client-signed per-admin) — so `restricted` is
+// instead sourced from kind:9002, extended to actually carry the real
+// tag being changed (["restricted"] present or absent), replayed
+// chronologically exactly like 9000/9001/9007/9008. This is also the
+// spec-faithful reading of 9002, not a NOSTRAS-only convention: NIP-29's
+// own moderation-events table describes 9002 as carrying "all the
+// fields of group-metadata" as a directive, with kind:39000 being the
+// resulting display copy — this project's client already deviates from
+// the reference design by signing 39000 directly rather than having the
+// relay mint it, but 9002 remains the real, single-history moderation
+// signal either way. 9007/9000/9001/9002 are a single, unambiguous,
 // relay-verified event history with no such staleness hazard (every one
 // of them was already admin-gated at write time, and nothing else can
 // "leave behind" a stale standing grant the way a multi-author
 // addressable kind can), so they're the only source of truth here, both
 // live (OnEventSaved) and at boot (loadFromStore, replayed in
-// chronological order). 39001/39002 remain real, writable (admin-gated),
-// and freely queryable — just informational snapshots a client can
-// publish/read, not something the relay's own enforcement trusts.
+// chronological order). 39000/39001/39002 remain real, writable (admin-
+// gated), and freely queryable — just informational snapshots a client
+// can publish/read, not something the relay's own enforcement trusts.
 type cachedGroup struct {
-	admins map[string]bool
+	admins     map[string]bool
+	members    map[string]bool
+	restricted bool
 }
 
 // groupCache is an in-memory, mutex-guarded cache of per-group admin
@@ -156,6 +179,24 @@ func (c *groupCache) isAdmin(id, pubkey string) bool {
 	return g != nil && g.admins[pubkey]
 }
 
+// isMember is deliberately just the "member" tier — callers that mean
+// "may this pubkey post in a restricted group" want isAdmin(id, pubkey)
+// || isMember(id, pubkey), not this alone, since an admin is never also
+// separately added to the members set.
+func (c *groupCache) isMember(id, pubkey string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	g := c.groups[id]
+	return g != nil && g.members[pubkey]
+}
+
+func (c *groupCache) isRestricted(id string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	g := c.groups[id]
+	return g != nil && g.restricted
+}
+
 // createGroup seeds a brand-new group with its creator as sole admin, the
 // moment a kind:9007 is stored. Idempotent — first-writer-wins for a
 // given id — since re-parenting an existing group's admin via a bare
@@ -167,7 +208,10 @@ func (c *groupCache) createGroup(id, creatorPubkey string) {
 	if _, exists := c.groups[id]; exists {
 		return
 	}
-	c.groups[id] = &cachedGroup{admins: map[string]bool{creatorPubkey: true}}
+	c.groups[id] = &cachedGroup{
+		admins:  map[string]bool{creatorPubkey: true},
+		members: make(map[string]bool),
+	}
 }
 
 func (c *groupCache) deleteGroup(id string) {
@@ -177,10 +221,19 @@ func (c *groupCache) deleteGroup(id string) {
 }
 
 // applyPutUser/applyRemoveUser handle kind:9000/9001 — the sole source of
-// truth for admin state, live and at boot (see nip29CacheAuthority
-// above). v1 has no named roles, so any "p" tag on a put-user event is
-// treated as a promotion to admin regardless of which role name(s) it
-// carries — a binary admin/member model.
+// truth for admin/member state, live and at boot (see nip29CacheAuthority
+// above). v1 had no named roles at all (any "p" tag meant admin,
+// unconditionally) — this is now role-aware, but backward-compatible by
+// construction, not just in intent: the client's own promote() action
+// has *always* published an explicit ["p", pubkey, "admin"] role tag
+// (see useGroupMembership.ts), so every admin grant this app has ever
+// actually published already carries "admin" literally — nothing about
+// any already-live group's real admin state changes under this new
+// logic. A "member" role tag is new (added by Paid Communities), and a
+// bare p tag with no role at all (never something this app's own client
+// has sent, but a real possibility from a different NIP-29 client)
+// degrades to admin too, preserving v1's original maximally-permissive
+// reading for anything this stricter parsing doesn't recognize.
 func (c *groupCache) applyPutUser(id string, evt *nostr.Event) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -192,10 +245,19 @@ func (c *groupCache) applyPutUser(id string, evt *nostr.Event) {
 		if len(tag) < 2 || tag[0] != "p" || !nostr.IsValid32ByteHex(tag[1]) {
 			continue
 		}
-		g.admins[tag[1]] = true
+		if len(tag) >= 3 && tag[2] == "member" {
+			g.members[tag[1]] = true
+		} else {
+			g.admins[tag[1]] = true
+		}
 	}
 }
 
+// A remove-user revokes both tiers at once — kind:9001 means "this
+// pubkey is no longer part of the group in any capacity," not just "no
+// longer admin." Deleting from a set that doesn't contain the key is a
+// harmless no-op, so this is safe regardless of which tier they were
+// actually in.
 func (c *groupCache) applyRemoveUser(id string, evt *nostr.Event) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -208,22 +270,42 @@ func (c *groupCache) applyRemoveUser(id string, evt *nostr.Event) {
 			continue
 		}
 		delete(g.admins, tag[1])
+		delete(g.members, tag[1])
 	}
 }
 
+// applyEditMetadata handles kind:9002 — the sole source of truth for
+// `restricted` state, for the same reason 9000/9001 are the sole source
+// of truth for admin/member state (see nip29CacheAuthority above): a
+// bare ["restricted"] tag's *presence* on this chronologically-replayed
+// event means "only admins/members may post," its *absence* on the most
+// recent 9002 means fully open — never derived from kind:39000, which
+// has the identical multi-admin addressable-event staleness hazard
+// already documented for 39001.
+func (c *groupCache) applyEditMetadata(id string, evt *nostr.Event) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	g, ok := c.groups[id]
+	if !ok {
+		return
+	}
+	g.restricted = hasTag(evt, "restricted")
+}
+
 // loadFromStore populates the cache once at boot by replaying every
-// kind:9007/9008/9000/9001 event already in badger, in chronological
+// kind:9007/9008/9000/9001/9002 event already in badger, in chronological
 // (CreatedAt) order — the exact same history that drove the cache live,
 // through the exact same apply functions, so boot state can never diverge
 // from what live updates would have produced. Deliberately does NOT
-// consult kind:39001/39002 at all — see nip29CacheAuthority above for
-// the real bug that caused.
+// consult kind:39000/39001/39002 at all — see nip29CacheAuthority above
+// for the real bug that caused.
 func (c *groupCache) loadFromStore(ctx context.Context, db *badger.BadgerBackend) error {
 	ch, err := db.QueryEvents(ctx, nostr.Filter{Kinds: []int{
 		nostr.KindSimpleGroupCreateGroup,
 		nostr.KindSimpleGroupDeleteGroup,
 		nostr.KindSimpleGroupPutUser,
 		nostr.KindSimpleGroupRemoveUser,
+		nostr.KindSimpleGroupEditMetadata,
 	}})
 	if err != nil {
 		return err
@@ -258,6 +340,8 @@ func applyNip29CacheEvent(cache *groupCache, evt *nostr.Event) {
 		cache.applyPutUser(id, evt)
 	case nostr.KindSimpleGroupRemoveUser:
 		cache.applyRemoveUser(id, evt)
+	case nostr.KindSimpleGroupEditMetadata:
+		cache.applyEditMetadata(id, evt)
 	}
 }
 
@@ -315,8 +399,17 @@ func newNip29RejectEventHook(cache *groupCache) func(ctx context.Context, evt *n
 		}
 
 		if groupChatKinds[evt.Kind] {
-			// v1: open groups — any authenticated pubkey may post once
-			// the group exists. No membership check.
+			// Unrestricted (the original v1 default, and every group
+			// that predates this feature): any authenticated pubkey may
+			// post once the group exists, no membership check — exactly
+			// as before, byte-for-byte, since a group with no kind:9002
+			// ["restricted"] history in it is `restricted == false`.
+			if !cache.isRestricted(id) {
+				return false, ""
+			}
+			if !cache.isAdmin(id, evt.PubKey) && !cache.isMember(id, evt.PubKey) {
+				return true, "blocked: this group only accepts posts from members"
+			}
 			return false, ""
 		}
 

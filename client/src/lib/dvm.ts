@@ -1,11 +1,17 @@
-import { NDKEvent, type NDKSubscription } from '@nostr-dev-kit/ndk'
+import { NDKEvent, type NDKRelaySet, type NDKSubscription } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, localRelayUrl } from './ndk'
 
 const KIND_JOB_FEEDBACK = 7000
 
 export type DvmJobUpdate =
   | { status: 'processing' }
-  | { status: 'payment-required'; amountMsat: number; invoice: string }
+  // payee is only ever set on jobs that make two sequential payments
+  // (e.g. paid communities: the group's own price, tagged "group", then
+  // NOSTRAS's flat fee, untagged) — optional and unused by any
+  // single-payment job kind, matching the payee tag itself being
+  // present only on server/cmd/dvm/main.go's publishPaymentRequiredFor
+  // calls, never on the plain publishPaymentRequired used elsewhere.
+  | { status: 'payment-required'; amountMsat: number; invoice: string; payee?: string }
   | { status: 'done'; result: string }
   | { status: 'error'; message: string }
 
@@ -29,8 +35,13 @@ export function requestDvmJob(opts: {
   inputText: string
   params?: [string, string][]
   onUpdate: (update: DvmJobUpdate) => void
+  // Defaults to devPublishRelaySet (local relay + public bootstrap
+  // relays in production) — pass localRelaySet explicitly for job kinds
+  // whose data is meant to stay on NOSTRAS's own relay only, e.g. group
+  // joins (see lib/communities.ts).
+  relaySet?: NDKRelaySet
 }): () => void {
-  const { requestKind, resultKind, inputText, params = [], onUpdate } = opts
+  const { requestKind, resultKind, inputText, params = [], onUpdate, relaySet } = opts
 
   let stopped = false
   let sub: NDKSubscription | null = null
@@ -63,6 +74,7 @@ export function requestDvmJob(opts: {
             status: 'payment-required',
             amountMsat: Number(amountTag?.[1] ?? 0),
             invoice: amountTag?.[2] ?? '',
+            payee: event.tags.find((t) => t[0] === 'payee')?.[1],
           })
         } else if (status === 'error') {
           onUpdate({ status: 'error', message: event.content || 'Job failed' })
@@ -71,7 +83,7 @@ export function requestDvmJob(opts: {
         }
       })
 
-      await request.publish(devPublishRelaySet)
+      await request.publish(relaySet ?? devPublishRelaySet)
     })
     .catch((e) => {
       onUpdate({

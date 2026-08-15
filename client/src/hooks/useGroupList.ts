@@ -20,11 +20,24 @@ export type Group = {
   picture: string
   createdAt: number
   hostPubkey: string
+  // Paid Communities (2026-08-15) — parsed straight from this same
+  // kind:39000 event's own ["restricted"]/["price"]/["payout"] tags,
+  // the same fields server/cmd/dvm/main.go's handleGroupJoinJob reads
+  // for pricing. Deliberately NOT the source of truth for whether
+  // posting is actually gated — that's server/nip29.go's own kind:9002-
+  // derived cache, reached via useGroupMembership's setPaidJoining,
+  // which always publishes both events together so the two can't drift
+  // apart in this app's own client (see nip29.go's own comment on why
+  // kind:39000 alone isn't trusted for enforcement).
+  restricted: boolean
+  priceSats: number
+  payoutLud16: string
 }
 
 function parseGroupMetadata(evt: NDKEvent): Group | null {
   const id = evt.tags.find((t) => t[0] === 'd')?.[1]
   if (!id) return null
+  const restricted = evt.tags.some((t) => t[0] === 'restricted')
   return {
     id,
     name: evt.tags.find((t) => t[0] === 'name')?.[1] || id,
@@ -32,6 +45,9 @@ function parseGroupMetadata(evt: NDKEvent): Group | null {
     picture: evt.tags.find((t) => t[0] === 'picture')?.[1] || '',
     createdAt: evt.created_at ?? 0,
     hostPubkey: evt.pubkey,
+    restricted,
+    priceSats: restricted ? Number(evt.tags.find((t) => t[0] === 'price')?.[1] ?? 0) : 0,
+    payoutLud16: restricted ? evt.tags.find((t) => t[0] === 'payout')?.[1] || '' : '',
   }
 }
 

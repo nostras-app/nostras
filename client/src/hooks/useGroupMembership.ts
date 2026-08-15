@@ -31,6 +31,14 @@ export type HistoryEvent = { kind: number; pubkey: string; createdAt: number; ta
 // actual action they took would be rejected by the relay. Replaying the
 // same 9007/9000/9001 history the relay itself trusts keeps the client
 // and server never disagreeing about who's actually an admin.
+//
+// Role-aware since Paid Communities (2026-08-15), mirroring
+// server/nip29.go's own applyPutUser exactly: a kind:9000 "p" tag with
+// an explicit "member" role goes to the members set only (see
+// deriveMembers below), not admins — this app's own promote() action
+// has always sent an explicit "admin" role, and a bare tag with no role
+// at all still degrades to admin (v1's original maximally-permissive
+// reading, preserved for any other NIP-29 client's own promote action).
 function deriveAdmins(history: HistoryEvent[]): Set<string> {
   const sorted = [...history].sort((a, b) => a.createdAt - b.createdAt)
   const admins = new Set<string>()
@@ -39,7 +47,7 @@ function deriveAdmins(history: HistoryEvent[]): Set<string> {
       admins.add(evt.pubkey)
     } else if (evt.kind === 9000) {
       for (const tag of evt.tags) {
-        if (tag[0] === 'p' && tag[1]) admins.add(tag[1])
+        if (tag[0] === 'p' && tag[1] && tag[2] !== 'member') admins.add(tag[1])
       }
     } else if (evt.kind === 9001) {
       for (const tag of evt.tags) {
@@ -48,6 +56,28 @@ function deriveAdmins(history: HistoryEvent[]): Set<string> {
     }
   }
   return admins
+}
+
+// The "member" tier, added by Paid Communities — a kind:9000 "p" tag
+// with an explicit "member" role (what handleGroupJoinJob publishes once
+// a paid join settles). A kind:9001 revokes both tiers at once, same as
+// server/nip29.go's applyRemoveUser, since removing from a set that
+// doesn't contain the key is a harmless no-op.
+function deriveMembers(history: HistoryEvent[]): Set<string> {
+  const sorted = [...history].sort((a, b) => a.createdAt - b.createdAt)
+  const members = new Set<string>()
+  for (const evt of sorted) {
+    if (evt.kind === 9000) {
+      for (const tag of evt.tags) {
+        if (tag[0] === 'p' && tag[1] && tag[2] === 'member') members.add(tag[1])
+      }
+    } else if (evt.kind === 9001) {
+      for (const tag of evt.tags) {
+        if (tag[0] === 'p' && tag[1]) members.delete(tag[1])
+      }
+    }
+  }
+  return members
 }
 
 // Mirrors server/nip29.go's cache.createGroup/deleteGroup exactly: a
@@ -111,7 +141,9 @@ export function useGroupMembership(groupId: string | null) {
   }, [groupId, generation])
 
   const admins = deriveAdmins(history)
+  const members = deriveMembers(history)
   const isAdmin = useCallback((pubkey: string) => admins.has(pubkey), [admins])
+  const isMember = useCallback((pubkey: string) => members.has(pubkey), [members])
 
   const promote = useCallback(
     async (pubkey: string) => {
@@ -187,6 +219,57 @@ export function useGroupMembership(groupId: string | null) {
     [groupId, busy, loading],
   )
 
+  // Enables or disables paid joining for a group — publishes both the
+  // kind:9002 moderation directive (the ["restricted"] tag is what
+  // server/nip29.go's enforcement actually trusts, see its own comment
+  // on why 9002 and not 39000) and a replacement kind:39000 metadata
+  // event carrying ["restricted"]/["price", sats]/["payout", lud16] —
+  // the display/pricing copy both this client and the DVM's own
+  // handleGroupJoinJob read. Takes the group's *current* name/about/
+  // picture as plain args (not a Group object, to avoid a circular
+  // import with useGroupList.ts, which already imports from this file)
+  // so they're preserved rather than wiped, same "spread, don't
+  // replace" discipline as editMetadata above. Disabling paid joining
+  // (restricted=false) omits restricted/price/payout entirely — the
+  // group becomes open again, same as one that never had this set.
+  const setPaidJoining = useCallback(
+    async (
+      currentName: string,
+      currentAbout: string,
+      currentPicture: string,
+      restricted: boolean,
+      priceSats: number,
+      payoutLud16: string,
+    ) => {
+      if (!groupId || busy || loading) return
+      setBusy('paid-joining')
+      setError(null)
+      try {
+        const intentTags: string[][] = [['h', groupId]]
+        if (restricted) intentTags.push(['restricted'])
+        const intent = new NDKEvent(ndk, { kind: 9002, tags: intentTags })
+        await intent.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
+
+        const tags: string[][] = [['d', groupId]]
+        if (currentName.trim()) tags.push(['name', currentName.trim()])
+        if (currentAbout.trim()) tags.push(['about', currentAbout.trim()])
+        if (currentPicture.trim()) tags.push(['picture', currentPicture.trim()])
+        if (restricted) {
+          tags.push(['restricted'])
+          tags.push(['price', String(Math.max(1, Math.round(priceSats)))])
+          tags.push(['payout', payoutLud16.trim()])
+        }
+        const meta = new NDKEvent(ndk, { kind: 39000, tags })
+        await meta.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to update paid joining')
+      } finally {
+        setBusy(null)
+      }
+    },
+    [groupId, busy, loading],
+  )
+
   // Publishes kind:9008 (delete-group). Per server/nip29.go this stops
   // the group from accepting any *new* posts/moderation — it does not
   // and cannot bulk-remove already-stored kind:9 messages (badger has no
@@ -209,11 +292,14 @@ export function useGroupMembership(groupId: string | null) {
 
   return {
     admins: Array.from(admins),
+    members: Array.from(members),
     isAdmin,
+    isMember,
     isDeleted: deriveIsDeleted(history),
     promote,
     demote,
     editMetadata,
+    setPaidJoining,
     deleteGroup: deleteGroupAction,
     loading,
     busy,

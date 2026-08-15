@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -55,7 +56,22 @@ const (
 	// third-party NIP-90 tooling interop). See handleArticleUnlockJob.
 	kindJobRequestArticleUnlock = 5904
 	kindJobResultArticleUnlock  = 6904
-	kindJobFeedback             = 7000
+
+	// Paid Communities — "pay to post" in a NIP-29 group (server/nip29.go
+	// enforces the actual gate). 5906/6906, checked both against the
+	// vendored NIP-90 kind registry (go-nostr's nip90/kinds.go — 5900/
+	// 5901/5905/5970 taken nearby, nothing at 5906) and the live upstream
+	// registry (github.com/nostr-protocol/data-vending-machines/kinds —
+	// only 5900.md/5901.md/5905.md/5970.md exist), same discipline as
+	// every prior job kind pick here. Unlike the article-unlock job, the
+	// request/result here carry nothing private (a pubkey wanting to
+	// join a public group isn't sensitive), so this reuses the plain,
+	// unencrypted job-request shape the four original job kinds already
+	// use — no NIP-44 wrapping needed.
+	kindJobRequestCommunityJoin = 5906
+	kindJobResultCommunityJoin  = 6906
+
+	kindJobFeedback = 7000
 
 	// NIP-32 labeling — see publishModerationLabel. A moderate-job result
 	// gets published a second time as a real, standard kind:1985 label
@@ -101,6 +117,12 @@ const (
 	// marginal cost per unlock is near-zero (unlike the Claude-API-
 	// cost-driven jobs, which price dynamically).
 	articleAuthorPayoutFeeSats = 21
+
+	// Same shape and reasoning as articleAuthorPayoutFeeSats: the group's
+	// own price goes straight to whoever the group names as payout
+	// recipient; this is NOSTRAS's own flat fee for running the join/
+	// admission service, near-zero marginal cost either way.
+	communityJoinFeeSats = 21
 
 	// claude-opus-5 pricing (per shared/models.md — keep in sync if the
 	// model ever changes). Job pricing is computed from these rather than
@@ -220,6 +242,26 @@ func main() {
 		}
 	}
 
+	// Same reasoning as articleKeySk above, same real problem in a
+	// different shape: the pubkey this DVM promotes to admin of a paid
+	// group has to stay stable across restarts, or every restart would
+	// silently strip its own ability to admit new paying members (the
+	// relay's own admin cache would still list the *old* ephemeral sk's
+	// pubkey as admin, which this process no longer controls). Kept as
+	// its own separate persisted key, not reused from articleKeySk, so a
+	// bug in this still-newer code path can't touch the article-unlock
+	// identity either.
+	communityKeySk := os.Getenv("NOSTRAS_DVM_COMMUNITY_KEY")
+	var communityKeyPk string
+	if communityKeySk != "" {
+		var err error
+		communityKeyPk, err = nostr.GetPublicKey(communityKeySk)
+		if err != nil {
+			fmt.Println("warning: NOSTRAS_DVM_COMMUNITY_KEY set but invalid, paid communities disabled:", err)
+			communityKeySk = ""
+		}
+	}
+
 	fmt.Println("NOSTRAS DVM (NIP-90 summarization 5001->6001, translation 5002->6002, text generation 5050->6050, moderation 5501->6501) running as", pk)
 	if payment == nil {
 		fmt.Println("payment gating: OFF (set NOSTRAS_DVM_NWC_URI to enable)")
@@ -230,6 +272,11 @@ func main() {
 		fmt.Println("paid articles (5904->6904): OFF (set NOSTRAS_DVM_ARTICLE_KEY to enable)")
 	} else {
 		fmt.Println("paid articles (5904->6904): ON, encryption key", articleKeyPk)
+	}
+	if communityKeySk == "" {
+		fmt.Println("paid communities (5906->6906): OFF (set NOSTRAS_DVM_COMMUNITY_KEY to enable)")
+	} else {
+		fmt.Println("paid communities (5906->6906): ON, admin key", communityKeyPk)
 	}
 
 	healthPort := os.Getenv("NOSTRAS_DVM_HEALTH_PORT")
@@ -256,7 +303,7 @@ func main() {
 	for {
 		fmt.Println("listening on", relayURL)
 		connectedAt := time.Now()
-		err := runDVM(ctx, relayURL, claude, sk, articleKeySk, articleKeyPk, payment)
+		err := runDVM(ctx, relayURL, claude, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk, payment)
 		if err != nil {
 			fmt.Println("relay connection lost, reconnecting:", err)
 		} else {
@@ -277,7 +324,7 @@ func main() {
 // channel closes. Returns nil for a clean subscription end, or the error
 // that caused the disconnect — either way, the caller's reconnection loop
 // decides what happens next, this function never terminates the process.
-func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, articleKeySk, articleKeyPk string, payment *paymentConfig) error {
+func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk string, payment *paymentConfig) error {
 	relay, err := nostr.RelayConnect(ctx, relayURL)
 	if err != nil {
 		return err
@@ -286,12 +333,15 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, a
 	markRelayConnected(true)
 	defer markRelayConnected(false)
 
-	publishHandlerAnnouncement(ctx, relay, sk, articleKeyPk)
+	publishHandlerAnnouncement(ctx, relay, sk, articleKeyPk, communityKeyPk)
 	publishClientHandlerAnnouncement(ctx, relay, sk)
 
 	kinds := []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate, kindJobRequestModerate}
 	if articleKeySk != "" {
 		kinds = append(kinds, kindJobRequestArticleUnlock)
+	}
+	if communityKeySk != "" {
+		kinds = append(kinds, kindJobRequestCommunityJoin)
 	}
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{
@@ -303,7 +353,7 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, a
 	}
 
 	for evt := range sub.Events {
-		go handleJob(ctx, relay, claude, sk, articleKeySk, payment, evt)
+		go handleJob(ctx, relay, claude, sk, articleKeySk, communityKeySk, payment, evt)
 	}
 	return nil
 }
@@ -335,15 +385,20 @@ func loadPaymentConfig(ctx context.Context) *paymentConfig {
 	return &paymentConfig{nwc: client, priceSats: price}
 }
 
-func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client, sk, articleKeySk string, payment *paymentConfig, req *nostr.Event) {
-	// Structurally separate path, not a case in the switch below:
-	// decrypting a paid article bears no resemblance to "prompt Claude
-	// with some text," which is the one thing every other job kind here
-	// shares. Keeping it fully outside handleJob's shared body means a
-	// bug in this still-new code can't touch the four already-proven,
+func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client, sk, articleKeySk, communityKeySk string, payment *paymentConfig, req *nostr.Event) {
+	// Structurally separate paths, not cases in the switch below:
+	// neither decrypting a paid article nor admitting someone to a paid
+	// group bears any resemblance to "prompt Claude with some text,"
+	// which is the one thing every other job kind here shares. Keeping
+	// both fully outside handleJob's shared body means a bug in either
+	// still-newer code path can't touch the four already-proven,
 	// real-money job kinds' request handling at all.
 	if req.Kind == kindJobRequestArticleUnlock {
 		handleArticleUnlockJob(ctx, relay, sk, articleKeySk, payment, req)
+		return
+	}
+	if req.Kind == kindJobRequestCommunityJoin {
+		handleGroupJoinJob(ctx, relay, sk, communityKeySk, payment, req)
 		return
 	}
 
@@ -640,6 +695,184 @@ func publishArticleUnlockResult(ctx context.Context, relay *nostr.Relay, sk stri
 	signAndPublish(ctx, relay, sk, evt)
 }
 
+// isAlreadyGroupMember replays a group's real kind:9007/9000/9001 history
+// — the exact same chronological source of truth server/nip29.go's own
+// RejectEvent enforcement trusts, and client/src/hooks/useGroupMembership.ts
+// independently replays the identical way — so this DVM never disagrees
+// with the relay about who already qualifies. Used only to avoid
+// charging someone who's already an admin or member; the relay's own
+// RejectEvent hook is what actually enforces membership either way, this
+// is purely a "don't take someone's money for a no-op" courtesy check.
+func isAlreadyGroupMember(ctx context.Context, relay *nostr.Relay, groupID, pubkey string) bool {
+	history, err := relay.QuerySync(ctx, nostr.Filter{
+		Kinds: []int{nostr.KindSimpleGroupCreateGroup, nostr.KindSimpleGroupPutUser, nostr.KindSimpleGroupRemoveUser},
+		Tags:  nostr.TagMap{"h": []string{groupID}},
+	})
+	if err != nil {
+		return false
+	}
+	sort.Slice(history, func(i, j int) bool { return history[i].CreatedAt < history[j].CreatedAt })
+	qualifies := false
+	for _, evt := range history {
+		switch evt.Kind {
+		case nostr.KindSimpleGroupCreateGroup:
+			if evt.PubKey == pubkey {
+				qualifies = true
+			}
+		case nostr.KindSimpleGroupPutUser:
+			for _, tag := range evt.Tags {
+				if len(tag) >= 2 && tag[0] == "p" && tag[1] == pubkey {
+					qualifies = true
+				}
+			}
+		case nostr.KindSimpleGroupRemoveUser:
+			for _, tag := range evt.Tags {
+				if len(tag) >= 2 && tag[0] == "p" && tag[1] == pubkey {
+					qualifies = false
+				}
+			}
+		}
+	}
+	return qualifies
+}
+
+// handleGroupJoinJob is Paid Communities' DVM half — server/nip29.go's
+// RejectEvent hook is what actually gates posting; this is what gets
+// someone onto the "member" side of that gate after paying the group's
+// own price. A group opts in by (1) publishing a kind:9002 with
+// ["restricted"] (see nip29.go's own comment on why 9002, not 39000, is
+// what the relay trusts) and (2) publishing a kind:39000 metadata event
+// carrying ["price", sats] and ["payout", lud16] — the display copy
+// every client (including this DVM) actually reads pricing from, same
+// convention as a paid article's own price tag.
+func handleGroupJoinJob(ctx context.Context, relay *nostr.Relay, sk, communityKeySk string, payment *paymentConfig, req *nostr.Event) {
+	markJobReceived()
+
+	iTag := req.Tags.Find("i")
+	if len(iTag) < 2 || iTag[1] == "" {
+		publishFeedback(ctx, relay, sk, req, "error", `missing required i tag naming the group (["i", "<group-id>", "text"])`)
+		return
+	}
+	groupID := iTag[1]
+
+	if isAlreadyGroupMember(ctx, relay, groupID, req.PubKey) {
+		publishFeedback(ctx, relay, sk, req, "error", "you're already a member or admin of this group")
+		return
+	}
+
+	metaEvents, err := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{39000}, Tags: nostr.TagMap{"d": []string{groupID}}, Limit: 5})
+	if err != nil || len(metaEvents) == 0 {
+		publishFeedback(ctx, relay, sk, req, "error", "could not find that group")
+		return
+	}
+	// A group can in principle have more than one admin each publishing
+	// their own metadata copy at a different address (kind:39000 is
+	// addressable per (kind, pubkey, d) — see nip29.go's own comment on
+	// why the relay's actual enforcement never trusts this event for
+	// anything security-relevant). Newest-first is a reasonable,
+	// low-stakes default for pricing display specifically: worst case an
+	// admin's edit briefly lags a co-admin's, not a security hole.
+	meta := metaEvents[0]
+	for _, m := range metaEvents {
+		if m.CreatedAt > meta.CreatedAt {
+			meta = m
+		}
+	}
+
+	if !hasTag(meta.Tags, "restricted") {
+		publishFeedback(ctx, relay, sk, req, "error", "this group doesn't require joining — anyone can already post")
+		return
+	}
+	priceTag := meta.Tags.Find("price")
+	payoutTag := meta.Tags.Find("payout")
+	if len(priceTag) < 2 || len(payoutTag) < 2 || payoutTag[1] == "" {
+		publishFeedback(ctx, relay, sk, req, "error", "this group hasn't set up paid joining")
+		return
+	}
+	priceSats, err := strconv.ParseInt(priceTag[1], 10, 64)
+	if err != nil || priceSats <= 0 {
+		publishFeedback(ctx, relay, sk, req, "error", "this group has an invalid price")
+		return
+	}
+	payoutLud16 := payoutTag[1]
+
+	// Same real-provenance reasoning as the paid-article author payout:
+	// this DVM fetches a real invoice itself, directly from the domain
+	// in the group's own published payout address — that HTTPS call is
+	// what actually establishes it's genuine, not anything checkable
+	// about an invoice string after the fact.
+	lnurlParams, err := fetchLnurlPayParams(ctx, payoutLud16)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+	priceMsat := priceSats * 1000
+	if priceMsat < lnurlParams.MinSendable || priceMsat > lnurlParams.MaxSendable {
+		publishFeedback(ctx, relay, sk, req, "error", "this group's price is outside its payout wallet's accepted range")
+		return
+	}
+	payoutInvoice, err := fetchLnurlInvoice(ctx, lnurlParams.Callback, priceMsat)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+	if invoiceMsat, err := bolt11Amount(payoutInvoice.PR); err != nil || invoiceMsat != priceMsat {
+		publishFeedback(ctx, relay, sk, req, "error", "the group's payout wallet returned an invoice for the wrong amount")
+		return
+	}
+
+	publishPaymentRequiredFor(ctx, relay, sk, req, priceMsat, payoutInvoice.PR, "group")
+	if settled, _ := pollLnurlVerify(ctx, payoutInvoice.Verify); !settled {
+		publishFeedback(ctx, relay, sk, req, "error", "group payment not received in time")
+		return
+	}
+
+	// NOSTRAS's own flat fee for running the join/admission service —
+	// same operator wallet and requirePayment mechanism as every other
+	// job kind, a small flat amount separate from the group's own price
+	// above.
+	if payment != nil {
+		paid, err := requirePayment(ctx, relay, sk, payment, req, communityJoinFeeSats)
+		if err != nil {
+			publishFeedback(ctx, relay, sk, req, "error", err.Error())
+			return
+		}
+		if !paid {
+			return
+		}
+	}
+
+	publishFeedback(ctx, relay, sk, req, "processing", "")
+
+	// The actual unlock: a real kind:9000 admitting the payer as a
+	// "member" (not "admin"), signed by the persisted community key.
+	// This only succeeds if that key is already an admin of the target
+	// group — server/nip29.go's own cache.isAdmin check enforces that
+	// unconditionally, the same "blocked: admin only" surface a group
+	// owner would see if they forgot to promote it, not a new failure
+	// mode built here.
+	putUser := nostr.Event{
+		Kind:      nostr.KindSimpleGroupPutUser,
+		CreatedAt: nostr.Now(),
+		Tags: nostr.Tags{
+			{"h", groupID},
+			{"p", req.PubKey, "member"},
+		},
+	}
+	if err := signAndPublishChecked(ctx, relay, communityKeySk, putUser); err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", "payment received, but could not admit you to the group — is the community admin key actually promoted in this group? ("+err.Error()+")")
+		return
+	}
+
+	result := nostr.Event{
+		Kind:      kindJobResultCommunityJoin,
+		CreatedAt: nostr.Now(),
+		Content:   "joined",
+		Tags:      nostr.Tags{{"e", req.ID}, {"p", req.PubKey}, {"h", groupID}},
+	}
+	signAndPublish(ctx, relay, sk, result)
+}
+
 // estimateJobCostSats prices a job proportionally to its actual expected
 // API cost: exact input tokens via the real count_tokens endpoint (free to
 // call, runs no inference), plus a typical-case assumption for the
@@ -768,7 +1001,7 @@ func callClaude(ctx context.Context, claude anthropic.Client, systemPrompt, user
 // (kind:0-style JSON), deliberately not a live price — the actual price
 // is dynamic per job (see estimateJobCostSats), so the description gives
 // a representative price band instead of a number that would go stale.
-func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, articleKeyPk string) {
+func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, articleKeyPk, communityKeyPk string) {
 	about := "Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes."
 	tags := nostr.Tags{
 		{"d", dvmHandlerDTag},
@@ -781,27 +1014,34 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, art
 		about += fmt.Sprintf(" Paid long-form article unlock (5904) — the author sets the price and is paid directly via a real zap on the article; NOSTRAS keeps a flat %d-sat fee for the unlock service. Decrypted content is NIP-44-encrypted back to you specifically, not published in the clear.", articleAuthorPayoutFeeSats)
 		tags = append(tags, nostr.Tag{"k", strconv.Itoa(kindJobRequestArticleUnlock)})
 	}
+	if communityKeyPk != "" {
+		about += fmt.Sprintf(" Paid community joining (5906) — the group sets its own price and payout address, paid directly; NOSTRAS keeps a flat %d-sat fee for the admission service.", communityJoinFeeSats)
+		tags = append(tags, nostr.Tag{"k", strconv.Itoa(kindJobRequestCommunityJoin)})
+	}
 
-	// articleEncryptionPubkey, present only when paid articles are
-	// enabled, is a *separate* field from this event's own signing
-	// pubkey (evt.PubKey, set by signAndPublish below) — that key is only
-	// stable for this process's lifetime (see main()'s own comment on
-	// why), while this one is persisted and must stay constant for
-	// authors to encrypt articles against long-term. Clients that want to
-	// publish a paid article read this field, not the announcement
-	// event's own pubkey.
+	// articleEncryptionPubkey/communityAdminPubkey, each present only
+	// when its own feature is enabled, are *separate* fields from this
+	// event's own signing pubkey (evt.PubKey, set by signAndPublish
+	// below) — that key is only stable for this process's lifetime (see
+	// main()'s own comment on why), while these are persisted and must
+	// stay constant: articleEncryptionPubkey for authors to encrypt
+	// articles against long-term, communityAdminPubkey so a group owner
+	// knows which exact pubkey to promote to admin for paid joining to
+	// keep working across DVM restarts.
 	content, err := json.Marshal(struct {
 		Name                    string `json:"name"`
 		About                   string `json:"about"`
 		Picture                 string `json:"picture"`
 		Website                 string `json:"website"`
 		ArticleEncryptionPubkey string `json:"articleEncryptionPubkey,omitempty"`
+		CommunityAdminPubkey    string `json:"communityAdminPubkey,omitempty"`
 	}{
 		Name:                    "NOSTRAS DVM",
 		About:                   about,
 		Picture:                 "https://app.nostras.app/pwa-512x512.png",
 		Website:                 "https://nostras.app",
 		ArticleEncryptionPubkey: articleKeyPk,
+		CommunityAdminPubkey:    communityKeyPk,
 	})
 	if err != nil {
 		fmt.Println("handler announcement marshal error:", err)
@@ -977,13 +1217,25 @@ func publishModerationLabel(ctx context.Context, relay *nostr.Relay, sk string, 
 }
 
 func signAndPublish(ctx context.Context, relay *nostr.Relay, sk string, evt nostr.Event) {
+	if err := signAndPublishChecked(ctx, relay, sk, evt); err != nil {
+		fmt.Println(err)
+	}
+}
+
+// signAndPublishChecked is the same sign-then-publish as signAndPublish,
+// but returns the failure instead of just logging it — used by
+// handleGroupJoinJob specifically, since a rejected kind:9000 (e.g. the
+// community key was never actually promoted in that group) needs to
+// reach the paying requester as a real error, not be silently swallowed
+// after they've already paid.
+func signAndPublishChecked(ctx context.Context, relay *nostr.Relay, sk string, evt nostr.Event) error {
 	if err := evt.Sign(sk); err != nil {
-		fmt.Println("sign error:", err)
-		return
+		return fmt.Errorf("sign error: %w", err)
 	}
 	if err := relay.Publish(ctx, evt); err != nil {
-		fmt.Println("publish error:", err)
+		return fmt.Errorf("publish error: %w", err)
 	}
+	return nil
 }
 
 // loadEnvFile does a minimal KEY=VALUE .env parse, only filling in variables

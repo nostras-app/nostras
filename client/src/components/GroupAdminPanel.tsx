@@ -52,22 +52,35 @@ export function GroupAdminPanel({
   about,
   picture,
   admins,
+  restricted,
+  priceSats,
+  payoutLud16,
+  communityAdminPubkey,
   busy,
   error,
   onPromote,
   onDemote,
   onEditMetadata,
+  onSetPaidJoining,
   onDeleteGroup,
 }: {
   name: string
   about: string
   picture: string
   admins: string[]
+  restricted: boolean
+  priceSats: number
+  payoutLud16: string
+  // The DVM's persisted community-admin pubkey, fetched from its own
+  // NIP-89 announcement — null while looking it up, or if paid
+  // communities aren't configured on the DVM at all right now.
+  communityAdminPubkey: string | null
   busy: string | null
   error: string | null
   onPromote: (pubkey: string) => void
   onDemote: (pubkey: string) => void
   onEditMetadata: (name: string, about: string, picture: string) => void
+  onSetPaidJoining: (restricted: boolean, priceSats: number, payoutLud16: string) => void
   onDeleteGroup: () => void
 }) {
   const [editName, setEditName] = useState(name)
@@ -77,6 +90,17 @@ export function GroupAdminPanel({
   const [promoteError, setPromoteError] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const deletingGroup = busy === 'delete-group'
+  const paidJoiningBusy = busy === 'paid-joining'
+
+  const [paidEnabled, setPaidEnabled] = useState(restricted)
+  const [priceInput, setPriceInput] = useState(priceSats > 0 ? String(priceSats) : '')
+  const [payoutInput, setPayoutInput] = useState(payoutLud16)
+  const communityAdminIsPromoted = !!communityAdminPubkey && admins.includes(communityAdminPubkey)
+
+  function handleSavePaidJoining() {
+    const parsedPrice = Number(priceInput)
+    onSetPaidJoining(paidEnabled, paidEnabled ? parsedPrice : 0, paidEnabled ? payoutInput.trim() : '')
+  }
 
   function handlePromote() {
     const trimmed = promoteInput.trim()
@@ -124,6 +148,67 @@ export function GroupAdminPanel({
             disabled={busy === 'metadata' || !editName.trim()}
           >
             {busy === 'metadata' ? 'Saving…' : 'Save metadata'}
+          </button>
+        </div>
+      </div>
+
+      <div className="communities-create-form group-admin-paid-joining">
+        <label className="article-paywall-toggle">
+          <input
+            type="checkbox"
+            checked={paidEnabled}
+            onChange={(e) => setPaidEnabled(e.target.checked)}
+          />
+          Require payment to post (paid joining)
+        </label>
+
+        {paidEnabled && (
+          <div className="stack">
+            <input
+              className="input"
+              value={priceInput}
+              onChange={(e) => setPriceInput(e.target.value)}
+              placeholder="Price in sats (e.g. 250)"
+              inputMode="numeric"
+            />
+            <input
+              className="input"
+              value={payoutInput}
+              onChange={(e) => setPayoutInput(e.target.value)}
+              placeholder="Payout Lightning address (name@domain) — where join payments go"
+            />
+            <p className="field-hint">
+              Anyone can still read this group's chat — paying only removes the posting gate.
+              Payment goes straight to the address above, plus a small flat fee to NOSTRAS for
+              running the join service. For paid joining to actually work, NOSTRAS's DVM also
+              needs to be an admin of this group —{' '}
+              {communityAdminPubkey ? (
+                communityAdminIsPromoted ? (
+                  <strong>it already is, promoted below.</strong>
+                ) : (
+                  <>
+                    promote <code>{nip19.npubEncode(communityAdminPubkey).slice(0, 16)}…</code>{' '}
+                    using the promote box below.
+                  </>
+                )
+              ) : (
+                'the DVM has not advertised a community-admin key yet, so paid joining is not available right now.'
+              )}
+            </p>
+          </div>
+        )}
+
+        <div className="btn-row">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={handleSavePaidJoining}
+            disabled={
+              paidJoiningBusy ||
+              (paidEnabled && (!priceInput.trim() || Number(priceInput) <= 0 || !payoutInput.trim()))
+            }
+          >
+            {paidJoiningBusy ? 'Saving…' : 'Save paid joining settings'}
           </button>
         </div>
       </div>
