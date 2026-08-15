@@ -24,6 +24,24 @@ const KIND_ZAP_GOAL = 9041 as NDKKind
 // listener either way, this only affects when the skeleton gives up.
 const EOSE_FALLBACK_MS = 12000
 
+// Real, live bug reported by a real user (2026-08-15), directly caused by
+// the holdNewEvents feature above: neither `events` nor `newEvents` had
+// any size cap, so a large Following list (hundreds of people) left open
+// for a long session genuinely accumulated tens of thousands of buffered
+// notes — a real "16147 new notes" pill, not a display glitch. Clicking
+// it called showNew(), which merged the *entire* buffer into `events` in
+// one synchronous state update — React then tried to mount 16,000+
+// <FeedItem> cards (each with its own avatar fetch, profile lookup,
+// engagement bar) in a single commit, which is exactly what froze the
+// tab (a real browser "Page Unresponsive" dialog, confirmed live).
+// MAX_RENDERED_EVENTS bounds both the rendered list and the pending
+// buffer to a fixed rolling window of the most recent notes — nobody
+// meaningfully scrolls through thousands of feed items anyway, and this
+// keeps every merge (live or on-tap) a bounded, cheap operation
+// regardless of how long a tab stays open or how large the follow list
+// is.
+const MAX_RENDERED_EVENTS = 200
+
 // Subscribes to kind:1 notes, kind:30023 long-form articles, kind:9041
 // zap goals, kind:1068 polls, kind:11 forum threads, and kind:54 podcast
 // episodes — either the global feed (authors omitted) or a single
@@ -61,6 +79,11 @@ export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: bool
   // state wouldn't reliably reflect "EOSE already fired" by the time a
   // fast-arriving event's handler runs.
   const eoseReachedRef = useRef(false)
+  // Set synchronously inside the pending-buffer updater below. A plain ref
+  // is enough — it only needs to be correct by the time the same setState
+  // call that set it also triggers the re-render that reads it, not to
+  // cause a render on its own.
+  const truncatedRef = useRef(false)
 
   const authorsKey = authors?.join(',') ?? ''
 
@@ -69,10 +92,11 @@ export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: bool
       if (pending.length === 0) return pending
       setEvents((prev) => {
         const seen = new Set(prev.map((e) => e.id))
-        return [...pending.filter((e) => !seen.has(e.id)), ...prev].sort(
-          (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0),
-        )
+        return [...pending.filter((e) => !seen.has(e.id)), ...prev]
+          .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+          .slice(0, MAX_RENDERED_EVENTS)
       })
+      truncatedRef.current = false
       return []
     })
   }, [])
@@ -89,6 +113,7 @@ export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: bool
     setNewEvents([])
     setLoading(true)
     eoseReachedRef.current = false
+    truncatedRef.current = false
     // Real, live bug caught during verification, not shipped: `sub.stop()`
     // in the cleanup below doesn't synchronously guarantee no more
     // 'event' callbacks fire from an already-torn-down subscription (NDK
@@ -120,16 +145,24 @@ export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: bool
     sub.on('event', (event: NDKEvent) => {
       if (stopped) return
       if (holdNewEvents && eoseReachedRef.current) {
-        setNewEvents((prev) =>
-          prev.some((existing) => existing.id === event.id) ? prev : [event, ...prev],
-        )
+        setNewEvents((prev) => {
+          if (prev.some((existing) => existing.id === event.id)) return prev
+          // Capped the same way as the rendered list below — a pending
+          // buffer that grows without bound is exactly what turned into
+          // a real 16,000+-item freeze the moment it got shown; keeping
+          // only the most recent MAX_RENDERED_EVENTS here means the
+          // eventual showNew() merge is always cheap, not just usually.
+          const next = [event, ...prev]
+          if (next.length > MAX_RENDERED_EVENTS) truncatedRef.current = true
+          return next.slice(0, MAX_RENDERED_EVENTS)
+        })
         return
       }
       setEvents((prev) => {
         if (prev.some((existing) => existing.id === event.id)) return prev
-        return [event, ...prev].sort(
-          (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0),
-        )
+        return [event, ...prev]
+          .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+          .slice(0, MAX_RENDERED_EVENTS)
       })
     })
 
@@ -171,5 +204,14 @@ export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: bool
     // leaving a stale subscription that NDK never automatically resends.
   }, [authorsKey, generation, holdNewEvents])
 
-  return { events, loading, newCount: newEvents.length, showNew }
+  return {
+    events,
+    loading,
+    newCount: newEvents.length,
+    // True once the pending buffer has ever hit MAX_RENDERED_EVENTS and
+    // had to drop older entries — lets the pill say "200+" instead of
+    // implying an exact count it can no longer actually back up.
+    newCountTruncated: truncatedRef.current,
+    showNew,
+  }
 }

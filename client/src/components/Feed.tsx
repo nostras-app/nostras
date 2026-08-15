@@ -192,7 +192,7 @@ export function Feed() {
     publishCurrentPreferences().catch(() => {})
   }, [mode])
 
-  const { events, loading, newCount, showNew } = useNoteFeed(
+  const { events, loading, newCount, newCountTruncated, showNew } = useNoteFeed(
     mode === 'following' ? followingPubkeys : undefined,
     { holdNewEvents: true },
   )
@@ -262,7 +262,9 @@ export function Feed() {
       </div>
       {newCount > 0 && (
         <button type="button" className="feed-new-pill" onClick={handleShowNew}>
-          {newCount === 1 ? 'New note' : `${newCount} new notes`}
+          {newCount === 1
+            ? 'New note'
+            : `${newCount}${newCountTruncated ? '+' : ''} new notes`}
         </button>
       )}
       {renderBody()}
