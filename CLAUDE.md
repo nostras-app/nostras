@@ -8523,6 +8523,90 @@ verification, and why testing for this fix specifically included
 deliberately pushing the buffer past its new limit rather than just
 confirming the happy path works.
 
+## Mute list — a view, and actually filtering the feed (2026-08-15)
+
+User-reported gap: "one thing is not visible yet in Nostras is the
+muted list." Investigation found two separate real problems, not one —
+`NoteMenu.tsx`'s existing "Mute user" action already published a
+genuine NIP-51 kind:10000 list correctly, but (1) nothing in the app
+ever showed or managed that list afterward, and (2) muting someone had
+**zero effect on the feed** — a muted author's notes kept appearing in
+Global/Following exactly as before, since nothing anywhere ever read
+the list to filter anything. User's explicit instruction: "Build both."
+
+**`client/src/hooks/useMuteList.ts`** (new) extracts the fetch-then-
+republish logic that used to live inline inside `NoteMenu.tsx`'s own
+`handleMute`, following this project's own established safety shape for
+this exact kind of replaceable-list hook (a loading guard against
+toggling before the current list is known, an explicit 8s publish
+timeout, a real surfaced error) — the same pattern already fixed three
+times elsewhere (`useFollowing`/`useBookmark`/`useNip65RelayList`).
+`client/src/components/MuteListSettings.tsx` (new) is a Settings >
+Muted Accounts section — avatar/name per muted pubkey via `useProfile`,
+an Unmute button, an empty state — modeled on
+`LinkedAccountsSettings.tsx`'s structure. `useNoteFeed.ts` gained an
+`excludePubkeys` option, and `Feed.tsx` wires the active mute list
+through it.
+
+**Real bug #1, found live during verification, not shipped**: muting a
+test identity and checking the Global feed still showed their note.
+Root cause: the exclusion check only ever gated *new* incoming events
+inside the subscription's `'event'` handler — it did nothing for a note
+already merged into the rendered `events` state before the mute
+existed (e.g. part of the initial backlog, fetched before the mute
+list itself finished loading). Fixed by deriving the actually-returned
+`events`/`newEvents` via a `useMemo` that re-filters the raw stored
+state against the current exclude set on every mute-list change, so
+muting retroactively hides anything already on screen, not just future
+arrivals. The pill's `newCount` was updated to read from the same
+filtered list, for the identical "don't show a dishonest count" reason
+PQ-043's truncation label already established.
+
+**Real bug #2, found in the same verification pass, more fundamental
+than #1**: even after the retroactive-filter fix, unmuting via Settings
+and re-muting via `NoteMenu` didn't reliably reach the already-mounted
+`Feed` component without a full reload. Root cause: `useMuteList` held
+its list in a plain per-call `useState` — every component that calls it
+(NoteMenu, buried deep inside a note; Feed, a completely separate
+component, both mounted simultaneously since this app keeps every view
+mounted) got its **own independent copy**, with no mechanism for one
+instance's `toggle()` to inform any other. Muting via NoteMenu updated
+only NoteMenu's own local state; Feed's separate instance kept its
+stale, already-fetched copy until something forced a fresh fetch (a
+reload). Fixed by rewriting `useMuteList.ts` around a module-level
+cache using the same `useSyncExternalStore` pattern already established
+by `useProfile.ts` — every consumer now reads and reacts to one shared,
+live-updated source of truth, and `toggle()` writes directly into that
+shared cache before notifying subscribers.
+
+**Verified for real, end to end, both directions, with zero reloads —
+not just built clean**: `tsc -b`, `oxlint` (only the pre-existing,
+permanently-unsuppressed `authorsKey`-class warnings — matching this
+codebase's own convention of never using eslint-disable comments),
+`vite build` all clean. Full live round trip against a local relay and
+two throwaway identities (a viewer, imported via Settings >
+Identities' key-import path; a target with a real profile and real
+published notes): muted the target via `NoteMenu` on their profile
+page, confirmed via direct `nak` query that a correct kind:10000 event
+landed on the relay, and confirmed the Global feed (already mounted,
+never reloaded) correctly stopped showing the target's note. **A real
+false positive caught during this exact check, not glossed over**: the
+first verification attempt used a bare `document.body.innerText`
+search and got a false "still visible" result — it was actually
+matching text from a different, still-mounted view (this app keeps
+every view mounted, hidden via CSS) rather than the active Global feed;
+rescoped to a `.view-panel-active`-scoped DOM query before trusting the
+result, the same "unscoped query picks up a different mounted view"
+mistake already documented once before in this file for exactly this
+reason. Confirmed Settings > Muted Accounts correctly listed the
+target with a working Unmute button; clicked Unmute, confirmed via
+`nak` that the relay's list was genuinely republished empty, and
+confirmed the target's notes reappeared live in the already-mounted
+Global feed with no reload. Re-muted via `NoteMenu` a second time and
+confirmed the reverse (hidden live, no reload) — closing the loop on
+both directions and both originally-reported gaps together. Not yet
+committed or deployed as of this entry.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
