@@ -8712,8 +8712,52 @@ profile view and confirmed via direct DOM inspection that
 reordered sequence. All temporary debug hooks (`window.__ndk`,
 `window.__authorQueryRelaySet`, and a throwaway `cmd/badgerrepro/`
 diagnostic tool) were removed before finalizing — confirmed via a clean
-`git status` showing only the intended file set. Not yet committed or
-deployed as of this entry.
+`git status` showing only the intended file set. Committed (`3b64a2d`,
+`b9f798d`, `1ed88f1`) and deployed via the usual CI path; the
+addressable-event fix was independently re-verified against real
+production (`wss://nostras.app`, throwaway key) after deploy, not just
+trusted from the local repro.
+
+## NIP-11 `contact` field populated — prompted by a real third-party
+listing gap, most of it turned out not to be server-fixable (2026-08-15)
+
+User found `nostras.app` listed on a third-party relay-monitoring site
+(nostrwat.ch) with blank CODE (country) and LINK columns, and asked to
+fix both. Investigated properly before touching anything — re-fetched
+the real, current NIP-11 spec text directly rather than trust memory:
+confirmed neither a country field nor a general homepage field exists
+in the actual spec. This ruled out the naive fix (inventing a
+`relay_countries`-shaped field) before it could have been tried and
+silently done nothing, since the site clearly isn't reading NIP-11 for
+that data. CODE is almost certainly GeoIP-inferred by that site from
+the relay's real hosting location (Frankfurt, Germany — `fra`, per
+`fly.toml`), not something declarable from this side at all. Checked
+that site's own linked GitHub repo (`vir2alexport/nostr-relays`) too:
+confirmed relays get listed automatically once a real kind:10002
+(NIP-65) event naming them is found on the network — a fully passive
+discovery mechanism, no submission form, no documented
+country/link/price fields.
+
+**What was actually fixable**: NIP-11's real `contact` field (spec-
+defined, commonly a URL/npub/mailto) had never been set — confirmed via
+a direct `curl` against the live relay before writing any code.
+`server/main.go` now sets `relay.Info.Contact = "https://nostras.app"`,
+a genuine, correct use of a real field. Whether the third-party site's
+LINK column actually reads from `contact` specifically couldn't be
+confirmed (it may source that from a claim/login flow that's
+JS-rendered and invisible to an automated fetch) — stated to the user
+as a good-faith attempt, not a guaranteed fix, rather than overclaiming
+success.
+
+Logged in `nostr-client-node-strategy.md`'s Decisions log as the fourth
+distribution-related entry — a passive discovery + a real (if partial)
+fix, not an outbound submission like the first three.
+
+**Verified**: `go build`/`go vet`/`gofmt -l` clean; confirmed locally
+via a real boot showing `contact` correctly populated in the served
+NIP-11 doc before deploying. Deployed via the usual CI path (commit
+`bc0dc13`); confirmed live via a direct `curl` against
+`https://nostras.app`'s real, production NIP-11 document.
 
 ## Architecture
 
