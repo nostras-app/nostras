@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NDKEvent, NDKKind } from '@nostr-dev-kit/ndk'
 import { ndk, authorQueryRelaySet } from '../lib/ndk'
 import { useRelayStatus } from './useRelayStatus'
@@ -67,7 +67,10 @@ const MAX_RENDERED_EVENTS = 200
 // ProfileView's own, much lower-velocity feed is unaffected — this
 // wasn't reported there, and changing its contract for free wasn't the
 // ask.
-export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: boolean }) {
+export function useNoteFeed(
+  authors?: string[],
+  options?: { holdNewEvents?: boolean; excludePubkeys?: string[] },
+) {
   const holdNewEvents = options?.holdNewEvents ?? false
   const [events, setEvents] = useState<NDKEvent[]>([])
   const [newEvents, setNewEvents] = useState<NDKEvent[]>([])
@@ -84,8 +87,49 @@ export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: bool
   // call that set it also triggers the re-render that reads it, not to
   // cause a render on its own.
   const truncatedRef = useRef(false)
+  // The mute list (useMuteList) resolves asynchronously and can change at
+  // any time (mute/unmute elsewhere in the app) — a ref, updated by its
+  // own lightweight effect below, lets the live 'event' handler check it
+  // at match-time without needing excludePubkeys in the subscription
+  // effect's own dependency array. Deliberately NOT part of that effect:
+  // muting someone shouldn't tear down and resubscribe the whole feed,
+  // it should just start being excluded going forward. This only stops
+  // an event from ever entering `events`/`newEvents` in the first
+  // place — it does nothing for something already sitting in state from
+  // before the mute existed (e.g. a note that was part of the initial
+  // backlog fetched before the mute list had loaded). See excludeSet
+  // below for the part that handles that.
+  const excludeRef = useRef<Set<string>>(new Set())
 
   const authorsKey = authors?.join(',') ?? ''
+  const excludeKey = options?.excludePubkeys?.join(',') ?? ''
+
+  useEffect(() => {
+    excludeRef.current = new Set(options?.excludePubkeys ?? [])
+    // excludeKey (not options?.excludePubkeys itself) is the real
+    // dependency for the same reason authorsKey is below — a plain array
+    // gets a new reference every render.
+  }, [excludeKey])
+
+  // Real bug caught during live verification, not shipped: a note from an
+  // author who gets muted *after* it already loaded into `events` (e.g.
+  // it was part of the initial backlog, fetched before the mute list
+  // itself finished loading) stayed visible forever — excludeRef only
+  // ever gated new arrivals, never re-filtered what was already there.
+  // This derives the actually-rendered lists from the raw stored state on
+  // every mute-list change, so muting someone retroactively hides
+  // anything of theirs already on screen too, not just future notes.
+  // excludeKey, not options?.excludePubkeys itself, is the real dependency
+  // here too — same reason as authorsKey/the ref effect above.
+  const excludeSet = useMemo(() => new Set(options?.excludePubkeys ?? []), [excludeKey])
+  const visibleEvents = useMemo(
+    () => (excludeSet.size === 0 ? events : events.filter((e) => !excludeSet.has(e.pubkey))),
+    [events, excludeSet],
+  )
+  const visibleNewEvents = useMemo(
+    () => (excludeSet.size === 0 ? newEvents : newEvents.filter((e) => !excludeSet.has(e.pubkey))),
+    [newEvents, excludeSet],
+  )
 
   const showNew = useCallback(() => {
     setNewEvents((pending) => {
@@ -144,6 +188,13 @@ export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: bool
 
     sub.on('event', (event: NDKEvent) => {
       if (stopped) return
+      // Checked first, before hold/merge logic — a muted author's note
+      // never enters `events` or `newEvents`, so it's excluded from both
+      // the rendered feed and the "N new notes" pill count, not just
+      // hidden after the fact (which would make the pill's own count
+      // dishonest — the exact lesson already learned once for the
+      // truncation label above).
+      if (excludeRef.current.has(event.pubkey)) return
       if (holdNewEvents && eoseReachedRef.current) {
         setNewEvents((prev) => {
           if (prev.some((existing) => existing.id === event.id)) return prev
@@ -205,9 +256,13 @@ export function useNoteFeed(authors?: string[], options?: { holdNewEvents?: bool
   }, [authorsKey, generation, holdNewEvents])
 
   return {
-    events,
+    // Filtered (via visibleEvents/visibleNewEvents above), not the raw
+    // events/newEvents state directly — see the excludeSet comment above
+    // for why a mute needs to retroactively hide already-loaded notes,
+    // not just block new ones.
+    events: visibleEvents,
     loading,
-    newCount: newEvents.length,
+    newCount: visibleNewEvents.length,
     // True once the pending buffer has ever hit MAX_RENDERED_EVENTS and
     // had to drop older entries — lets the pill say "200+" instead of
     // implying an exact count it can no longer actually back up.

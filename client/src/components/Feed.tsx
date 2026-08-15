@@ -3,6 +3,7 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { useProfile } from '../hooks/useProfile'
 import { useNoteFeed } from '../hooks/useNoteFeed'
 import { useFollowing } from '../hooks/useFollowing'
+import { useMuteList } from '../hooks/useMuteList'
 import { useReferencedNote } from '../hooks/useReferencedNote'
 import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
@@ -192,9 +193,18 @@ export function Feed() {
     publishCurrentPreferences().catch(() => {})
   }, [mode])
 
+  // Real, user-reported gap (2026-08-15): muting someone published a
+  // real kind:10000 list correctly, but nothing actually filtered the
+  // feed against it — a muted author's notes kept showing up exactly as
+  // before. Scoped to Feed.tsx (Global/Following) only, not ProfileView's
+  // own-notes list — you navigated to a profile directly, so seeing that
+  // person's notes there even if muted is the expected, Twitter/Bluesky-
+  // style convention, not a bug to also fix here.
+  const { pubkeys: mutedPubkeys } = useMuteList()
+
   const { events, loading, newCount, newCountTruncated, showNew } = useNoteFeed(
     mode === 'following' ? followingPubkeys : undefined,
-    { holdNewEvents: true },
+    { holdNewEvents: true, excludePubkeys: mutedPubkeys },
   )
 
   function handleShowNew() {

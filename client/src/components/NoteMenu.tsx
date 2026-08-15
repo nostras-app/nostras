@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NDKEvent, NDKRelaySet, normalizeRelayUrl } from '@nostr-dev-kit/ndk'
 import type { NDKEvent as NDKEventType, NDKRelay } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet, localRelayUrl, authorQueryRelaySet } from '../lib/ndk'
+import { ndk, devPublishRelaySet, localRelayUrl } from '../lib/ndk'
 import { makeRelayConnectionFilter } from '../lib/relayFilter'
 import { CURATED_RELAYS } from '../lib/curatedRelays'
 import { useActiveUser } from '../hooks/useActiveUser'
+import { useMuteList } from '../hooks/useMuteList'
 import { requestDvmJob, type DvmJobUpdate } from '../lib/dvm'
 import { findExistingModerationLabel } from '../lib/moderationLabel'
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
@@ -57,7 +58,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   const [panel, setPanel] = useState<Panel | null>(null)
   const [copied, setCopied] = useState('')
   const [reported, setReported] = useState(false)
-  const [muted, setMuted] = useState(false)
+  const { isMuted, toggle: toggleMute } = useMuteList()
   const [deleted, setDeleted] = useState(false)
   const [busy, setBusy] = useState(false)
   // Real gap reported by the user (2026-08-07): after publishing an
@@ -175,34 +176,10 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   }
 
   async function handleMute() {
-    if (busy || muted) return
+    if (busy || isMuted(event.pubkey)) return
     setBusy(true)
     try {
-      // Scoped to authorQueryRelaySet — same unscoped-authors-filter bug
-      // class already found and fixed in useFollowing/useFollowCounts/
-      // useNoteFeed/useProfile/BookmarksView (see authorQueryRelaySet's
-      // own comment in lib/ndk.ts). Without this, a race against NDK's
-      // CONNECTED-only relay fallback could resolve to a stale/empty
-      // mute list, and since kind:10000 is replaceable, publishing from
-      // that empty list would silently wipe the user's real mute list.
-      const existing = await ndk.fetchEvent(
-        { kinds: [10000], authors: [ndk.activeUser?.pubkey ?? ''] },
-        undefined,
-        authorQueryRelaySet,
-      )
-      const existingTags = existing?.tags ?? []
-      const alreadyMuted = existingTags.some(
-        (t) => t[0] === 'p' && t[1] === event.pubkey,
-      )
-      if (!alreadyMuted) {
-        const updated = new NDKEvent(ndk, {
-          kind: 10000,
-          content: existing?.content ?? '',
-          tags: [...existingTags, ['p', event.pubkey]],
-        })
-        await updated.publish(devPublishRelaySet)
-      }
-      setMuted(true)
+      await toggleMute(event.pubkey)
       setPanel(null)
     } finally {
       setBusy(false)
@@ -431,8 +408,8 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
           <button type="button" onClick={() => setPanel('report')} disabled={reported}>
             {reported ? 'Reported' : 'Report'}
           </button>
-          <button type="button" onClick={handleMute} disabled={muted || busy}>
-            {muted ? 'Muted' : 'Mute user'}
+          <button type="button" onClick={handleMute} disabled={isMuted(event.pubkey) || busy}>
+            {isMuted(event.pubkey) ? 'Muted' : 'Mute user'}
           </button>
           {isOwn && (
             <button
