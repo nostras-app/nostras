@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>NOSTRAS Node — run your own, we already fixed the hard parts</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="A self-hosted or managed version of NOSTRAS's own relay + DVM stack, for people who want their own Nostr node without building outbox aggregation, payment-gated DVM jobs, and push notifications from scratch." />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 46'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='48' y2='46' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23863bff'/%3E%3Cstop offset='1' stop-color='%2347bfff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #fdfcff;
+    --bg-card: #f7f5fb;
+    --bg-raised: #ffffff;
+    --text: #5c5566;
+    --text-h: #0d0a14;
+    --text-dim: #8b839a;
+    --border: #e6e2ee;
+    --accent: #7e14ff;
+    --accent-soft: rgba(126, 20, 255, 0.1);
+    --data: #0891b2;
+    --data-soft: rgba(8, 145, 178, 0.1);
+    --warm: #d6336c;
+    --ok: #1a8754;
+    --ok-soft: rgba(26, 135, 84, 0.1);
+    --err: #d6336c;
+    --err-soft: rgba(214, 51, 108, 0.1);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e0e13; --bg-card: #17161f; --bg-raised: #1c1b26;
+      --text: #a39cb0; --text-h: #f5f2fa; --text-dim: #6b6478; --border: #2a2833;
+      --accent: #a970ff; --accent-soft: rgba(169, 112, 255, 0.14);
+      --data: #47bfff; --data-soft: rgba(71, 191, 255, 0.12);
+      --warm: #ff6fb0; --ok: #4ade80; --ok-soft: rgba(74, 222, 128, 0.12);
+      --err: #ff6fb0; --err-soft: rgba(255, 111, 176, 0.12);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  body { font-size: 17px; line-height: 1.6; }
+  a { color: inherit; }
+  code { font-family: var(--mono); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+
+  .hero { padding: 96px 0 76px; border-bottom: 1px solid var(--border); text-align: center; }
+  .mark { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; margin-bottom: 24px; }
+  .mark svg { width: 36px; height: auto; }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--data); background: var(--data-soft);
+    border: 1px solid color-mix(in srgb, var(--data) 35%, transparent);
+    border-radius: 999px; padding: 6px 14px 6px 10px; margin-bottom: 24px;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--data); }
+
+  h1.headline { font-size: clamp(32px, 5vw, 54px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; margin: 0 0 20px; color: var(--text-h); text-wrap: balance; }
+  h1.headline .own { color: var(--accent); }
+  .sub { max-width: 620px; margin: 0 auto 32px; font-size: 18px; line-height: 1.65; color: var(--text-dim); text-wrap: balance; }
+
+  .cta-row { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; font: inherit; font-weight: 650; font-size: 15.5px;
+    text-decoration: none; padding: 13px 24px; border-radius: 12px; border: 1px solid transparent; cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--accent) 70%, transparent); }
+  .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-h); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+
+  section.block { padding: 80px 0; border-bottom: 1px solid var(--border); }
+  .kicker { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--data); margin: 0 0 14px; }
+  h2.title { font-size: clamp(24px, 2.8vw, 32px); font-weight: 800; letter-spacing: -0.022em; color: var(--text-h); margin: 0 0 16px; text-wrap: balance; max-width: 680px; }
+  .lede { font-size: 17px; color: var(--text-dim); max-width: 640px; margin: 0 0 44px; line-height: 1.65; }
+
+  /* ---------- "already solved" checklist ---------- */
+
+  .solved-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  @media (max-width: 720px) { .solved-grid { grid-template-columns: 1fr; } }
+  .solved-item { background: var(--bg-card); padding: 22px 24px; display: flex; gap: 14px; align-items: flex-start; }
+  .solved-check { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+  .solved-check svg { width: 13px; height: 13px; }
+  .solved-item h3 { margin: 0 0 4px; font-size: 15.5px; color: var(--text-h); font-weight: 700; }
+  .solved-item p { margin: 0; font-size: 14px; color: var(--text-dim); line-height: 1.6; }
+
+  /* ---------- Tiers ---------- */
+
+  .tier-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  @media (max-width: 860px) { .tier-grid { grid-template-columns: 1fr; } }
+  .tier-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 28px 26px; display: flex; flex-direction: column; gap: 14px; }
+  .tier-card.highlight { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .tier-name { font-size: 12.5px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--data); }
+  .tier-card h3 { margin: 0; font-size: 21px; font-weight: 800; color: var(--text-h); letter-spacing: -0.01em; }
+  .tier-shape { font-size: 13.5px; color: var(--text-dim); }
+  .tier-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .tier-list li { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; color: var(--text-dim); line-height: 1.5; }
+  .tier-list svg { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--ok); }
+  .tier-note { margin-top: auto; padding-top: 12px; font-size: 12.5px; color: var(--text-dim); border-top: 1px dashed var(--border); }
+
+  /* ---------- Custody reassurance ---------- */
+
+  .custody-note {
+    display: flex; gap: 16px; align-items: flex-start;
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 14px; padding: 20px 24px; margin-top: 44px;
+  }
+  .custody-note svg { flex: none; width: 22px; height: 22px; color: var(--accent); margin-top: 2px; }
+  .custody-note p { margin: 0; font-size: 14.5px; color: var(--text-dim); line-height: 1.6; }
+  .custody-note strong { color: var(--text-h); }
+
+  /* ---------- Waitlist form ---------- */
+
+  .waitlist-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 18px; padding: 40px; max-width: 560px; margin: 0 auto; }
+  .waitlist-panel h2.title { text-align: center; margin-left: auto; margin-right: auto; }
+  .waitlist-panel .lede { text-align: center; margin-left: auto; margin-right: auto; }
+  .field-label { display: block; font-size: 13px; font-weight: 650; color: var(--text-h); margin: 0 0 6px; }
+  .field-input, .field-textarea {
+    width: 100%; font: inherit; font-size: 15px; padding: 12px 14px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; color: var(--text-h);
+    margin-bottom: 18px;
+  }
+  .field-textarea { resize: vertical; min-height: 72px; font-family: var(--sans); }
+  .field-input:focus, .field-textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+  .waitlist-submit { width: 100%; justify-content: center; }
+  .waitlist-hint { text-align: center; font-size: 12.5px; color: var(--text-dim); margin-top: 14px; }
+  .waitlist-msg { text-align: center; font-size: 14px; margin-top: 14px; border-radius: 10px; padding: 10px 14px; display: none; }
+  .waitlist-msg.ok { display: block; background: var(--ok-soft); color: var(--ok); }
+  .waitlist-msg.err { display: block; background: var(--err-soft); color: var(--err); }
+  .waitlist-done { text-align: center; }
+  .waitlist-done svg { width: 40px; height: 40px; color: var(--ok); margin-bottom: 14px; }
+  .waitlist-done h3 { margin: 0 0 8px; font-size: 20px; color: var(--text-h); }
+  .waitlist-done p { margin: 0; font-size: 14.5px; color: var(--text-dim); }
+
+  /* ---------- Footer ---------- */
+
+  footer.final { padding: 76px 0 60px; text-align: center; }
+  .foot-links {
+    margin-top: 48px; padding-top: 26px; border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    font-size: 14px; color: var(--text-dim);
+  }
+  .foot-links a { text-decoration: none; color: var(--text-dim); }
+  .foot-links a:hover { color: var(--accent); }
+  .foot-links .brand { font-weight: 700; color: var(--text-h); letter-spacing: -0.01em; }
+  .foot-nav { display: flex; gap: 22px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <div class="wrap">
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 48 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill="url(#g)" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="48" y2="46" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#863bff"/>
+            <stop offset="1" stop-color="#47bfff"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    </span>
+
+    <div class="eyebrow"><span class="dot"></span> NOSTRAS Node — early access</div>
+
+    <h1 class="headline">Run your own node.<br>We already <span class="own">hit the mistakes</span> for you.</h1>
+
+    <p class="sub">
+      NOSTRAS's relay, DVM, and push stack is real, production-tested
+      software — not a weekend project. Outbox aggregation, payment-gated
+      AI jobs, push notifications that actually work: we already built it,
+      broke it under real load, and fixed it. NOSTRAS Node is that same
+      stack, for your own instance.
+    </p>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="#waitlist">
+        Join the waitlist
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+      </a>
+      <a class="btn btn-ghost" href="https://nostras.app">Back to nostras.app</a>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="already-solved">
+  <div class="wrap">
+    <p class="kicker">Not hypothetical — already lived through it</p>
+    <h2 class="title">The parts you'd spend weeks debugging, we already debugged.</h2>
+    <p class="lede">
+      This isn't a pitch for software that might work. It's the exact
+      stack running <code>nostras.app</code> today, including the real
+      incidents that shaped it.
+    </p>
+
+    <div class="solved-grid">
+      <div class="solved-item">
+        <span class="solved-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <div><h3>Relay storage tuned for real traffic</h3><p>Memory/connection limits found the hard way, under a real near-outage — not textbook defaults.</p></div>
+      </div>
+      <div class="solved-item">
+        <span class="solved-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <div><h3>Payment-gated AI jobs that actually pay out</h3><p>A real NIP-90 DVM with live Lightning invoicing, priced per job — not a mocked demo.</p></div>
+      </div>
+      <div class="solved-item">
+        <span class="solved-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <div><h3>Outbox aggregation that doesn't starve the relay</h3><p>Fetching other users' write relays without it becoming your own bottleneck under load.</p></div>
+      </div>
+      <div class="solved-item">
+        <span class="solved-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <div><h3>Uptime monitoring that checks it's actually alive</h3><p>A real end-to-end job round-trip, not just an HTTP ping that stays green while a worker silently dies.</p></div>
+      </div>
+      <div class="solved-item">
+        <span class="solved-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <div><h3>Web Push tied to your own relay</h3><p>A real NIP-98 auth check, not a third-party push service that becomes another party in your data's path.</p></div>
+      </div>
+      <div class="solved-item">
+        <span class="solved-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <div><h3>A deploy pipeline that recovers on its own</h3><p>Workers that reconnect after a drop instead of silently staying down until someone notices.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="tiers">
+  <div class="wrap">
+    <p class="kicker">Three shapes, one codebase</p>
+    <h2 class="title">Pick how much of the operating you want to do yourself.</h2>
+    <p class="lede">
+      Pricing isn't locked yet — that's part of what the waitlist is for.
+      These are the shapes we're actually building toward.
+    </p>
+
+    <div class="tier-grid">
+      <div class="tier-card">
+        <span class="tier-name">Community</span>
+        <h3>Free</h3>
+        <span class="tier-shape">Self-hosted, unsupported</span>
+        <ul class="tier-list">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Core relay + search + outbox aggregation</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Genuinely free, genuinely useful</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>No AI jobs, no push, no support</li>
+        </ul>
+        <p class="tier-note">Good for: trying it, or a relay you're happy to run bare.</p>
+      </div>
+      <div class="tier-card highlight">
+        <span class="tier-name">Self-Hosted Pro</span>
+        <h3>License</h3>
+        <span class="tier-shape">Full feature set, your own infra</span>
+        <ul class="tier-list">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Everything nostras.app runs today</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>DVM, push, outbox — bring your own keys</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>You run <code>flyctl deploy</code>, we don't</li>
+        </ul>
+        <p class="tier-note">Good for: comfortable with infra, just don't want to build it.</p>
+      </div>
+      <div class="tier-card">
+        <span class="tier-name">Managed Node</span>
+        <h3>Subscription</h3>
+        <span class="tier-shape">We provision and operate it</span>
+        <ul class="tier-list">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>We're the one who gets paged at 2am</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Updates, monitoring, incident response</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>On your cloud account, or ours</li>
+        </ul>
+        <p class="tier-note">Good for: want your own node, not your own on-call rotation.</p>
+      </div>
+    </div>
+
+    <div class="custody-note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <p><strong>Even Managed Node doesn't mean giving up custody.</strong> This is about who runs the server processes — your keys and your wallet connection never leave your own client, on any tier, the same non-custodial rule NOSTRAS itself has always followed.</p>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="waitlist" style="border-bottom: none;">
+  <div class="wrap">
+    <div class="waitlist-panel">
+      <div id="waitlist-form-wrap">
+        <p class="kicker" style="text-align:center;">Get on the list</p>
+        <h2 class="title">No commitment, no payment — just tell us you want this.</h2>
+        <p class="lede">We'll follow up directly once pricing and provisioning are ready. Real interest here is what decides whether this gets built out further.</p>
+
+        <label class="field-label" for="wl-email">Email</label>
+        <input class="field-input" id="wl-email" type="email" placeholder="you@example.com" autocomplete="email" />
+
+        <label class="field-label" for="wl-note">What would you use it for? (optional)</label>
+        <textarea class="field-textarea" id="wl-note" placeholder="e.g. a relay for my community, my own DVM experiments…"></textarea>
+
+        <button type="button" class="btn btn-primary waitlist-submit" id="wl-submit">Join the waitlist</button>
+        <div class="waitlist-msg" id="wl-msg"></div>
+        <p class="waitlist-hint">Used only to follow up about NOSTRAS Node. Nothing else.</p>
+      </div>
+      <div class="waitlist-done" id="wl-done" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
+        <h3>You're on the list</h3>
+        <p>We'll be in touch once NOSTRAS Node is ready for real signups.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="final">
+  <div class="wrap">
+    <div class="foot-links wrap" style="padding-left:0; padding-right:0;">
+      <span class="brand">NOSTRAS</span>
+      <nav class="foot-nav">
+        <a href="https://nostras.app">Home</a>
+        <a href="https://app.nostras.app">Open the app</a>
+        <a href="/why">Why NOSTRAS</a>
+        <a href="https://github.com/nostras-app/nostras">Docs &amp; support</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var emailInput = document.getElementById('wl-email');
+    var noteInput = document.getElementById('wl-note');
+    var submitBtn = document.getElementById('wl-submit');
+    var msg = document.getElementById('wl-msg');
+    var formWrap = document.getElementById('waitlist-form-wrap');
+    var done = document.getElementById('wl-done');
+
+    function showMsg(text, kind) {
+      msg.textContent = text;
+      msg.className = 'waitlist-msg ' + kind;
+    }
+
+    submitBtn.addEventListener('click', function () {
+      var email = emailInput.value.trim();
+      if (!email || email.indexOf('@') === -1) {
+        showMsg('Please enter a valid email address.', 'err');
+        return;
+      }
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Joining…';
+      msg.className = 'waitlist-msg';
+
+      fetch('/node/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, note: noteInput.value.trim() })
+      }).then(function (res) {
+        if (!res.ok) {
+          return res.text().then(function (t) { throw new Error(t || 'Something went wrong'); });
+        }
+        formWrap.style.display = 'none';
+        done.style.display = 'block';
+      }).catch(function (err) {
+        showMsg(err.message || 'Something went wrong — please try again.', 'err');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Join the waitlist';
+      });
+    });
+  })();
+</script>
+</body>
+</html>

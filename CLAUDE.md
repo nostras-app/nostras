@@ -8975,6 +8975,95 @@ zero horizontal overflow (`document.documentElement.scrollWidth` <
 `window.innerWidth`, checked directly rather than assumed from the CSS
 alone).
 
+## NOSTRAS Node waitlist page at `/node` (2026-08-16)
+
+Direct follow-up to `/why`: the user asked to build out the third idea
+from the same planning conversation — validating real demand for a
+self-hosted/managed version of NOSTRAS's own relay+DVM stack (see
+`nostras-node-productization-strategy.md`'s own "cheapest possible
+validation" recommendation: a waitlist page, no tiering/licensing/
+multi-tenant work actually built yet) before investing engineering time
+in a product that might not have real demand. Same approval workflow as
+`/why` — drafted first as a Claude-published Artifact, approved as-is,
+then implemented for real.
+
+**Scope calls made explicit up front, matching the user's own "just an
+introduction, don't want to invest in a full build" framing**: no firm
+pricing anywhere on the page (the strategy doc's own pricing table is
+explicitly unvalidated — the three tiers are described by what they
+include, not by price, with real numbers deferred to a follow-up
+conversation after a real signup); a real (not `mailto:`) self-hosted
+waitlist capture, since a structured, measurable signal is the entire
+point of the page and a third-party form service would contradict this
+project's own no-external-dependency, don't-hand-visitor-data-to-a-
+third-party posture.
+
+**Content leans on this project's own real incident history as the
+credibility angle** — the "not hypothetical" checklist (relay storage
+tuned under a real near-OOM incident, a real paid NIP-90 DVM, outbox
+aggregation that doesn't starve the relay, an uptime check that verifies
+actual liveness not just an HTTP ping, Web Push tied to the relay's own
+NIP-98 auth, self-recovering DVM workers) is drawn directly from
+incidents already documented earlier in this file, not invented for the
+pitch. A dedicated custody-reassurance callout states explicitly that
+even the Managed tier doesn't mean giving up control of keys or
+wallets — the same non-custodial rule NOSTRAS's client has always
+followed, addressing the one trust question a technical visitor would
+actually have about paying someone else to run their node.
+
+**Waitlist backend** (`server/waitlist.go` +
+`server/waitlist_handlers.go`): a plain mutex-guarded JSON file, same
+established shape as `pushStore`/`vanishStore`/`analyticsStore` — an
+email address is real personal data with no reason to ever be a public
+Nostr event, unlike everything else this relay persists. `POST /node/
+waitlist` is deliberately unauthenticated (an anonymous visitor
+expressing interest, nothing to authenticate against) with a real email-
+format check (`net/mail.ParseAddress`) and a length cap on the free-text
+note field — low stakes if abused (worst case is junk rows in a
+marketing list, not something that touches relay operation), so this
+doesn't carry the same hardening as the actual event-ingest path.
+Dedupes by (lowercased) email, so a repeat visit updates the existing
+row instead of piling up duplicates. The captured list is only readable
+through `GET /dashboard/waitlist`, gated behind the exact same
+`NOSTRAS_DASHBOARD_PASSWORD` Basic-Auth as every other operator-facing
+endpoint — no new admin surface built for this, it's one more panel on
+the dashboard that already exists.
+
+**Real security point caught and fixed before shipping, not after**:
+every other value the dashboard has ever rendered (connection counts,
+country codes from a fixed lookup table) came from data this project
+itself controls — waitlist notes are the first genuinely untrusted
+free-text string a public, unauthenticated visitor can get into this
+page's DOM. `dashboard.html` gained a real `escapeHtml()` helper
+(`document.createElement('div').textContent = s; return div.innerHTML`)
+used for both the email and note fields before they're ever
+interpolated into the rendered table — not the same bare template-
+literal interpolation `renderCountries` already uses for its own,
+already-trusted values.
+
+**Verified for real, in layers**: `go build`/`go vet`/`gofmt -l` clean.
+Ran the local relay with a real dashboard password set and drove the
+actual flow end to end — a malformed email correctly rejected (400), a
+real one accepted (204) and persisted to disk, a repeat submission from
+the same (differently-cased) email correctly updated in place rather
+than duplicating, `/dashboard/waitlist` correctly 401s with no
+credentials and returns the real entries with them. **The XSS fix
+specifically verified by actually exercising it, not just written and
+trusted**: submitted a real `<img src=x onerror=alert(1)>` payload as a
+note, fetched it back, ran the exact `escapeHtml()` function from
+`dashboard.html` against it in a live page, and confirmed zero `<img>`
+elements ever get created in the DOM — the payload renders as inert
+text. Drove the actual waitlist form through the real UI (native
+property-setter + input-event dispatch, this session's established
+reliable-fill technique) and confirmed the success state ("You're on
+the list") renders and the submission lands in the persisted store,
+matching the API-level test exactly. Checked `/node` at a real narrow
+viewport (~619px, this environment's practical resize floor) — zero
+horizontal overflow, both the checklist grid and the tier-card grid
+correctly collapse to a single column. Cross-linked from `/why`'s and
+the main landing page's footers; `node.html`'s own footer links back to
+both.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

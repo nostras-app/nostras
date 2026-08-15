@@ -4,6 +4,7 @@
 /analytics.json
 /vanished-pubkeys.json
 /nip86-admin.json
+/node-waitlist.json
 *.exe
 nostras-server
 /cmd/dvm/dvm

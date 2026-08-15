@@ -270,6 +270,11 @@
   <div id="countries-wrap"></div>
 </section>
 
+<section class="panel">
+  <h2>NOSTRAS Node waitlist</h2>
+  <div id="waitlist-wrap"></div>
+</section>
+
 <footer>
   Counts unique relay WebSocket connections to this NOSTRAS node — not
   unique visitors. A reload, a reconnect after a network hiccup, or the
@@ -418,6 +423,45 @@ function renderCountries(byDay) {
   wrap.innerHTML = html;
 }
 
+// Unlike everything else this dashboard renders (numeric counts, country
+// codes looked up against a fixed table), waitlist entries are real
+// free-text submitted by anonymous public visitors via /node/waitlist —
+// the first genuinely untrusted string data this page injects into the
+// DOM, so it goes through real escaping before any innerHTML use, not
+// just the template-literal interpolation the rest of this file uses.
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s == null ? "" : String(s);
+  return div.innerHTML;
+}
+
+async function loadWaitlist() {
+  const wrap = document.getElementById("waitlist-wrap");
+  let res;
+  try {
+    res = await fetch("/dashboard/waitlist");
+  } catch {
+    wrap.innerHTML = '<div class="empty">Failed to load waitlist.</div>';
+    return;
+  }
+  if (!res.ok) {
+    wrap.innerHTML = '<div class="empty">Failed to load waitlist.</div>';
+    return;
+  }
+  const entries = await res.json();
+  if (!entries || entries.length === 0) {
+    wrap.innerHTML = '<div class="empty">No signups yet.</div>';
+    return;
+  }
+  entries.sort((a, b) => b.createdAt - a.createdAt);
+  let html = `<table><thead><tr><th>Email</th><th>What for</th><th class="num">Signed up</th></tr></thead><tbody>`;
+  for (const e of entries) {
+    html += `<tr><td>${escapeHtml(e.email)}</td><td>${escapeHtml(e.note || "—")}</td><td class="num">${fmtAgo(e.createdAt)}</td></tr>`;
+  }
+  html += "</tbody></table>";
+  wrap.innerHTML = html;
+}
+
 async function load() {
   const res = await fetch("/dashboard/data");
   if (!res.ok) {
@@ -522,6 +566,7 @@ async function loadHealth() {
 
 load();
 loadHealth();
+loadWaitlist();
 setInterval(load, 60000);
 setInterval(loadHealth, 3000);
 window.addEventListener("resize", load);

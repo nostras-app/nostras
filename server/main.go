@@ -267,6 +267,22 @@ func main() {
 	relay.Router().HandleFunc("GET /dashboard/data", requireDashboardAuth(dashboardPassword, handleDashboardData(analytics)))
 	relay.Router().HandleFunc("GET /dashboard/health", requireDashboardAuth(dashboardPassword, handleDashboardHealth))
 
+	// NOSTRAS Node waitlist — see waitlist.go/waitlist_handlers.go/
+	// node.html. A real signup (email + optional note), not a mock,
+	// validating actual demand before any tiering/licensing/multi-tenant
+	// work gets built (see nostras-node-productization-strategy.md).
+	// Public write endpoint (no auth — an anonymous visitor submitting
+	// interest, not a signed-in identity); the resulting list is only
+	// readable through the same password-gated dashboard as everything
+	// else operator-facing.
+	waitlistPath := envOr("NOSTRAS_WAITLIST_PATH", "./node-waitlist.json")
+	waitlist, err := newWaitlistStore(waitlistPath)
+	if err != nil {
+		panic(err)
+	}
+	relay.Router().HandleFunc("POST /node/waitlist", handleWaitlistJoin(waitlist))
+	relay.Router().HandleFunc("GET /dashboard/waitlist", requireDashboardAuth(dashboardPassword, handleDashboardWaitlist(waitlist)))
+
 	// Landing page — see landing.go/landing.html. "/{$}" (not just "/")
 	// matches the exact root only, per Go 1.22+ ServeMux pattern syntax —
 	// a bare "/" would act as a catch-all subtree match and start
@@ -280,6 +296,9 @@ func main() {
 	// no "/{$}" subtlety here: Go's ServeMux only treats a bare "/" as a
 	// catch-all subtree, an exact path like "/why" matches only itself.
 	relay.Router().HandleFunc("GET /why", handleWhy)
+
+	// NOSTRAS Node waitlist page — see node.go/node.html.
+	relay.Router().HandleFunc("GET /node", handleNode)
 
 	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent, newGroupChatSearchIndexHook(&searchIndex),
 		newPushNotifyHook(pushSubs, vapidPublicKey, vapidPrivateKey, vapidSubscriber))
