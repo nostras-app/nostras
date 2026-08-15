@@ -8893,13 +8893,20 @@ it could now really publish a `kind:9` message — the full compose →
 request → pay → admit → post loop, working correctly through the real
 UI on the first attempt. Zero console errors observed throughout.
 
-Not yet deployed to production as of this entry — verified entirely
-against local test infrastructure (a disposable relay/DVM, a mock LNURL
-server, throwaway identities), consistent with this project's standing
-practice of never exercising real payment infrastructure during
-verification. `NOSTRAS_DVM_COMMUNITY_KEY` is not yet set on the
-production DVM either; deploying the code and generating/setting that
-secret are both deliberate next steps, not done as part of this pass.
+**Deployed to production the same day, user-approved.** Committed
+(`fb7d5c1`) and pushed; both `deploy-relay.yml` and `deploy-client.yml`
+completed clean, no false-negative this time. Generated a fresh
+`NOSTRAS_DVM_COMMUNITY_KEY` and set it via `flyctl secrets set` — the
+rolling restart completed with explicit `started` confirmation on all
+three machines (`web`, `dvm`, and the standby), no manual
+`flyctl machine start` needed, unlike several earlier incidents in this
+file's history. Verified live against real production infrastructure,
+without ever touching a real payment: the DVM's live kind:31990
+handler announcement now advertises `k=5906` and the correct, real
+`communityAdminPubkey`; a real `kind:5906` job request against a
+nonexistent group correctly produced the clean `"could not find that
+group"` error end-to-end, confirming the new job kind is genuinely
+wired up and dispatching in production, not just locally.
 
 ## Architecture
 
