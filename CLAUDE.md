@@ -8415,6 +8415,25 @@ pattern: any new text-rendering surface added to this app should get
 `parseContentSegments`, which already has it) by default, rather than
 waiting for a fourth live report to find the next one.
 
+**The two items explicitly left open above were closed the same
+day**, per direct user request rather than left as an indefinite
+"worth a future check." **DM thread view**: constructed two real
+throwaway identities and a genuine NIP-17 gift-wrapped message (via
+`nak gift wrap`, both the recipient's copy and the sender's own
+self-addressed copy, matching this project's own established
+convention) with a deliberately long unbroken URL, published to
+production, then opened the thread in the real app logged in as the
+sender. Rendered correctly with no code changes needed —
+`.dm-bubble p` already had `overflow-wrap: anywhere` and
+`.dm-conversation-item-body` already had `min-width: 0` from when DMs
+were originally built. **Identity-import/encrypt forms**: tested a
+long garbage nsec in the masked password field (the error message
+wraps correctly), a long unbroken identity label after a real
+rename-and-blur-commit (correctly truncated in its row), and a
+password-mismatch error in the encrypt sub-form — all clean. Both
+surfaces were already correctly built; this was pure verification, not
+a fix.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
