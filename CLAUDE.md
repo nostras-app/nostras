@@ -8359,6 +8359,62 @@ width with no blank gap. `tsc -b`, `oxlint`, `vite build` clean.
 Deployed via the usual CI path; confirmed live via the production
 bundle containing the deploying commit's SHA and the fixed CSS rule.
 
+## Systematic overflow audit — a third independent instance found in
+article/podcast-episode markdown bodies (2026-08-15)
+
+Direct follow-up, per explicit user request to check for any other
+overflow issues rather than assume the reply-context fix above caught
+everything. Ran the same `scrollWidth`-vs-viewport DOM scan at a real
+narrow width across every major surface: Home/Global feed at multiple
+scroll depths, Search, Notifications, Communities/group chat,
+Bookmarks, Ask Claude, Settings, About, a real profile with a long
+bio, the follow-list modal, an article, a podcast episode, a poll, a
+zap goal, and the note-menu's raw-event/rebroadcast panels.
+
+**One false positive correctly ruled out along the way**: the
+follow-list modal flagged a pubkey button whose `scrollWidth` exceeded
+its `clientWidth` — but this turned out to be `text-overflow: ellipsis`
++ `overflow: hidden` working exactly as designed (confirmed via
+computed style), not a bug. The real test is whether
+`document.documentElement.scrollWidth` exceeds the viewport, which it
+didn't in that case — a useful reminder that a per-element scan needs
+this cross-check before treating a hit as a real finding.
+
+**One real, genuine third instance found**: opening a real production
+article (deliberately picked because it contained a real bare URL)
+showed actual page-level overflow (496px scrollWidth against a 485px
+viewport). Traced to `.article-view-content` — the class both
+`ArticleView` and `PodcastEpisodeView` share for their `react-markdown`
+body rendering — never having received the `overflow-wrap` treatment
+already applied twice elsewhere (`.feed-item-content`, `.feed-item-
+reply-context`). Markdown bodies render through a structurally
+separate path (`react-markdown`) from regular note content
+(`NoteContent`/`parseContentSegments`), so neither earlier fix ever
+touched it. **Fixed** the same way as both prior instances: added
+`overflow-wrap: anywhere` to `.article-view-content` — a single change
+that fixes both consuming components at once, confirmed by grep before
+relying on that assumption rather than assumed.
+
+**Verified live, both before and after, in the same session** (CSS hot
+-reloaded, not a fresh deploy-and-recheck): confirmed genuine overflow
+on the real article, applied the fix, confirmed `docScrollWidth`
+dropped to exactly the viewport width. Every other surface scanned in
+the same pass — a genuinely broad sweep, not just the one page that
+turned out to have a bug — came back clean both before and after.
+`tsc -b`, `oxlint`, `vite build` clean. Deployed via the usual CI path;
+confirmed live via the production bundle containing the deploying
+commit's SHA, and confirmed via the deployed CSS itself that
+`overflow-wrap: anywhere` now appears at all three fixed call sites.
+
+**Third time this exact bug class has been found and fixed
+independently** (`.feed-item-content` → `.feed-item-reply-context` →
+`.article-view-content`) — each one a structurally distinct rendering
+path that happened to skip the same treatment. Worth remembering as a
+pattern: any new text-rendering surface added to this app should get
+`overflow-wrap: anywhere` (or route through `NoteContent`/
+`parseContentSegments`, which already has it) by default, rather than
+waiting for a fourth live report to find the next one.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
