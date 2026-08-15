@@ -8908,6 +8908,73 @@ nonexistent group correctly produced the clean `"could not find that
 group"` error end-to-end, confirming the new job kind is genuinely
 wired up and dispatching in production, not just locally.
 
+## "Why NOSTRAS" page at `/why`, plus three items in the exclusive-
+features doc moved from untested to Confirmed (2026-08-16)
+
+The user asked for a separate landing-page section explaining how
+NOSTRAS differs from other Nostr clients "despite being built and
+compliant on the Nostr protocol" — drawing on
+`nostras-exclusive-features.md`'s existing category breakdown. Before
+drafting anything, the user explicitly chose to run the real
+cross-client verification on the three items still marked "Likely, not
+independently tested" (Forum Threads, Polls, Podcasts) rather than ship
+conservative phrasing — matching the doc's own standing ground rule
+that only **Confirmed** items get stated as fact.
+
+**Verification, done for real before any copy was written**: published
+one throwaway-signed real event of each kind (kind:11 thread, kind:1068
+poll, kind:54 podcast episode) to public relays, then checked each in
+Yakihonne — a real, independently popular Nostr client, same one already
+used to confirm Zap Goals and Paid Articles earlier this project — three
+ways: the direct nevent permalink, the publishing identity's own profile
+"Note" feed, and every other tab that profile offered (Curations, Smart
+widgets). All three came back empty/"not found" on every path, while
+Yakihonne's own UI still correctly resolved the throwaway profile's real
+name (proving the events reached their infrastructure fine — it's
+specifically their note-detail/feed renderers that have no path for
+these kinds). `nostras-exclusive-features.md` was updated in place —
+all five Category A items are now **Confirmed**, each with its own
+dated verification-log row.
+
+**The page itself** (`server/why.html` + `server/why.go`, served at
+`GET /why`, registered in `main.go` right after the landing route —
+a normal path, not `/{$}`, so none of the root-route subtlety applies)
+was drafted first as a Claude-published Artifact for the user's visual
+approval, matching `landing.html`'s own original precedent, before
+touching the real codebase. Deliberately reuses `landing.html`'s exact
+design tokens (same purple/cyan palette, same card-grid and NIP-badge
+patterns, same "audit surface" trust-panel styling) rather than
+inventing a new visual identity — this is a continuation of the same
+site's brand, not a new pitch. Structure mirrors the doc's own
+categories: a card grid of the four now-Confirmed Category A items
+(each with a dated "tested in Yakihonne" caption, not just a bare
+claim); a split-layout section on the Category B payment rails (paid
+articles/podcasts — framed honestly as "our own invented convention on
+top of real NIPs," not something adoptable by another client); a card
+grid of the Category C DVM tools (summarize/translate/ask/spam-check),
+framed as "anyone could build this, we're just the one who did"; a
+plain list for the Category D architecture points (Web Push tied to
+NOSTRAS's own relay, NIP-66/43 relay-level participation, the client+
+relay pairing itself); and a closing "Methodology" section spelling out
+exactly what "confirmed" means on the page, so the honesty standard
+itself is visible, not just applied silently. The main landing page's
+footer nav gained a `/why` link.
+
+**Verified locally before deploying**: `go build`/`go vet`/`gofmt -l`
+clean. Ran the local relay and confirmed all four routing cases
+directly (not assumed from reading the code): `GET /why` serves the new
+page with the correct title, the root landing page is unaffected and
+now links to `/why`, NIP-11 (`Accept: application/nostr+json`) still
+returns the correct relay info, and a genuinely unmatched path still
+404s. Checked the page live in a real browser: all sections render
+correctly against the shipped dark palette, the four-column card grid
+correctly collapses to a single column at a real narrow viewport
+(~523px, this environment's practical resize floor — see the
+established resize-tooling flakiness noted elsewhere in this file) with
+zero horizontal overflow (`document.documentElement.scrollWidth` <
+`window.innerWidth`, checked directly rather than assumed from the CSS
+alone).
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

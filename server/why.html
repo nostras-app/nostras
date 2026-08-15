@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>NOSTRAS — What renders here that doesn't render elsewhere</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Real Nostr events, cross-client tested against Yakihonne, plus two payment mechanisms nobody else has built. Every claim on this page is dated and labeled." />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 46'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='48' y2='46' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23863bff'/%3E%3Cstop offset='1' stop-color='%2347bfff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #fdfcff;
+    --bg-card: #f7f5fb;
+    --bg-raised: #ffffff;
+    --text: #5c5566;
+    --text-h: #0d0a14;
+    --text-dim: #8b839a;
+    --border: #e6e2ee;
+    --accent: #7e14ff;
+    --accent-soft: rgba(126, 20, 255, 0.1);
+    --data: #0891b2;
+    --data-soft: rgba(8, 145, 178, 0.1);
+    --warm: #d6336c;
+    --ok: #1a8754;
+    --ok-soft: rgba(26, 135, 84, 0.1);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e0e13;
+      --bg-card: #17161f;
+      --bg-raised: #1c1b26;
+      --text: #a39cb0;
+      --text-h: #f5f2fa;
+      --text-dim: #6b6478;
+      --border: #2a2833;
+      --accent: #a970ff;
+      --accent-soft: rgba(169, 112, 255, 0.14);
+      --data: #47bfff;
+      --data-soft: rgba(71, 191, 255, 0.12);
+      --warm: #ff6fb0;
+      --ok: #4ade80;
+      --ok-soft: rgba(74, 222, 128, 0.12);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  body { font-size: 17px; line-height: 1.6; }
+  a { color: inherit; }
+  code { font-family: var(--mono); }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+
+  /* ---------- Hero ---------- */
+
+  .hero {
+    padding: 96px 0 80px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+  }
+
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    margin-bottom: 24px;
+  }
+  .mark svg { width: 36px; height: auto; }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--data);
+    background: var(--data-soft);
+    border: 1px solid color-mix(in srgb, var(--data) 35%, transparent);
+    border-radius: 999px;
+    padding: 6px 14px 6px 10px;
+    margin-bottom: 24px;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--data); }
+
+  h1.headline {
+    font-size: clamp(34px, 5.4vw, 60px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.08;
+    margin: 0 0 22px;
+    color: var(--text-h);
+    text-wrap: balance;
+  }
+  h1.headline .own { color: var(--accent); }
+
+  .sub {
+    max-width: 640px;
+    margin: 0 auto 36px;
+    font-size: 18px;
+    line-height: 1.65;
+    color: var(--text-dim);
+    text-wrap: balance;
+  }
+
+  .cta-row { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font: inherit;
+    font-weight: 650;
+    font-size: 15.5px;
+    text-decoration: none;
+    padding: 13px 24px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--accent) 70%, transparent); }
+  .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-h); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+
+  /* ---------- Section shell ---------- */
+
+  section.block { padding: 84px 0; border-bottom: 1px solid var(--border); }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--data);
+    margin: 0 0 14px;
+  }
+
+  h2.title {
+    font-size: clamp(25px, 3vw, 34px);
+    font-weight: 800;
+    letter-spacing: -0.022em;
+    color: var(--text-h);
+    margin: 0 0 16px;
+    text-wrap: balance;
+    max-width: 700px;
+  }
+
+  .lede { font-size: 17px; color: var(--text-dim); max-width: 640px; margin: 0 0 48px; line-height: 1.65; }
+  .lede code { background: var(--bg-card); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: 0.9em; }
+
+  /* ---------- Feature / test grid ---------- */
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+  @media (max-width: 860px) {
+    .grid, .grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 560px) {
+    .grid, .grid.cols-4 { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--bg-card);
+    padding: 26px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 200px;
+  }
+
+  .badge-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .nip-badge {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    color: var(--data);
+    background: var(--data-soft);
+    border: 1px solid color-mix(in srgb, var(--data) 30%, transparent);
+    border-radius: 6px;
+    padding: 3px 8px;
+  }
+
+  .confirmed-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--ok);
+    background: var(--ok-soft);
+    border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+    border-radius: 6px;
+    padding: 3px 8px;
+  }
+  .confirmed-badge svg { width: 11px; height: 11px; }
+
+  .card h3 { font-size: 17px; font-weight: 700; color: var(--text-h); margin: 0; letter-spacing: -0.008em; }
+  .card p { margin: 0; font-size: 14.5px; color: var(--text-dim); line-height: 1.6; flex-grow: 1; }
+  .card .test-note {
+    margin: 4px 0 0;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    border-top: 1px dashed var(--border);
+    padding-top: 10px;
+  }
+
+  /* ---------- Split (payment rails) ---------- */
+
+  .split { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: start; }
+  @media (max-width: 860px) { .split { grid-template-columns: 1fr; gap: 36px; } }
+
+  .split-copy p { font-size: 16px; color: var(--text-dim); line-height: 1.75; margin: 0 0 16px; }
+  .split-copy strong { color: var(--text-h); font-weight: 650; }
+  .split-copy .honest-note {
+    margin-top: 22px;
+    padding: 14px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--warm);
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+
+  .event-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .event-panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+  }
+  .event-panel pre { margin: 0; padding: 18px; font-family: var(--mono); font-size: 12.5px; line-height: 1.7; overflow-x: auto; color: var(--text); }
+  .event-panel .k { color: var(--data); }
+  .event-panel .s { color: var(--warm); }
+  .event-panel .n { color: var(--accent); }
+  .event-panel .c { color: var(--text-dim); }
+
+  /* ---------- Architecture list ---------- */
+
+  .arch-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  .arch-item { background: var(--bg-card); padding: 22px 26px; display: flex; gap: 18px; align-items: flex-start; }
+  .arch-item .num { font-family: var(--mono); font-size: 13px; color: var(--data); flex: none; padding-top: 2px; min-width: 20px; }
+  .arch-item h3 { margin: 0 0 4px; font-size: 16.5px; color: var(--text-h); font-weight: 700; }
+  .arch-item p { margin: 0; font-size: 14.5px; color: var(--text-dim); line-height: 1.6; }
+
+  /* ---------- Methodology strip ---------- */
+
+  .method {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px 26px;
+    font-size: 14px;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+  .method strong { color: var(--text-h); }
+
+  /* ---------- Footer ---------- */
+
+  footer.final { padding: 84px 0 60px; text-align: center; }
+  footer.final h2.title { margin-left: auto; margin-right: auto; }
+  .foot-links {
+    margin-top: 48px; padding-top: 26px; border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    font-size: 14px; color: var(--text-dim);
+  }
+  .foot-links a { text-decoration: none; color: var(--text-dim); }
+  .foot-links a:hover { color: var(--accent); }
+  .foot-links .brand { font-weight: 700; color: var(--text-h); letter-spacing: -0.01em; }
+  .foot-nav { display: flex; gap: 22px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <div class="wrap">
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 48 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill="url(#g)" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="48" y2="46" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#863bff"/>
+            <stop offset="1" stop-color="#47bfff"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    </span>
+
+    <div class="eyebrow"><span class="dot"></span> Every claim below is dated, labeled, and cross-client tested</div>
+
+    <h1 class="headline">Same protocol.<br><span class="own">Most clients render less of it.</span></h1>
+
+    <p class="sub">
+      NOSTRAS doesn't invent its own network — everything here is a real,
+      spec-following Nostr event. What's different is how much of the spec
+      actually renders, and two payment mechanisms nobody else has built.
+      We tested the difference ourselves, against a real popular client,
+      and wrote down exactly what we found.
+    </p>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://app.nostras.app">
+        Open NOSTRAS
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+      </a>
+      <a class="btn btn-ghost" href="#method">How we tested this</a>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="renders">
+  <div class="wrap">
+    <p class="kicker">Cross-client verified</p>
+    <h2 class="title">Real event kinds. Confirmed invisible everywhere else, right now.</h2>
+    <p class="lede">
+      Nothing below is a proprietary format — a poll is <code>kind 1068</code>,
+      a thread is <code>kind 11</code>, exactly as their NIPs define them. We
+      published each one for real, then opened it in Yakihonne — a genuinely
+      popular, independent Nostr client, not a strawman — three different
+      ways. All four came back empty.
+    </p>
+
+    <div class="grid cols-4">
+      <div class="card">
+        <div class="badge-row">
+          <span class="nip-badge">NIP-75</span>
+          <span class="confirmed-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            confirmed
+          </span>
+        </div>
+        <h3>Zap Goals</h3>
+        <p>A fundraising target with live progress summed from real zap receipts, updating as sats actually land.</p>
+        <p class="test-note">Tested in Yakihonne, Aug 14 2026 — did not render at all.</p>
+      </div>
+      <div class="card">
+        <div class="badge-row">
+          <span class="nip-badge">NIP-7D</span>
+          <span class="confirmed-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            confirmed
+          </span>
+        </div>
+        <h3>Forum Threads</h3>
+        <p>A titled discussion post with flat, forum-shaped replies — closer to a real conversation than a single tweet-shaped note.</p>
+        <p class="test-note">Tested in Yakihonne, Aug 16 2026 — permalink, profile feed, every tab: not found.</p>
+      </div>
+      <div class="card">
+        <div class="badge-row">
+          <span class="nip-badge">NIP-88</span>
+          <span class="confirmed-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            confirmed
+          </span>
+        </div>
+        <h3>Polls</h3>
+        <p>Single or multiple-choice, with live tallies from real votes — each voter's most recent choice counted, per spec.</p>
+        <p class="test-note">Tested in Yakihonne, Aug 16 2026 — permalink, profile feed, every tab: not found.</p>
+      </div>
+      <div class="card">
+        <div class="badge-row">
+          <span class="nip-badge">NIP-F4</span>
+          <span class="confirmed-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            confirmed
+          </span>
+        </div>
+        <h3>Podcasts</h3>
+        <p>A real show, real episodes, a native audio player — publish and listen without leaving Nostr.</p>
+        <p class="test-note">Tested in Yakihonne, Aug 16 2026 — permalink, profile feed, every tab: not found.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="payments">
+  <div class="wrap split">
+    <div class="split-copy">
+      <p class="kicker">Not a NIP — our own protocol, built on real ones</p>
+      <h2 class="title">Paid articles and podcast episodes: a payment rail no other client can open.</h2>
+      <p>
+        The title, summary, and cover image are ordinary public NIP-23
+        fields — any client renders those fine. <strong>The body is
+        NIP-44-encrypted.</strong> Unlocking it means paying a NIP-90 job
+        that holds the decryption key and returns the plaintext only once
+        a real Lightning payment settles — straight to the creator, plus
+        a small flat fee to NOSTRAS for running the unlock service.
+      </p>
+      <p>
+        This can't become portable just because another client "adds
+        support" — there's no spec to add support for. The unlock
+        mechanism is a convention we invented: specific tags, a specific
+        DVM job kind, a specific two-step payment flow. A competitor
+        could only interoperate by reverse-engineering our exact
+        protocol, not by implementing a standard.
+      </p>
+      <div class="honest-note">
+        Tested directly: a real published paid article, opened in
+        Yakihonne — rendered as raw, unreadable ciphertext with no
+        unlock button at all. Confirmed Aug 14 2026.
+      </div>
+    </div>
+    <div class="event-panel">
+      <div class="event-panel-head">
+        <span>kind:30023 · what leaves the relay</span>
+      </div>
+      <pre>{
+  <span class="k">"kind"</span>: <span class="n">30023</span>,
+  <span class="k">"tags"</span>: [
+    [<span class="s">"title"</span>, <span class="s">"..."</span>], <span class="c">// public</span>
+    [<span class="s">"summary"</span>, <span class="s">"..."</span>], <span class="c">// public</span>
+    [<span class="s">"encrypted"</span>],
+    [<span class="s">"price"</span>, <span class="s">"500"</span>]
+  ],
+  <span class="k">"content"</span>: <span class="s">"nQm7…"</span> <span class="c">// NIP-44 ciphertext</span>
+}</pre>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="ai-tools">
+  <div class="wrap">
+    <p class="kicker">NIP-90, self-announced</p>
+    <h2 class="title">Real AI tools, one click — and an open service underneath.</h2>
+    <p class="lede">
+      Each of these is a standard NIP-90 job. The DVM that runs them
+      announces itself over NIP-89, priced from real token cost, paid per
+      job over Lightning. Any NIP-90-aware client or tool could call the
+      same service directly — what's actually exclusive to NOSTRAS is
+      that it's already wired into the feed with one click, not the
+      service itself.
+    </p>
+
+    <div class="grid cols-4">
+      <div class="card">
+        <span class="nip-badge">5001 → 6001</span>
+        <h3>Summarize</h3>
+        <p>Long note, one tap, the gist — priced by the actual job, not a subscription.</p>
+      </div>
+      <div class="card">
+        <span class="nip-badge">5002 → 6002</span>
+        <h3>Translate</h3>
+        <p>Pick a language, get a real translation back through the feed.</p>
+      </div>
+      <div class="card">
+        <span class="nip-badge">5050 → 6050</span>
+        <h3>Ask Claude</h3>
+        <p>A always-visible box to ask anything — no account, pay only if the job completes.</p>
+      </div>
+      <div class="card">
+        <span class="nip-badge">5501 → 6501</span>
+        <h3>Spam / scam check</h3>
+        <p>Publishes a real NIP-32 label, so the verdict is independently queryable by any client — not locked inside ours.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="architecture">
+  <div class="wrap">
+    <p class="kicker">Beyond NIP compliance</p>
+    <h2 class="title">Not a feature. An architecture.</h2>
+    <p class="lede">
+      A few things here aren't about which events render — they're about
+      what running your own relay actually buys you, independent of any
+      single client's feature list.
+    </p>
+
+    <div class="arch-list">
+      <div class="arch-item">
+        <span class="num">01</span>
+        <div>
+          <h3>Notifications tied to a relay you actually control</h3>
+          <p>Push notifications are gated by a real NIP-98 signature check against NOSTRAS's own relay — not a third-party notification service sitting between you and your mentions, DMs, and zaps.</p>
+        </div>
+      </div>
+      <div class="arch-item">
+        <span class="num">02</span>
+        <div>
+          <h3>The relay participates in the network, not just this app</h3>
+          <p>Real NIP-66 self-discovery and NIP-43 membership — the relay describes and manages itself to the wider Nostr ecosystem, whether or not you're using NOSTRAS's client to look at it.</p>
+        </div>
+      </div>
+      <div class="arch-item">
+        <span class="num">03</span>
+        <div>
+          <h3>Own your relay, not just your keys</h3>
+          <p>The client and the relay are paired by design. Your keys already leave with you if you ever switch clients — this is about your data and your node's behavior doing the same.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="method" style="border-bottom: none;">
+  <div class="wrap">
+    <p class="kicker">Methodology</p>
+    <h2 class="title">How "confirmed" actually gets earned on this page.</h2>
+    <div class="method">
+      <strong>Confirmed</strong> means we published the real event ourselves,
+      then opened it in an actual alternative client — checked the direct
+      link, the publishing profile's own feed, and every other tab that
+      client offers — and wrote down what we saw, with a date. If a claim
+      here isn't marked confirmed with a date, we haven't tested it yet,
+      and we say so rather than assume it. A claim that later turns out
+      false costs more trust than one we just hadn't made yet.
+    </div>
+  </div>
+</section>
+
+<footer class="final">
+  <div class="wrap">
+    <p class="kicker">See for yourself</p>
+    <h2 class="title">Every event on this page is real. Pull it off the relay and check.</h2>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://app.nostras.app">
+        Open NOSTRAS
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+      </a>
+      <a class="btn btn-ghost" href="https://nostras.app">Back to nostras.app</a>
+    </div>
+
+    <div class="foot-links wrap" style="padding-left:0; padding-right:0;">
+      <span class="brand">NOSTRAS</span>
+      <nav class="foot-nav">
+        <a href="https://nostras.app">Home</a>
+        <a href="https://app.nostras.app">Open the app</a>
+        <a href="https://github.com/nostras-app/nostras">Docs &amp; support</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

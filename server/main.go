@@ -276,6 +276,11 @@ func main() {
 	// so a plain browser visit is the only thing that lands here.
 	relay.Router().HandleFunc("GET /{$}", handleLanding)
 
+	// "Why NOSTRAS" — see why.go/why.html. A normal (non-root) path, so
+	// no "/{$}" subtlety here: Go's ServeMux only treats a bare "/" as a
+	// catch-all subtree, an exact path like "/why" matches only itself.
+	relay.Router().HandleFunc("GET /why", handleWhy)
+
 	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent, newGroupChatSearchIndexHook(&searchIndex),
 		newPushNotifyHook(pushSubs, vapidPublicKey, vapidPrivateKey, vapidSubscriber))
 	relay.DeleteEvent = append(relay.DeleteEvent, db.DeleteEvent, searchIndex.DeleteEvent)
