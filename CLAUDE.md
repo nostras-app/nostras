@@ -8434,6 +8434,32 @@ password-mismatch error in the encrypt sub-form — all clean. Both
 surfaces were already correctly built; this was pure verification, not
 a fix.
 
+## Routine DVM health check — confirmed healthy, no incident
+(2026-08-15)
+
+User asked to check whether the DVM was still healthy. Applied the
+standing lesson from this file's own history — `flyctl status` showing
+`started` is never sufficient on its own, since several known failure
+modes (the boot-vs-DNS race, the pre-reconnect-loop silent clean exit,
+a dropped NWC relay connection) all look identical to a genuinely
+healthy machine from that angle. A real job round-trip is the only
+thing that actually distinguishes them.
+
+Published a real `kind:5050` Ask-Claude job from a throwaway identity
+directly against `wss://nostras.app` and got a genuine `payment-
+required` response back within 3 seconds, with a valid invoice at the
+configured price — proof the DVM is actively subscribed and
+dispatching, not just present in the process list. Cross-checked
+against the DVM's own private-network `/health` endpoint:
+`relayConnected: true`, `paymentGating: true`, uptime ~17.6 hours, 25
+jobs handled lifetime, `lastJobUnix` matching the exact test job just
+sent, memory/goroutine counts nominal. `flyctl status` also showed
+both `web` and `dvm` as `started`, standby machine correctly idle.
+
+**No incident, nothing found, nothing fixed** — the DVM was genuinely
+healthy at the time of checking. Not paid, per the standing rule that
+Claude only ever requests/displays invoices.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
