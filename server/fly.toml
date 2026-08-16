@@ -52,6 +52,18 @@ primary_region = "fra"
   # Settings). Both now live on the persistent volume, same as badger/bluge.
   NOSTRAS_ANALYTICS_PATH            = "/data/analytics.json"
   NOSTRAS_PUSH_SUBSCRIPTIONS_PATH   = "/data/push-subscriptions.json"
+  # Real bug found live (2026-08-16), the exact same class as the comment
+  # above -- NOSTRAS_WAITLIST_PATH was never set here, so the waitlist
+  # store had been living on the container's ephemeral filesystem since
+  # the feature launched. Confirmed directly: the file doesn't exist
+  # anywhere on the current production machine, meaning every real
+  # signup (including a real test entry submitted earlier this project)
+  # was silently lost on the next redeploy. Fixed the same way as the
+  # others, and NOSTRAS_PAGE_VIEWS_PATH (new this same commit, see
+  # pageviews.go) set on the persistent volume from the start rather
+  # than left to rediscover this a fifth time.
+  NOSTRAS_WAITLIST_PATH             = "/data/node-waitlist.json"
+  NOSTRAS_PAGE_VIEWS_PATH           = "/data/page-views.json"
   # Applying the lesson above proactively this time (2026-08-12), not
   # rediscovering it a third time: the NIP-62 vanish-tombstone store
   # (vanish.go) needs the same persistent-volume treatment, set here

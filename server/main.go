@@ -244,6 +244,18 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	// Page-view analytics for the static public pages (landing, /why,
+	// /node) — see pageviews.go. Same aggregate, no-PII shape as the
+	// connection analytics above, answering a different question ("is
+	// anyone actually visiting these pages") rather than "how many app
+	// instances are connecting." Created here (not near the route
+	// registrations below) so it's available to handleDashboardData,
+	// which merges both into one response.
+	pageViewsPath := envOr("NOSTRAS_PAGE_VIEWS_PATH", "./page-views.json")
+	pageViews, err := newPageViewStore(pageViewsPath)
+	if err != nil {
+		panic(err)
+	}
 	relay.OnConnect = append(relay.OnConnect, newAnalyticsConnectHook(analytics), newHealthConnectHook())
 	relay.OnDisconnect = append(relay.OnDisconnect, newHealthDisconnectHook())
 	relay.OnEventSaved = append(relay.OnEventSaved, newHealthEventSavedHook(), newNip29CacheUpdateHook(nip29Cache),
@@ -271,7 +283,7 @@ func main() {
 	// Real health/DVM-health/waitlist data stays gated below; this
 	// endpoint was already the one genuinely safe-to-publish piece of
 	// what /dashboard/data-adjacent routes expose.
-	relay.Router().HandleFunc("GET /dashboard/data", handleDashboardData(analytics))
+	relay.Router().HandleFunc("GET /dashboard/data", handleDashboardData(analytics, pageViews))
 	relay.Router().HandleFunc("GET /dashboard/health", requireDashboardAuth(dashboardPassword, handleDashboardHealth))
 
 	// NOSTRAS Node waitlist — see waitlist.go/waitlist_handlers.go/
@@ -297,15 +309,15 @@ func main() {
 	// routes WS upgrades and NIP-11 (Accept: application/nostr+json)
 	// requests to the relay itself before anything reaches this router,
 	// so a plain browser visit is the only thing that lands here.
-	relay.Router().HandleFunc("GET /{$}", handleLanding)
+	relay.Router().HandleFunc("GET /{$}", wrapPageView(pageViews, "home", handleLanding))
 
 	// "Why NOSTRAS" — see why.go/why.html. A normal (non-root) path, so
 	// no "/{$}" subtlety here: Go's ServeMux only treats a bare "/" as a
 	// catch-all subtree, an exact path like "/why" matches only itself.
-	relay.Router().HandleFunc("GET /why", handleWhy)
+	relay.Router().HandleFunc("GET /why", wrapPageView(pageViews, "why", handleWhy))
 
 	// NOSTRAS Node waitlist page — see node.go/node.html.
-	relay.Router().HandleFunc("GET /node", handleNode)
+	relay.Router().HandleFunc("GET /node", wrapPageView(pageViews, "node", handleNode))
 
 	// Public live usage stats — see stats.go/stats.html. The public half
 	// of the dashboard split: real connection/geography data, no

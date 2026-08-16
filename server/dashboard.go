@@ -37,10 +37,16 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	w.Write(dashboardHTML)
 }
 
-func handleDashboardData(store *analyticsStore) http.HandlerFunc {
+func handleDashboardData(store *analyticsStore, pageViews *pageViewStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(store.snapshot())
+		json.NewEncoder(w).Encode(struct {
+			analyticsStore
+			PageViews pageViewStore `json:"page_views"`
+		}{
+			analyticsStore: store.snapshot(),
+			PageViews:      pageViews.snapshot(),
+		})
 	}
 }
 

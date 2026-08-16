@@ -9644,6 +9644,67 @@ halves of the fix — the reconnect itself, and the resubscribe-trigger
 it's meant to drive — work correctly, not just the reconnect alone.
 `tsc -b`, `oxlint`, `vite build` all clean.
 
+## Page-view analytics for the public landing pages — plus a real,
+previously-unnoticed data-loss bug found and fixed along the way
+(2026-08-16)
+
+User-requested: "can we create some analytics for /home, /why, /node to
+see if those pages are being visited" — a genuinely different question
+from the relay's existing connection analytics (which counts app
+instances connecting to the relay, not people browsing the marketing
+pages).
+
+**`server/pageviews.go`** is a new store, deliberately mirroring
+`analytics.go`'s already-proven shape exactly (day + country
+aggregation, IP used only transiently for the geo lookup and never
+stored, geo lookup dispatched in a goroutine so a slow/unreachable
+third-party API never adds latency to serving the page) — just with an
+extra "which page" dimension. `wrapPageView` is a small middleware
+wrapping `handleLanding`/`handleWhy`/`handleNode` in `main.go`; `/stats`
+itself is deliberately not wrapped, since viewing the stats page isn't
+a landing-page visit worth counting. `handleDashboardData` now merges
+both stores into one JSON response (embedding `analyticsStore`'s
+exported fields directly, adding a new `page_views` key) — the same
+endpoint both `/dashboard` (gated) and the public `/stats` page already
+fetch from, so this is public by default, matching the existing
+connection-analytics precedent (the project's own prior explicit
+decision that operator-visible usage data should be public, not a new
+policy invented for this feature). Both pages get a new "Page views"
+table (page / total / today / last 7 days, sorted by total), reusing
+the exact same table markup/CSS the existing countries table already
+established — no new styling needed.
+
+**Real, previously-unnoticed bug found while wiring this up, not
+invented as a pretext**: `NOSTRAS_WAITLIST_PATH` was never set in
+`fly.toml` — the exact same ephemeral-storage class of bug this project
+has already hit and fixed three separate times (`analytics.json`,
+`push-subscriptions.json`, `vanished-pubkeys.json`), just never applied
+to the waitlist store. Confirmed directly via SSH, not assumed from
+reading the config alone: the waitlist file doesn't exist anywhere on
+the current production machine — meaning every real signup (including
+a real test entry submitted earlier this project) had been silently
+riding on the container's ephemeral filesystem the whole time, wiped on
+every redeploy. Fixed the same way as the other three, in the same
+commit as `NOSTRAS_PAGE_VIEWS_PATH` (set on the persistent volume from
+the start this time, not left to become a fifth instance of the same
+bug).
+
+**Verified for real, end to end, against a live local relay and a real
+browser — not just built clean**: `go build`/`go vet`/`gofmt -l` all
+clean. Hit `/`, `/why`, `/node` a known number of times each (2/1/3)
+against a fresh local store, confirmed `/dashboard/data` (no auth
+needed) returned exactly `{"home":2,"why":1,"node":3}` — not assumed
+from the code, the actual counts matched the actual requests made.
+Confirmed the "Page views" table renders correctly on the public
+`/stats` page in a real browser, sorted by total descending, matching
+those exact numbers. Confirmed the private `/dashboard` route still
+correctly requires Basic Auth (401 without credentials) and, with
+correct credentials, both serves the same panel and its
+`/dashboard/data` response includes the new `page_views` field —
+proving the merge didn't break the existing gated/ungated split.
+Temporary test artifacts (`page-views.json`, a throwaway dashboard
+password) fully cleaned up before committing.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
