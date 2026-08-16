@@ -175,6 +175,16 @@ type dvmHealthSnapshot struct {
 	Goroutines     int     `json:"goroutines,omitempty"`
 	MemAllocMB     float64 `json:"memAllocMB,omitempty"`
 	MemSysMB       float64 `json:"memSysMB,omitempty"`
+	// Cached on the DVM side (server/cmd/dvm/health.go), never fetched live
+	// here — same reasoning as everywhere else in this file, a slow/blocked
+	// external call must never make a health check itself look unhealthy.
+	// Only meaningful when PaymentGating is true; WalletBalanceOK has no
+	// omitempty for the same reason RelayConnected/PaymentGating above
+	// don't.
+	WalletBalanceSats   int64  `json:"walletBalanceSats,omitempty"`
+	WalletBalanceOK     bool   `json:"walletBalanceOk"`
+	WalletBalanceError  string `json:"walletBalanceError,omitempty"`
+	WalletBalanceAtUnix int64  `json:"walletBalanceAtUnix,omitempty"`
 }
 
 var dvmHealthHTTPClient = &http.Client{Timeout: 2 * time.Second}

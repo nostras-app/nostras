@@ -256,6 +256,7 @@
     <div class="card"><div class="label">Uptime</div><div class="value" id="dvm-health-uptime">—</div></div>
     <div class="card"><div class="label">Memory (alloc / sys)</div><div class="value" id="dvm-health-mem">—</div></div>
     <div class="card"><div class="label">Goroutines</div><div class="value" id="dvm-health-goroutines">—</div></div>
+    <div class="card"><div class="label">Operator wallet balance</div><div class="value" id="dvm-health-balance">—</div></div>
   </div>
   <p class="health-caption" id="dvm-health-caption">Jobs handled: —</p>
 </section>
@@ -547,6 +548,7 @@ async function loadHealth() {
     document.getElementById("dvm-health-uptime").textContent = "—";
     document.getElementById("dvm-health-mem").textContent = "—";
     document.getElementById("dvm-health-goroutines").textContent = "—";
+    document.getElementById("dvm-health-balance").textContent = "—";
     document.getElementById("dvm-health-caption").textContent =
       "DVM health endpoint did not respond — this only means the health check itself failed, not necessarily that job processing is down.";
     return;
@@ -559,6 +561,18 @@ async function loadHealth() {
   document.getElementById("dvm-health-mem").textContent =
     `${dvm.memAllocMB.toFixed(0)} / ${dvm.memSysMB.toFixed(0)} MB`;
   document.getElementById("dvm-health-goroutines").textContent = dvm.goroutines.toLocaleString();
+
+  const balanceEl = document.getElementById("dvm-health-balance");
+  if (!dvm.paymentGating) {
+    balanceEl.textContent = "n/a (free mode)";
+  } else if (dvm.walletBalanceOk) {
+    balanceEl.textContent = `${dvm.walletBalanceSats.toLocaleString()} sats`;
+    balanceEl.title = `as of ${fmtAgo(dvm.walletBalanceAtUnix)}`;
+  } else {
+    balanceEl.textContent = "unavailable";
+    balanceEl.title = dvm.walletBalanceError || "";
+  }
+
   document.getElementById("dvm-health-caption").textContent =
     `Jobs handled: ${dvm.jobsHandled.toLocaleString()} since this process started — last one ${fmtAgo(dvm.lastJobUnix)}` +
     (dvm.paymentGating ? " — payment gating: ON" : " — payment gating: OFF");

@@ -283,7 +283,7 @@ func main() {
 	if healthPort == "" {
 		healthPort = "7778"
 	}
-	startHealthServer(healthPort, payment != nil)
+	startHealthServer(healthPort, payment)
 	fmt.Println("health endpoint: private network only, :" + healthPort + "/health")
 
 	// Reconnection loop. Previously a single dropped connection (network

@@ -9487,6 +9487,88 @@ the bottom footer nav (Home / Open the app / Why NOSTRAS / NOSTRAS Node
 `footer.final` class, never touched by this change. `go build`/
 `go vet`/`gofmt -l` all clean. Deployed via the usual CI path.
 
+## DVM operator wallet balance surfaced on the dashboard, background-polled
+and cached (2026-08-16)
+
+Prompted directly by a routine health-check request ("check the operator
+wallet's own NWC balance too") — no existing mechanism could answer this.
+`server/cmd/dvm/nwc.go`'s NWC client only ever implemented `MakeInvoice`/
+`LookupInvoice`, matching the operator wallet's own deliberately narrow
+NWC connection scope (invoice create + lookup only, set that way on
+purpose when the wallet was first connected — no balance read, no send).
+Rather than read or handle the real `NOSTRAS_DVM_NWC_URI` secret directly
+to check this by hand (never done, standing rule), scoped it with the
+user first via AskUserQuestion: add it to `/health` as a real, permanent,
+server-side-only feature (chosen over skipping it or having the user
+check their own wallet app).
+
+**`nwc.go`** gained `GetBalance(ctx) (int64, error)` — same `call()`
+transport already proven correct by every existing `MakeInvoice`/
+`LookupInvoice` use, just `"get_balance"` with no params, parsing the
+real NIP-47 `{"balance": <msats>}` shape (matched against
+`client/src/lib/nwc.ts`'s already-proven `getWalletBalanceMsat()`
+before trusting it, not guessed from the spec alone).
+
+**Real constraint found and designed around, not discovered after
+shipping**: the relay's own `dvmHealthHTTPClient` (`server/health.go`)
+has a hard 2s timeout on the whole `/health` fetch — a live NWC round
+trip (publish a request event, wait for the wallet's own relay to
+answer) routinely takes longer than that even when everything is
+healthy, so a synchronous balance call inside the `/health` handler
+would make the DVM panel show `reachable: false` on the dashboard
+whenever the wallet was merely slow, a real regression. Fixed by never
+calling it inline: `server/cmd/dvm/health.go` gained
+`startWalletBalancePoller`, a background goroutine (2-minute interval,
+its own generous 15s timeout) that refreshes a small cached
+atomic/`atomic.Value` state; the `/health` handler just reads the
+cache instantly, same non-blocking pattern as every other field there.
+`WalletBalanceOK` deliberately has no `omitempty`, matching this exact
+struct's own established `RelayConnected`/`PaymentGating` precedent —
+dropping a real `false` (the poll genuinely failed) would be
+indistinguishable from the field never having been set. The relay-side
+mirror struct (`server/health.go`'s own `dvmHealthSnapshot`, fetched
+over Fly's private network and merged into `/dashboard/health`) got
+the identical fields so the value actually reaches the dashboard.
+`dashboard.html`'s DVM health panel gained a "Operator wallet balance"
+card — sats when available, "unavailable" with the real wallet-
+reported reason in a tooltip otherwise, "n/a (free mode)" when no
+wallet is configured at all.
+
+**Verified for real, all three real states, not just built clean** —
+`go build`/`go vet`/`gofmt -l` all clean, then a full local round trip
+against a real (throwaway) mock NWC wallet, not assumed from the code:
+built a temporary, uncommitted mock-wallet tool (real `go-nostr`
+NIP-04 encrypt/decrypt, a real relay connection, deleted afterward)
+and ran the local relay + local DVM against it three separate times —
+(1) wallet answers `get_balance` with a real number: `/health`
+correctly showed `walletBalanceOk: true, walletBalanceSats: 123456`;
+(2) wallet rejects `get_balance` with a real NWC-shaped permission
+error (the exact scenario the real operator wallet's own scoping
+produces): `/health` correctly showed `walletBalanceOk: false` and the
+real rejection message, no crash, every other field still reported
+normally; (3) no wallet configured at all (free mode): `walletBalanceOk:
+false` with no error text, matching the "nothing was ever attempted"
+case correctly. **A real, self-inflicted test-tooling bug caught and
+fixed mid-verification, not shipped as a false negative**: the first
+run showed a mysterious, unexplained wallet-rejection error even
+though the mock wallet's own log showed zero requests received —
+traced to an unquoted `&` inside the constructed
+`nostr+walletconnect://...&secret=...` URI when `source`d from a
+saved shell config file, which bash parsed as "background this
+command," silently leaving the target variable empty in the parent
+shell rather than erroring — not an app bug, a shell-scripting mistake
+in the verification harness itself, caught by checking the mock
+wallet's own log rather than trusting the DVM's output alone.
+
+**Confirmed as still real, correct, expected behavior on the actual
+production operator wallet** — its own connection is scoped exactly
+the same way (invoice create/lookup only), so it will show
+`walletBalanceOk: false` with a real wallet-side rejection message
+until the user deliberately extends that connection's granted
+permissions on their own wallet's UI to include balance read, which
+this session never touched or attempted (the user's own financial
+credential, same standing rule as always).
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

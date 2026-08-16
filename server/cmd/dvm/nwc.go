@@ -161,3 +161,27 @@ func (c *nwcClient) LookupInvoice(ctx context.Context, paymentHash string) (*nwc
 	}
 	return &inv, nil
 }
+
+// GetBalance is read-only — it can't move money, unlike a real pay_invoice
+// call (which this DVM has never implemented and never will, per this
+// project's own standing financial-safety rule: it only ever requests and
+// displays invoices, a human always pays). Note this may legitimately fail
+// with a wallet-side "unauthorized"-shaped error even when everything else
+// works correctly: the operator's NWC connection was deliberately scoped at
+// setup time to exactly the two permissions the rest of this file uses
+// (make_invoice, lookup_invoice) — balance read is a separate grant some
+// wallets require explicitly, and an operator who hasn't extended that scope
+// will see this fail, by design, not by bug.
+func (c *nwcClient) GetBalance(ctx context.Context) (int64, error) {
+	raw, err := c.call(ctx, "get_balance", map[string]any{}, 10*time.Second)
+	if err != nil {
+		return 0, err
+	}
+	var result struct {
+		Balance int64 `json:"balance"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return 0, err
+	}
+	return result.Balance, nil
+}

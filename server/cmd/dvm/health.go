@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -26,6 +27,54 @@ var (
 	dvmLastJobUnix int64 // unix seconds; 0 = no job handled since boot
 	dvmRelayUp     int32 // atomic bool: 1 = currently connected to the relay
 )
+
+// Operator wallet balance is polled in the background on a slow interval
+// and cached here, never fetched live inside the /health handler itself —
+// the relay's own dvmHealthHTTPClient (server/health.go) has a hard 2s
+// timeout on the whole /health request, and a real NWC round trip (publish
+// a request event, wait for the wallet's own relay to answer) routinely
+// takes longer than that even when everything is healthy. A slow balance
+// check must never make /health itself look like the DVM is down.
+var (
+	dvmWalletBalanceMsat   int64        // last known good value; 0 with dvmWalletBalanceOK=false means never succeeded
+	dvmWalletBalanceOK     int32        // atomic bool: 1 = last poll succeeded
+	dvmWalletBalanceErr    atomic.Value // string
+	dvmWalletBalanceAtUnix int64        // unix seconds of the last successful poll
+)
+
+// startWalletBalancePoller runs for the DVM process's whole lifetime,
+// refreshing the cached balance every 2 minutes — balance doesn't need to
+// be near-real-time for a health display, and polling less aggressively
+// avoids hammering the wallet's own relay/service. A no-op if payment
+// gating is off (no wallet configured at all).
+func startWalletBalancePoller(nwc *nwcClient) {
+	if nwc == nil {
+		return
+	}
+	dvmWalletBalanceErr.Store("")
+	poll := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		balance, err := nwc.GetBalance(ctx)
+		if err != nil {
+			dvmWalletBalanceErr.Store(err.Error())
+			atomic.StoreInt32(&dvmWalletBalanceOK, 0)
+			return
+		}
+		atomic.StoreInt64(&dvmWalletBalanceMsat, balance)
+		atomic.StoreInt32(&dvmWalletBalanceOK, 1)
+		atomic.StoreInt64(&dvmWalletBalanceAtUnix, time.Now().Unix())
+		dvmWalletBalanceErr.Store("")
+	}
+	go func() {
+		poll()
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			poll()
+		}
+	}()
+}
 
 func markRelayConnected(connected bool) {
 	v := int32(0)
@@ -54,6 +103,21 @@ type dvmHealthSnapshot struct {
 	Goroutines     int     `json:"goroutines"`
 	MemAllocMB     float64 `json:"memAllocMB"`
 	MemSysMB       float64 `json:"memSysMB"`
+	// Wallet* fields are only meaningful when PaymentGating is true —
+	// callers must check that first, same as this struct's own established
+	// pattern elsewhere (see server/health.go's dvmHealthSnapshot comment
+	// on why Reachable is the required gate there). WalletBalanceOK
+	// deliberately has no omitempty, matching RelayConnected/PaymentGating
+	// above — dropping a real `false` (the poll genuinely failed) would be
+	// indistinguishable from the field never having been set. WalletBalanceOK
+	// false with WalletBalanceError set most commonly means the operator's
+	// NWC connection was never granted a balance-read permission (it's
+	// scoped to invoice create/lookup only by design) — not necessarily a
+	// real problem.
+	WalletBalanceSats   int64  `json:"walletBalanceSats,omitempty"`
+	WalletBalanceOK     bool   `json:"walletBalanceOk"`
+	WalletBalanceError  string `json:"walletBalanceError,omitempty"`
+	WalletBalanceAtUnix int64  `json:"walletBalanceAtUnix,omitempty"`
 }
 
 // startHealthServer runs in a goroutine for the DVM process's whole
@@ -63,7 +127,12 @@ type dvmHealthSnapshot struct {
 // listens on; only Fly's private network (6PN) can reach it, the same
 // path NOSTRAS_RELAY_URL already relies on for the DVM to reach the
 // relay in the other direction.
-func startHealthServer(port string, paymentGatingOn bool) {
+func startHealthServer(port string, payment *paymentConfig) {
+	paymentGatingOn := payment != nil
+	if payment != nil {
+		startWalletBalancePoller(payment.nwc)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		var m runtime.MemStats
@@ -82,6 +151,15 @@ func startHealthServer(port string, paymentGatingOn bool) {
 			Goroutines:     runtime.NumGoroutine(),
 			MemAllocMB:     float64(m.Alloc) / 1024 / 1024,
 			MemSysMB:       float64(m.Sys) / 1024 / 1024,
+		}
+		if paymentGatingOn {
+			snap.WalletBalanceOK = atomic.LoadInt32(&dvmWalletBalanceOK) == 1
+			if snap.WalletBalanceOK {
+				snap.WalletBalanceSats = atomic.LoadInt64(&dvmWalletBalanceMsat) / 1000
+				snap.WalletBalanceAtUnix = atomic.LoadInt64(&dvmWalletBalanceAtUnix)
+			} else if errStr, _ := dvmWalletBalanceErr.Load().(string); errStr != "" {
+				snap.WalletBalanceError = errStr
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(snap)
