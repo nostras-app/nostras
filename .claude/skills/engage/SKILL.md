@@ -1,6 +1,6 @@
 ---
 name: engage
-description: Use when the user wants to spend real engagement time on Nostr — replying to and zapping other people's notes — and wants it targeted at genuinely relevant, substantive discussions instead of random liking/zapping. Surfaces real threads worth engaging with, helps draft honest replies grounded in the user's actual expertise, and logs what happened. Complements /build-in-public (owns content cadence — what to post) and /grow (tracks the resulting follower/signal deltas) — this one owns the reciprocity half of the growth plan specifically: real engagement, never scripted or generic.
+description: Use when the user wants to spend real engagement time on Nostr — replying to and zapping other people's notes — and wants it targeted at genuinely relevant, substantive discussions instead of random liking/zapping. Checks for replies to past engagement first, then surfaces real new threads worth engaging with, helps draft honest replies grounded in the user's actual expertise, and logs what happened. Complements /build-in-public (owns content cadence — what to post) and /grow (tracks the resulting follower/signal deltas) — this one owns the reciprocity half of the growth plan specifically: real engagement, never scripted or generic.
 ---
 
 # Engaging on Nostr, on purpose
@@ -13,7 +13,66 @@ happened. This skill's one job is closing that gap — not more posting,
 not automation, just making the user's own limited engagement time land
 on threads that actually matter.
 
-## 1. Find genuinely relevant threads, not just anything trending
+## 1. Check for replies to your own past engagement first
+
+Added 2026-08-16, directly prompted by the user asking whether a future
+session would ever notice if someone replied back — until this step
+existed, the honest answer was no: every prior run only looked forward
+for new threads, so a real conversation could die after one reply and
+nothing would surface that.
+
+Before searching for anything new, pull every **full** reply event id
+you've personally replied to from the Engagement log's own dated
+entries below (each session's "Posted and verified" paragraph should
+name the confirmed reply event id in full, not just the target note's
+`nevent`) — currently a couple dozen total, cheap enough to re-check in
+full every session rather than needing separate state-tracking of
+what's "already been checked."
+
+**Real limitation, checked directly rather than assumed (2026-08-16):
+every session before the tenth logged a *truncated* reply id**
+(`9702afd78...`-style, first ~10 hex chars only) — a real relay `#e`
+tag filter needs the exact full 64-char id, so none of sessions 1-9 can
+actually be checked by this step as things stand; only the tenth
+session onward is mechanically checkable. Not backfilled — re-deriving
+nine sessions' worth of full ids from truncated prefixes was judged out
+of scope for adding this step, not worth doing speculatively. Step 8
+below now requires the **full** id going forward specifically so this
+gap stops growing; treat any session still logging a truncated id as a
+mistake to fix, not an accepted format.
+
+For each full id you have, query public relays
+(`{"kinds":[1], "#e":["<reply-id>"]}` on `wss://relay.damus.io`,
+`wss://relay.primal.net`, `wss://nos.lol`) and keep anything authored
+by someone other than the user's own pubkey — a genuine reply-to-your-
+reply, not your own threading. A quick `{"kinds":[7,9735],
+"#e":["<reply-id>"]}` pass is worth adding too, matching this skill's
+own existing "a reply, a follow, a zap in return" language in step 8 —
+a like or zap back is a real, lighter-weight signal worth logging even
+when it doesn't warrant a drafted follow-up.
+
+Apply the same substance filter as step 3 below — **including the
+known-spam-account check**, not just "is this low-effort": the very
+first real run of this step (2026-08-16, same day it was added) turned
+up a "reply" within minutes from `7949809730b8...`, part of the exact
+invinoveritas/Agent One templated-pitch network this log has flagged
+and skipped across sessions 3/4/5/9/10 for auto-replying to unrelated
+notes — this time the templated pitch showed up as a reply-to-a-reply
+instead of a reply-to-an-original-note, same bot, same non-sequitur
+content, not a genuine reaction. Cross-check any hit here against
+already-known noise accounts the same way step 3 does for fresh
+threads, don't treat "it replied" alone as a real signal. A real
+follow-up question or genuine pushback deserves a drafted reply through
+the same sign-off process as anything else in this skill; a bare
+"thanks" or a generic emoji reaction doesn't need one — log it as a
+reaction, don't manufacture a reply just to have one. If nothing in the
+whole
+previously-engaged set has a new reaction since it was last checked,
+say so plainly and move on to step 2 — a quiet week for replies-to-
+replies is a real, expected outcome most of the time, not a sign
+anything's broken.
+
+## 2. Find genuinely relevant threads, not just anything trending
 
 The app's own search (`SearchView.tsx`, NIP-50) is scoped to the local
 relay only and isn't built for this — it won't surface broad public
@@ -28,7 +87,7 @@ hashtag-tag filters (`#nostr`, `#nostrdev`, `#asknostr`, `#lightning`,
 `#bitcoin`) and pull a recent window, then read the actual content —
 don't just count matches.
 
-## 2. Filter for substance
+## 3. Filter for substance
 
 Skip engagement bait, low-effort "gm" posts, and anything that reads as
 spam (this project already has a real spam/scam classifier — the DVM's
@@ -39,7 +98,15 @@ has something specific and true to add — not just "relevant keywords,"
 actually worth a reply. A handful of real candidates beats a long list
 of shallow matches.
 
-## 3. Draft honest, specific replies — never generic
+Real, live example worth remembering (2026-08-16): the user flagged an
+account replying to *hundreds* of unrelated threads per minute with
+templated, keyword-triggered responses — including replying to overtly
+racist content with an unrelated stock-volume stat — purely to farm
+follower growth. That's the failure mode this whole skill exists to
+avoid: volume over judgment. A handful of genuinely substantive replies
+a day is the point, not a limitation to work around.
+
+## 4. Draft honest, specific replies — never generic
 
 No "nice post!", no emoji-only reactions, nothing that could have been
 written without reading the note. Ground every draft in the user's
@@ -50,7 +117,7 @@ problem," not from the strategy doc's aspirational sections). Never
 invent a stance, credential, or experience the user doesn't actually
 have.
 
-## 4. Flag it plainly when a linked post only renders correctly in NOSTRAS
+## 5. Flag it plainly when a linked post only renders correctly in NOSTRAS
 
 Real gap found live (2026-08-14): a zap goal (kind:9041, NIP-75) opened
 in Yakihonne didn't render at all, and a paid article's NIP-44-encrypted
@@ -69,7 +136,7 @@ correctly in NOSTRAS — app.nostras.app"), not an apology or a sales
 pitch. This is about setting the right expectation, not talking anyone
 into switching clients.
 
-## 5. Zap amounts, if any, should be proportionate and real
+## 6. Zap amounts, if any, should be proportionate and real
 
 Small, typical-for-Nostr amounts (a genuine mid-two-digit-to-low-
 hundreds sats range is the usual social norm here, not a fixed rule) —
@@ -77,32 +144,42 @@ this is appreciation, not a transaction. Same standing project rule as
 everywhere else: Claude builds/shows the option, the user's own wallet
 action sends it. Never assume a zap is wanted; ask.
 
-## 6. Never send anything without explicit sign-off
+## 7. Never send anything without explicit sign-off
 
 Same discipline as every other skill here. Present the exact reply
 text (and the target note, and the account it'll post from) and wait
 for explicit confirmation before anything gets published. Drafting
 several candidates for the user to pick from, edit, or reject outright
 is the point — this is about spending *their* limited time well, not
-replacing their judgment.
+replacing their judgment. Applies equally to a fresh-thread reply
+(step 4) and a follow-up to a reaction found in step 1 — neither ever
+gets sent unconfirmed.
 
-## 7. Log the session
+## 8. Log the session
 
 Append a dated entry to `nostr-client-node-strategy.md`'s **Engagement
 log** section (create it if it doesn't exist yet, near the Content and
-Growth logs) — which threads were surfaced, which were engaged with
-(replied/zapped/skipped) and why, and any real reaction that came back
-(a reply, a follow, a zap in return). This is what lets `/grow` report
-a real reciprocity signal instead of "still hasn't started," and lets
-the next `/engage` session pick up from real state instead of
-re-surfacing the same threads.
+Growth logs) — which past-engagement reactions were found (step 1),
+which new threads were surfaced, which were engaged with (replied/
+zapped/skipped) and why, and any real reaction that came back (a reply,
+a follow, a zap in return). Name the confirmed reply event id **in
+full** (64 hex chars, not truncated) explicitly in the "posted and
+verified" write-up, not just the target note's `nevent` — step 1 of the
+*next* session can only query for replies against the exact id, and a
+truncated one silently can't be checked (see step 1's own note on why
+sessions 1-9 already have this gap). This is what lets `/grow` report a
+real reciprocity
+signal instead of "still hasn't started," and lets the next `/engage`
+session pick up from real state instead of re-surfacing the same
+threads.
 
-## 8. Be honest about what this can't do
+## 9. Be honest about what this can't do
 
 This can make engagement time more targeted and can draft better
 replies faster. It cannot manufacture relationships, cannot guarantee
 a reply gets seen or reciprocated, and cannot substitute for the user
 actually reading the thread and meaning what gets sent. If a session
-turns up nothing genuinely worth engaging with, say so — a quiet day
-in the relevant discourse is a real observation, not a reason to
-lower the bar just to have something to post.
+turns up nothing genuinely worth engaging with — no new reactions in
+step 1, nothing substantive in step 2 — say so plainly. A quiet day in
+the relevant discourse is a real observation, not a reason to lower the
+bar just to have something to post.
