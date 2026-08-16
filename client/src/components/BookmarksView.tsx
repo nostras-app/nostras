@@ -66,8 +66,27 @@ export function BookmarksView({ active }: { active: boolean }) {
           return
         }
 
+        // Scoped to authorQueryRelaySet as of 2026-08-16 — this used to be
+        // deliberately unscoped (comment below, kept for context: "a
+        // bookmarked note can be anywhere, not just the local relay"), but
+        // that's what made this fetch consistently time out for a real
+        // user on both desktop and mobile. Read NDK's own relay-selection
+        // logic directly (calculateRelaySetsFromFilter): an {ids} filter
+        // with no `authors` and no explicit relaySet falls back to
+        // querying EVERY url in ndk.explicitRelayUrls (local + the public
+        // bootstrap relays + any custom relay a user has added in
+        // Settings), and eoseReceived only resolves once ALL of those
+        // relays report EOSE (or a slower percentage-based early-exit
+        // converges) — a single slow/unreachable custom relay blocks the
+        // whole fetch until the timeout fires, every time, for that user.
+        // Passing authorQueryRelaySet explicitly bounds this to the same
+        // 3 known-fast relays already proven reliable for the sibling
+        // list fetch above. Real, documented tradeoff: a note bookmarked
+        // that exists *only* on a relay outside this set won't be found —
+        // accepted because "usually finds it, in bounded time" beats
+        // "blocks on every relay, times out for real users."
         const found = await withTimeout(
-          ndk.fetchEvents({ ids }),
+          ndk.fetchEvents({ ids }, undefined, authorQueryRelaySet),
           BOOKMARKS_TIMEOUT_MS,
           'Timed out loading your bookmarked notes',
         )

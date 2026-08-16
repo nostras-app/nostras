@@ -9389,6 +9389,75 @@ the tree is missing a `withTimeout` guard, and neither touched file
 queries NDK at all, so 0b/0c don't apply and there was no CSS/layout
 change for 0d — clean pass, no new regressions introduced.
 
+## Bookmarks fix from earlier the same day only fixed staleness — the
+real cause was a third, distinct unscoped-relay bug shape (2026-08-16)
+
+Direct follow-up: the SW-update fix above worked (confirmed by the user
+being on the latest bundle on both desktop and mobile — proven by the
+fact that they were seeing *this week's own* new error string,
+`"Timed out loading your bookmarked notes"`, which didn't exist in any
+older build). But the timeout was now firing for real, consistently, on
+a genuine account, on both platforms — not a stale-bundle symptom
+anymore.
+
+**Root cause, confirmed by reading NDK's own relay-selection logic
+directly, not guessed**: `BookmarksView.tsx` has *two* sequential
+fetches — the kind:10003 list itself (already correctly scoped to
+`authorQueryRelaySet`, per the 2026-08-10 fix), and a second
+`ndk.fetchEvents({ids}, ...)` pulling the actual bookmarked notes by id,
+which had **never** had an explicit relay set. `calculateRelaySetsFromFilter`
+in the installed NDK package shows that for a filter with no `authors`
+and no explicit `relaySet`, it falls back to querying **every URL in
+`ndk.explicitRelayUrls`** — local relay + the public bootstrap relays +
+any custom relay a user has added in Settings > Relays. And
+`NDKSubscription.eoseReceived` only resolves once *all* of those relays
+report EOSE (or a slower percentage-of-already-connected early-exit
+converges). A single slow, unreachable, or misbehaving relay anywhere in
+that list — most plausibly a real user's own custom relay, added at some
+point and since gone stale — blocks the whole fetch until the 8s
+timeout fires, every single time, on every device that account signs
+into. This is a **third, distinct shape** from the two bug classes this
+project already tracks (missing timeout; unscoped *authors*-filtered
+query racing NDK's CONNECTED-only fallback) — this one is unscoped
+*id*-only queries falling back to the full explicit relay list with an
+all-must-eose requirement, not a CONNECTED-only race.
+
+**Fixed** by passing `authorQueryRelaySet` (the same 3 known-fast relays
+— local + damus + primal — already proven reliable for the sibling list
+fetch) explicitly to the second `fetchEvents` call too. Real, honestly-
+stated tradeoff: a bookmarked note that exists *only* on a relay outside
+that set (e.g. only on a user's own custom relay) will no longer be
+found — accepted because "usually finds it, in bounded time" is strictly
+better than "blocks on every relay in the list, times out for real
+users, every time."
+
+**Added as a new standing check** in the health-check skill's Section 0
+(0b-bis) — a grep for `fetchEvents(` calls with no relay-set argument
+nearby, distinct from the existing 0a (missing timeout) and 0b (unscoped
+authors-filter) checks, so this specific shape gets caught by static
+analysis the next time it's introduced rather than rediscovered live.
+
+**Verified for real, reproducing the actual failure mechanism, not just
+reasoning about the code**: local relay + a throwaway identity, real
+kind:1 note + a real kind:10003 bookmark list referencing it published
+via `nak`. Seeded `localStorage`'s `nostras:custom-relays` with a
+deliberately unreachable relay URL (`wss://nonexistent-bookmarks-test-
+relay-xyz789.invalid/`) before reload — the same real-world shape a
+stale custom relay creates, baked into `explicitRelayUrls` at NDK
+construction time. Imported the throwaway identity, opened Bookmarks,
+and confirmed via direct DOM inspection (not just a screenshot) that the
+real bookmarked note rendered correctly with **zero** timeout/error text
+and **zero** stuck skeleton, even with the broken relay present — proving
+the fix genuinely bypasses the blocking relay rather than coincidentally
+resolving faster. Audited every other `fetchEvents`/`fetchEvent` call
+site in the codebase for the same id-only-unscoped shape while fixing
+this — all others (`MentionLink.tsx`, `lib/deeplink.ts`,
+`useMyBadgeDefinitions.ts`, `SearchView.tsx`) already pass an explicit
+relay set; `useReferencedNote.ts`'s singular `fetchEvent(id)` is
+unscoped but bounded by NDK's own internal 10s fallback, the same
+lower-severity category already accepted elsewhere. `tsc -b`, `oxlint`,
+`vite build` all clean. Deployed via the usual CI path.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

@@ -94,6 +94,31 @@ anything NOSTRAS-own-relay-scoped like groups/paid content). A hit with
 no relay set argument anywhere nearby is a real, not hypothetical,
 candidate for this exact bug.
 
+### 0b-bis. Unscoped id-only fetchEvents() audit (client)
+
+A third, distinct shape from 0b, found 2026-08-16 in `BookmarksView.tsx`:
+an `{ids: [...]}` filter (no `authors`) passed to `ndk.fetchEvents()`
+(plural) with **no explicit relay set** doesn't hit the CONNECTED-only
+fallback 0b describes — reading NDK's own `calculateRelaySetsFromFilter`
+confirms it instead falls back to querying **every URL in
+`ndk.explicitRelayUrls`** (local + public bootstrap + any custom relay a
+user has added in Settings), and `eoseReceived` only resolves once *all*
+of those relays report EOSE. A single slow/unreachable relay in that
+list — very plausibly a user's own custom relay — blocks the whole fetch
+until whatever timeout wraps it fires, consistently, for that user, on
+every device. Singular `fetchEvent()` isn't affected the same way (it
+has its own hard 10s internal timeout that fires regardless of eose
+state), but plural `fetchEvents()` has no such backstop.
+```
+grep -rn "fetchEvents(" --include="*.ts" --include="*.tsx" client/src | grep -v "authorQueryRelaySet\|localRelaySet\|relaySet"
+```
+For each hit, confirm the filter either has an `authors` field (covered
+by 0b instead) or is genuinely id-scoped with an explicit relay set
+passed as the third argument. An id-only `fetchEvents()` call with no
+relay set anywhere nearby is a real candidate — fix by passing
+`authorQueryRelaySet` (or a purpose-built small explicit set, matching
+`MentionLink.tsx`'s pattern for untrusted relay-hint cases).
+
 ### 0c. Insecure/mixed-content image rendering (client)
 
 The "Not Secure" incident (fixed across ten call sites) established
