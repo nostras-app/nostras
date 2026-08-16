@@ -1,5 +1,5 @@
 import { normalizeRelayUrl, type NDKRelay } from '@nostr-dev-kit/ndk'
-import { ndk, localRelayUrl } from './ndk'
+import { ndk, localRelayUrl, explicitRelayUrls } from './ndk'
 
 // NDK normalizes every relay URL internally (always appends a trailing
 // slash — normalizeRelayUrl("ws://localhost:7777") -> "ws://localhost:7777/"),
@@ -104,6 +104,78 @@ ndk.pool.on('relay:disconnect', (relay: NDKRelay) => {
   status = 'disconnected'
   notify()
   scheduleRetry()
+})
+
+// Real gap found live (2026-08-16): the retry logic above was scoped to
+// only the local relay from the start, but the same underlying cause
+// (NDK's own reconnection *scheduler* not actually firing, even though
+// its own disconnect *detection* works correctly — see the comment
+// block at the top of this file) applies to every relay in the pool, not
+// just this app's own. A production default publish target
+// (wss://relay.damus.io) was found stuck showing "disconnected" in
+// Settings > Relays with nothing retrying it — and a note published
+// during that window silently never reached it, confirmed directly
+// against the relay afterward. Generalizes the exact same proven retry
+// shape (check relay.connected directly rather than trust relay:ready
+// alone, one retry timer per relay so a stuck one can't block another)
+// to every explicitly-configured relay, not just local.
+//
+// Deliberately a second, separate mechanism rather than folding into
+// the local-relay logic above: `status` (and the header pill it drives)
+// stays specifically about *this app's own* relay's health, not
+// generic pool health — a public relay silently recovering isn't
+// something worth a prominent header change, but a stale, unresolvable
+// subscription against it is, so a non-local relay's recovery still
+// bumps the same shared `generation` counter, same reasoning as local:
+// `useNoteFeed`'s global feed and `useNotifications` both query across
+// the whole pool with no explicit relay set, so either one silently
+// missing a relay for a while needs the same "tear down and resubscribe
+// once it's back" treatment local recovery already gets. Accepted,
+// harmless cost: a hook scoped to `localRelaySet` alone (groups, paid
+// content) will occasionally resubscribe for a non-local relay's
+// recovery it never actually depended on — redundant, not incorrect.
+const otherTrackedRelayUrls = new Set(
+  explicitRelayUrls.filter((url) => normalizeRelayUrl(url) !== normalizedLocalRelayUrl).map(normalizeRelayUrl),
+)
+const otherRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function markOtherRelayRecovered(url: string) {
+  const timer = otherRetryTimers.get(url)
+  if (timer) {
+    clearTimeout(timer)
+    otherRetryTimers.delete(url)
+  }
+  generation++
+  notify()
+}
+
+function scheduleOtherRetry(url: string) {
+  if (otherRetryTimers.has(url)) return
+  const timer = setTimeout(async () => {
+    otherRetryTimers.delete(url)
+    const relay = ndk.pool.relays.get(url)
+    if (!relay) return
+    if (!relay.connected) {
+      try {
+        await relay.connect()
+      } catch {
+        // Swallow — checked directly below regardless of outcome.
+      }
+    }
+    if (relay.connected) markOtherRelayRecovered(url)
+    else scheduleOtherRetry(url)
+  }, RETRY_INTERVAL_MS)
+  otherRetryTimers.set(url, timer)
+}
+
+ndk.pool.on('relay:ready', (relay: NDKRelay) => {
+  if (!otherTrackedRelayUrls.has(relay.url)) return
+  markOtherRelayRecovered(relay.url)
+})
+
+ndk.pool.on('relay:disconnect', (relay: NDKRelay) => {
+  if (!otherTrackedRelayUrls.has(relay.url)) return
+  scheduleOtherRetry(relay.url)
 })
 
 export function subscribeRelayStatus(listener: () => void) {

@@ -9569,6 +9569,81 @@ permissions on their own wallet's UI to include balance read, which
 this session never touched or attempted (the user's own financial
 credential, same standing rule as always).
 
+## Real bug found live: a public relay stuck disconnected forever, silently
+missing a real publish — the local-relay reconnect fix never generalized
+(2026-08-16)
+
+User-reported, with a screenshot: `wss://relay.damus.io` showing
+"disconnected" in Settings > Relays, discovered right after a real
+published article was confirmed missing from that exact relay (logged
+in the Content log entry above as an "unexplained reach gap"). This is
+no longer unexplained.
+
+**Root cause, confirmed by reading the code directly**:
+`client/src/lib/relayStatus.ts`'s manual reconnect-retry loop — built
+back on 2026-08-05 specifically because NDK's own automatic
+reconnection *scheduler* was proven live to never actually fire, even
+though NDK's own disconnect *detection* works correctly — was
+hard-scoped to only the local relay from the start
+(`isLocalRelay(relay)` gating both the `relay:disconnect` and
+`relay:ready` listeners). `client/src/lib/relayList.ts`, which drives
+the Settings > Relays panel, is purely passive — it only reflects pool
+state, it never retries anything itself. So once *any other* relay in
+the pool disconnects — including `wss://relay.damus.io`, one of only
+two production default publish targets — nothing in this app actively
+tries to reconnect it. It can only recover via NDK's own scheduler
+(already proven unreliable) or a full page reload. This is the exact
+same bug class already found and fixed once, just never generalized
+past the one relay it was originally fixed for.
+
+**Real, separate finding in the same report, correctly diagnosed as
+unrelated**: the user also reported "my NIP-65 list is gone." Checked
+the real, currently-stored `kind:10002` directly via `nak` before
+assuming anything — it genuinely only contains one relay now, but
+this is not a NOSTRAS bug or data loss: the stored event carries a
+`client` tag reading `"Ditto"` (a different Nostr client NOSTRAS never
+adds itself) and was published 2026-08-14, ~48 hours before this
+report — a different client the user has also used on the same real
+identity published its own sparser NIP-65 list, which silently
+superseded whatever fuller one existed before it (kind:10002 is a
+plain replaceable event, no merge across clients). NOSTRAS's own
+editor is correctly showing the real current state, not malfunctioning
+— recoverable by re-adding the relays and saving, just not something
+NOSTRAS itself did or can automatically undo.
+
+**Fixed**: `relayStatus.ts` gained a second, parallel retry mechanism
+covering every URL in `explicitRelayUrls` (all explicitly-configured
+relays: local + the two public bootstrap relays + any custom relay a
+user has added), reusing the exact same proven shape as the original
+local-only logic (check `relay.connected` directly after each retry
+rather than trusting `relay:ready` alone; a `relay:ready` listener kept
+too as a harmless redundant fast path; one retry timer per relay URL so
+a stuck one can't block another). Deliberately kept as a *second*
+mechanism rather than folding into the existing local-relay logic: the
+local relay's own `status` (and the header pill it drives) stays
+specifically about *this app's own* relay's health, not generic pool
+health — a public relay silently recovering isn't header-pill-worthy,
+but the same shared `generation` counter still gets bumped on its
+recovery, since `useNoteFeed`'s global feed and `useNotifications` both
+query across the *whole* pool with no explicit relay set and need the
+same "tear down and resubscribe" treatment local recovery already
+triggers. Accepted, harmless cost: a hook scoped to `localRelaySet`
+alone (groups, paid content) will occasionally resubscribe for a
+non-local relay's recovery it never actually depended on.
+
+**Verified for real, reproducing the exact failure mode live, not just
+built clean**: temporary debug hooks (`window.__ndk`, `window.__relayStatus`,
+same established pattern used repeatedly in this project's history,
+fully reverted afterward — confirmed via a clean `git diff` on
+`ndk.ts`) to force a genuine WebSocket disconnect on a real, currently-
+connected `wss://relay.damus.io` connection. Confirmed it correctly
+reconnected within ~6 seconds with no page reload. Repeated against
+`wss://relay.primal.net`, additionally confirming the shared
+`generation` counter incremented on that recovery (2 → 3), proving both
+halves of the fix — the reconnect itself, and the resubscribe-trigger
+it's meant to drive — work correctly, not just the reconnect alone.
+`tsc -b`, `oxlint`, `vite build` all clean.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
