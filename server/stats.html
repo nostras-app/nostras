@@ -45,14 +45,9 @@
   .site-nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; }
   .site-nav-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15.5px; color: var(--text-h); text-decoration: none; letter-spacing: -0.01em; }
   .site-nav-brand svg { width: 20px; height: auto; }
-  .site-nav-links { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
-  .site-nav-links a:not(.btn) { text-decoration: none; color: var(--text-dim); font-weight: 600; font-size: 14.5px; }
-  .site-nav-links a:not(.btn):hover { color: var(--accent); }
-  .site-nav-links a.current { color: var(--accent); }
   .btn { display: inline-flex; align-items: center; gap: 10px; font: inherit; font-weight: 650; font-size: 15.5px; text-decoration: none; padding: 13px 24px; border-radius: 12px; border: 1px solid transparent; cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
   .btn:hover { transform: translateY(-1px); }
   .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--accent) 70%, transparent); }
-  .btn-sm { padding: 9px 18px; font-size: 14px; }
 
   /* ---------- Header ---------- */
 
@@ -123,12 +118,6 @@
       </svg>
       NOSTRAS
     </a>
-    <nav class="site-nav-links">
-      <a href="/why">Why NOSTRAS</a>
-      <a href="/node">NOSTRAS Node</a>
-      <a class="current" href="/stats">Stats</a>
-      <a class="btn btn-primary btn-sm" href="https://app.nostras.app">Open app</a>
-    </nav>
   </div>
 </header>
 

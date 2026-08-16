@@ -9458,6 +9458,35 @@ unscoped but bounded by NDK's own internal 10s fallback, the same
 lower-severity category already accepted elsewhere. `tsc -b`, `oxlint`,
 `vite build` all clean. Deployed via the usual CI path.
 
+## Top nav links + "Open app" button removed from all four public pages
+(2026-08-16)
+
+User-requested simplification: the top `.site-nav` bar on `landing.html`/
+`why.html`/`node.html`/`stats.html` (added 2026-08-16, earlier the same
+day, for cross-page discoverability) carried "Why NOSTRAS" / "NOSTRAS
+Node" / "Stats" links plus an "Open app" button — user wanted these
+removed from the top nav on all four pages, keeping just the brand/logo
+there, while explicitly keeping the existing bottom footer nav (which
+already has the same links plus "Home"/"Docs & support") untouched.
+
+Removed the `<nav class="site-nav-links">…</nav>` block from each
+page's header, leaving only the `<a class="site-nav-brand">` logo/
+wordmark — `.site-nav-inner`'s existing `justify-content: space-between`
+still applies but is now inert with a single child, harmless to leave as
+-is. Also removed the now-genuinely-dead `.site-nav-links` and `.btn-sm`
+CSS rules from all four files (`.btn-sm` was only ever used by the
+removed "Open app" button) — matching this project's own standing
+dead-code-cleanup convention, not left as unused CSS.
+
+**Verified locally in a real browser before shipping**: ran the local
+relay serving the embedded pages, loaded all four routes
+(`/`, `/why`, `/node`, `/stats`) and confirmed via screenshot each header
+now shows only the brand/logo with no nav links or button, and confirmed
+the bottom footer nav (Home / Open the app / Why NOSTRAS / NOSTRAS Node
+/ Docs & support) is unaffected — it lives under a completely separate
+`footer.final` class, never touched by this change. `go build`/
+`go vet`/`gofmt -l` all clean. Deployed via the usual CI path.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
