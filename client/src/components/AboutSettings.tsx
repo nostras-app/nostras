@@ -24,10 +24,8 @@ export function AboutSettings() {
         <div className="field-row" style={{ alignItems: 'center' }}>
           <p className="field-hint" style={{ flex: 1 }}>
             {swStatus === 'updating'
-              ? 'Update found — applying now, the app will reload shortly.'
-              : swStatus === 'up-to-date'
-                ? "You're on the latest version."
-                : 'Installed apps only check for updates periodically — check manually if you think a newer version is out.'}
+              ? 'Clearing the cache and reloading…'
+              : 'If something looks stale (missing content, an old layout), tap this to force a full reload — it reloads the app immediately.'}
           </p>
           <button
             type="button"

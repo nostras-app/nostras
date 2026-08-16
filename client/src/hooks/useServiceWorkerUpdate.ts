@@ -1,17 +1,33 @@
 import { useCallback, useState } from 'react'
 
-export type SwUpdateStatus = 'unsupported' | 'idle' | 'checking' | 'updating' | 'up-to-date' | 'error'
+export type SwUpdateStatus = 'unsupported' | 'idle' | 'checking' | 'updating' | 'error'
 
 // A browser only checks for a new service worker periodically (roughly
 // once a day by default) plus on fresh navigations — fine for a regular
 // tab, which gets fresh navigations often just from normal use, but an
 // installed PWA someone leaves open for days can sit on a stale version
 // far longer before that automatic check even runs. This gives Settings
-// a manual "check now" escape hatch, prompted directly by a user hitting
-// a stale-tab bug that a reload fixed — swUpdate.ts's global
-// controllerchange listener already handles reloading once an update
-// actually lands; this just triggers the check sooner than the browser
-// otherwise would on its own.
+// a manual "force it now" escape hatch.
+//
+// Real gap found live (2026-08-16): the original implementation only
+// called registration.update() and trusted the browser's own SW-update
+// lifecycle (install → skipWaiting → clientsClaim → controllerchange →
+// swUpdate.ts's reload) to complete correctly on its own. Real user
+// reports showed that lifecycle doesn't always finish reliably even
+// after clicking this exact button — on desktop, sometimes needing an
+// actual Ctrl+Shift+R; on a mobile PWA, no equivalent gesture exists at
+// all, so a stuck tab had no recovery path whatsoever. JavaScript has no
+// API for a genuine hard-reload/cache-bypass-everything reload — that's
+// a real, permanent browser platform boundary, not something fixable
+// from application code — but explicitly unregistering the current
+// service worker and clearing every Cache Storage entry before reloading
+// is the closest reachable equivalent: it guarantees the next load has
+// no old worker left to intercept anything and nothing cached to serve
+// stale, forcing a genuinely fresh fetch of everything from network. This
+// button is now an explicit "start over completely" action, not a
+// passive "is there anything new" check — it always reloads, whether or
+// not an update was actually pending, matching what a real hard refresh
+// does regardless of whether the page happened to be stale.
 export function useServiceWorkerUpdate() {
   const [status, setStatus] = useState<SwUpdateStatus>(
     'serviceWorker' in navigator ? 'idle' : 'unsupported',
@@ -24,28 +40,13 @@ export function useServiceWorkerUpdate() {
     setError(null)
     try {
       const registration = await navigator.serviceWorker.getRegistration()
-      if (!registration) {
-        setStatus('error')
-        setError('No active service worker registration found')
-        return
+      if (registration) await registration.unregister()
+      if ('caches' in window) {
+        const keys = await caches.keys()
+        await Promise.all(keys.map((key) => caches.delete(key)))
       }
-      let found = false
-      const onUpdateFound = () => {
-        found = true
-      }
-      registration.addEventListener('updatefound', onUpdateFound)
-      await registration.update()
-      // registration.update()'s own promise isn't guaranteed to resolve
-      // strictly after "updatefound" fires across browsers, so a short
-      // grace window is more reliable than assuming either ordering.
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-      registration.removeEventListener('updatefound', onUpdateFound)
-      // If found, a new service worker is installing/activating — sw.ts
-      // already calls skipWaiting()+clientsClaim() unconditionally, so it
-      // takes over on its own within a moment, and the existing global
-      // controllerchange listener (swUpdate.ts) reloads the page then.
-      // Nothing more to do here in either case.
-      setStatus(found ? 'updating' : 'up-to-date')
+      setStatus('updating')
+      window.location.reload()
     } catch (e) {
       setStatus('error')
       setError(e instanceof Error ? e.message : 'Update check failed')

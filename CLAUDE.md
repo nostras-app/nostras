@@ -9331,6 +9331,64 @@ invokes Section 0 automatically after code changes to `client/`/
 the user's own explicit standing instruction, not just a one-time ask
 for this session.
 
+## "Check for updates" now genuinely forces a fresh version, not just a
+polite request (2026-08-16)
+
+Direct follow-up to the Bookmarks fix above: user reported Bookmarks
+was fixed on desktop but still broken on mobile despite tapping "Check
+for updates" in Settings, and separately noted that even on desktop
+they sometimes need an actual Ctrl+Shift+R to get a real update — a
+gesture with **no mobile PWA equivalent at all**, so a stuck mobile
+session had no recovery path whatsoever.
+
+**Root cause**: `useServiceWorkerUpdate.ts`'s `checkForUpdate()` only
+ever called `registration.update()` and then trusted the browser's own
+SW lifecycle (install → `skipWaiting()` → `clientsClaim()` →
+`controllerchange` → `swUpdate.ts`'s reload) to complete on its own —
+it never itself forced a reload or cleared anything. Real reports show
+that lifecycle doesn't always finish reliably even when explicitly
+kicked, and JavaScript has **no API for a genuine hard-reload/cache-
+bypass reload** — that capability is a real, permanent browser
+platform boundary a script can't reach around, not a gap in this
+implementation.
+
+**Fixed by making the button do the closest reachable equivalent**:
+`checkForUpdate()` now unregisters the current service worker, deletes
+every Cache Storage entry via the Cache API, then calls
+`window.location.reload()` directly — always, not conditionally on
+whether an update was actually found, matching what a real hard
+refresh does regardless of whether the page happened to be stale. The
+`'up-to-date'` status value (now unreachable, since the button always
+reloads) was removed from `SwUpdateStatus` rather than left as dead
+code. `AboutSettings.tsx`'s copy was updated to set the right
+expectation — "tap this to force a full reload... it reloads the app
+immediately" — since this is now an explicit "start over completely"
+action, not a passive check. Deliberately scoped to this manual button
+only, not `swUpdate.ts`'s own passive background `controllerchange`
+reload — clearing caches there could counterproductively delete a
+freshly-and-correctly-populated precache a new service worker just
+built during its own install step.
+
+**Verified for real, not just built clean**: `tsc -b`, `oxlint`
+(pre-existing unrelated `useNoteFeed.ts` warnings only), `vite build`
+all clean. Live end-to-end via `vite preview` (production SW build,
+not dev): confirmed a fresh service worker registered and precached
+(`workbox-precache-v2-...` in `caches.keys()`), signed in anonymously,
+opened Settings, set a `window` marker, and clicked the real "Check for
+updates" button through the actual UI (via a direct `.click()` on the
+located DOM button, not coordinate clicks). Confirmed the marker was
+gone afterward — proof a genuine page teardown/reload occurred, not
+just a cosmetic state change — confirmed the precache repopulated
+fresh post-reload (a new service worker correctly re-registered and
+re-cached), and confirmed the app booted straight back into the live
+feed with no stuck/blank state, matching the exact recovery this fix
+was built to guarantee. Ran the health-check skill's Section 0
+regression audit afterward per the user's own standing instruction
+(run it after every code change): no `fetchEvents()` call anywhere in
+the tree is missing a `withTimeout` guard, and neither touched file
+queries NDK at all, so 0b/0c don't apply and there was no CSS/layout
+change for 0d — clean pass, no new regressions introduced.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
