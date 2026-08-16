@@ -299,8 +299,17 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     // by this session, another user, or a previous reload — since the
     // DVM now publishes one alongside every classification result. Show
     // it directly, for free, instead of always re-running a paid job.
+    // This lookup is a pure optimization — if it fails or times out
+    // (findExistingModerationLabel now has an explicit 8s timeout, see
+    // its own comment), fall through to a fresh check rather than
+    // leaving the UI stuck on "Checking…" indefinitely.
     setCheckState('requesting')
-    const existing = await findExistingModerationLabel(event.id)
+    let existing: { verdict: string; reason: string } | null = null
+    try {
+      existing = await findExistingModerationLabel(event.id)
+    } catch {
+      existing = null
+    }
     if (existing) {
       setCheckResult(`{"verdict":${JSON.stringify(existing.verdict)}}\n${existing.reason}`)
       setCheckState('done')

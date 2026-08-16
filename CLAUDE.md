@@ -9245,6 +9245,92 @@ doesn't just fail safely, it doesn't regress the working case either.
 was fully removed and confirmed via a clean `git diff` on `lib/ndk.ts`
 before committing.
 
+## `health-check` skill extended with real regression checks; caught a
+second, previously-unreported instance of the same bug the same day
+(2026-08-16)
+
+Direct follow-up to the Bookmarks fix above: the user asked how to stop
+this exact class of bug from resurfacing, specifically proposing the
+`health-check` skill run "like PQ protocol" (this project's own
+IQ/OQ/PQ-style validation log, `NOSTRAS-CSV.md`) against production —
+and to check that document for direction before building anything.
+
+**Found the skill was already stale before touching it**: its own
+Section 5 still asserted `/dashboard/data` should return `401` — true
+until the public/private dashboard split shipped the day before, `200`
+now. A skill meant to catch drift had already drifted itself — real,
+concrete evidence for the underlying concern, not just a hypothetical
+risk.
+
+**New Section 0 ("Regression checks — known recurring bug classes")**
+added to the skill, explicitly distinct from the existing Sections 1-5:
+those are live production checks; Section 0 runs against the local
+working tree, no deploy needed, meant to run after every code change
+per the user's own explicit instruction. Built directly from
+`NOSTRAS-CSV.md`'s own "Recurring pattern" notes rather than invented
+fresh — five checks: (0a) a missing-`withTimeout` audit distinguishing
+`fetchEvents()` (plural, no internal NDK timeout, high severity) from
+`fetchEvent()` (singular, NDK's own ~10s fallback, lower severity),
+plus a sibling grep for subscriptions missing an EOSE fallback timer;
+(0b) the unscoped-authors-filter relay-race pattern; (0c) insecure/
+mixed-content image rendering; (0d) a live narrow-viewport overflow
+check for CSS/layout changes; (0e) a standing reminder to check the
+`dvm` process group specifically after server changes, not just `web`.
+
+**Every command in the new section was actually run against the real
+codebase before being written into the skill, not just drafted** — this
+mattered: a first version of 0c's `<img>` check used a naive same-line
+`grep -v isSecureImageUrl`, which produced ~20 false positives (the
+guard is almost always a `ternary`/`&&` wrapper a line or two above the
+`<img>`, not on the same line). Replaced with a small `awk` script
+checking a 3-line window, tested until it converged on exactly the
+expected set: three hardcoded `favicon.svg` literals (always safe),
+two comment-text matches (prose mentioning `<img>`, not real JSX), and
+`NoteContent.tsx`'s two emoji/media segment renders — confirmed by
+reading `lib/parseContent.ts` directly, not assumed, that those are
+genuinely guarded *upstream* (`isSecureImageUrl()` runs at segment-
+construction time, before an `image`/`emoji` segment can even exist),
+just not locally visible to a proximity grep. The skill's own text
+documents this exact caveat so a future run doesn't misflag it.
+
+**Building 0a's check found a real, previously unreported bug in the
+same session, before any user hit it**: `lib/moderationLabel.ts`'s
+`findExistingModerationLabel()` (backing NoteMenu's "Check for spam/
+scam" action) used `ndk.fetchEvents()` with no timeout — the identical
+shape as the Bookmarks bug just fixed, just not yet surfaced by a real
+user report. Fixed the same way: wrapped in the existing `withTimeout()`
+helper (imported from `lib/podcast.ts`, matching this project's own
+established shared-import precedent for that helper rather than a new
+per-file copy). A second, related gap found while fixing it:
+`NoteMenu.tsx`'s `handleCheck()` had no `try`/`catch` around the call at
+all — a timeout there would have thrown an unhandled rejection and left
+the UI stuck on "Checking…" indefinitely even with the timeout in
+place, since nothing would ever fall through to the actual fresh check.
+Fixed by wrapping the lookup in `try`/`catch`, falling through to
+`runCheck()` on any failure — the lookup is explicitly documented as a
+pure optimization (skip a paid job if a label already exists), never a
+hard requirement.
+
+**Verified for real, not just written and trusted**: same temporary
+`window.__ndk` debug-hook technique as the Bookmarks fix (removed
+before finalizing, confirmed via a clean `git diff` on `lib/ndk.ts`).
+Published a real test note, monkey-patched `ndk.fetchEvents` to hang
+forever, opened the note's "Check for spam/scam" action, confirmed it
+showed "Checking…" indefinitely — reproducing the exact latent bug —
+then waited the real 8s timeout and confirmed the UI didn't just
+recover cosmetically but that a genuine new `kind:5501` job request was
+published to the relay (confirmed via a direct `nak` query), proving
+the `try`/`catch` fallthrough to `runCheck()` actually fired, not just
+that the visible "Checking…" text happened to look the same as a
+legitimately-still-waiting state. `tsc -b`, `oxlint`, `vite build` all
+clean.
+
+**The skill's frontmatter description was also updated** so Claude
+invokes Section 0 automatically after code changes to `client/`/
+`server/`, not only when explicitly asked "is everything OK" — matching
+the user's own explicit standing instruction, not just a one-time ask
+for this session.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
