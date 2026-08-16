@@ -9207,6 +9207,44 @@ notifications come up again later: the design (`net/smtp` +
 TLS depending on `NOSTRAS_SMTP_PORT`) was sound and can be rebuilt
 quickly rather than redesigned from scratch.
 
+## Real bug: Bookmarks stuck on the loading skeleton forever — same
+missing-timeout bug class hit again, now fixed for real (2026-08-16)
+
+User-reported, with a screenshot: Bookmarks showed nothing but three
+shimmer skeleton cards indefinitely. `BookmarksView.tsx`'s own
+`load()` had **never** had an explicit timeout on either
+`ndk.fetchEvent()` (the kind:10003 list itself) or the follow-up
+`ndk.fetchEvents({ids})` — the exact same missing-timeout bug class
+already found and fixed repeatedly elsewhere in this project
+(`remoteSigner.ts`, `SearchView.tsx`, `paidArticles.ts`, the six
+long-lived-subscription hooks) just never audited for this one
+one-shot-fetch component specifically. If either call ever hung — a
+slow relay, a dropped connection mid-request — `loading` stayed `true`
+forever with zero error surfaced, matching the report exactly.
+
+**Fixed** by wrapping both calls in the same `withTimeout()` helper
+already used elsewhere (imported from `lib/podcast.ts`, matching the
+existing precedent of three other hooks importing it from there rather
+than each file re-declaring its own copy), 8s each, with a real `error`
+state now rendered via the standard `alert-error` class instead of an
+infinite skeleton.
+
+**Verified by actually reproducing the reported hang, not just reasoning
+about it**: added a temporary `window.__ndk` debug hook (same
+established technique used for prior live-debugging sessions in this
+project, removed before finalizing), monkey-patched `fetchEvent` to
+return a promise that never resolves, opened Bookmarks, and confirmed
+it reproduced the *exact* reported symptom — the skeleton stuck with no
+error, indistinguishable from the user's own screenshot. Waited out the
+real 8s timeout and confirmed it correctly resolved to "Timed out
+loading your bookmark list" instead of hanging. Restored the real
+`fetchEvent` and confirmed the genuine happy path (a real fetch against
+the local relay) still resolves normally and fast, proving the fix
+doesn't just fail safely, it doesn't regress the working case either.
+`tsc -b`, `oxlint`, `vite build` all clean; the temporary debug hook
+was fully removed and confirmed via a clean `git diff` on `lib/ndk.ts`
+before committing.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
