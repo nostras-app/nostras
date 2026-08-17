@@ -9810,6 +9810,73 @@ dedicated pass, consistent with this project's own "audit for the same
 pattern everywhere" precedent used for prior bug classes (the missing-
 timeout audits, the insecure-image-URL audit).
 
+## The six flagged call sites above extended to fetchLatestReplaceableEvent
+(2026-08-17, same day)
+
+All six switched from `ndk.fetchEvent(...)` (or, for `useProfile.ts`,
+`NDKUser.fetchProfile()` — see below) to `fetchLatestReplaceableEvent()`,
+the same fix just proven for `useFollowCounts.ts`/`useFollowing.ts`.
+
+- **`BookmarksView.tsx`**: the kind:10003 bookmark-list fetch. Its
+  second fetch (`ndk.fetchEvents({ids}, ...)`, pulling the actual
+  bookmarked *notes* by id) is deliberately unchanged — those are
+  ordinary immutable events, not a single replaceable one, so
+  "keep whichever copy has the highest `created_at`" doesn't apply;
+  that call already has its own correct fix (explicit relay scope +
+  `withTimeout`) from a different, earlier bug (0b-bis).
+- **`useMyShowMeta.ts`**, **`podcast.ts`**'s `fetchShowMetaTags`: both
+  fetch kind:10154 (podcast show metadata, replaceable).
+- **`dm.ts`**'s `discoverRecipientDmRelays`: both the kind:10050 (NIP-17
+  DM relay list) and kind:10002 (NIP-65 write relays) fallback fetch. A
+  stale answer here has real consequence — silently falling back to
+  `devPublishRelaySet`'s local-only reach, the exact "message never
+  actually reached the recipient's real client" failure mode this
+  function exists to prevent.
+- **`appData.ts`**'s `fetchAppPreferences`: kind:30078 (NIP-78 app data)
+  filtered by a fixed `d` tag — same single-replaceable-event shape,
+  just addressable (kind+author+d) rather than plain-replaceable
+  (kind+author).
+- **`useProfile.ts`** — the trickiest one, since `NDKUser.fetchProfile()`
+  isn't a raw event fetch, it also parses the event's JSON `content`
+  into an `NDKUserProfile`. Its own `opts.relaySet` already flowed
+  through to fix the original CONNECTED-only-fallback bug, but
+  `fetchProfile()` internally calls `ndk.fetchEvent()`, which
+  unconditionally hardcodes `closeOnEose: true` regardless of what the
+  caller passes — so it was still exposed to this second, narrower race
+  for kind:0 profiles, with no way to opt out via `fetchProfile()`'s own
+  options. Fixed by bypassing `fetchProfile()` entirely: fetch the raw
+  event via `fetchLatestReplaceableEvent({kinds:[0], authors:[pubkey]},
+  authorQueryRelaySet)`, then parse it with NDK's own **exported**
+  `profileFromEvent()` (confirmed exported from the package's public
+  API, not a private internal — `client/node_modules/@nostr-dev-kit/
+  ndk/dist/index.d.ts` declares `declare function profileFromEvent(event:
+  NDKEvent): NDKUserProfile`) — the exact same parsing `fetchProfile()`
+  uses internally, kept in sync by construction instead of hand-rolled.
+  The now-unused `ndk` import was removed from this file.
+
+**Verified**: `tsc -b`, `oxlint` (only the pre-existing, already-
+documented `useNoteFeed.ts` warnings), `vite build` all clean. Re-ran
+the same grep audit used to find these six in the first place and
+confirmed none of them still call `.fetchEvent(` with an `authors`
+filter — all six now route through `fetchLatestReplaceableEvent`.
+
+**A materially larger list surfaced while re-running that grep, not
+part of this pass**: `useProfileBadges.ts`, `useMuteList.ts`,
+`useBadgeDefinition.ts`, `useUserStatus.ts`, `ProfileEditor.tsx`,
+`useBookmark.ts`, `useNip65RelayList.ts`, `useMyExternalIdentities.ts`,
+`useExternalIdentities.ts`, and `useMyProfileBadges.ts` all still call
+`.fetchEvent()` on an authors-filtered replaceable-event query too —
+some already `authorQueryRelaySet`-scoped (so only exposed to this
+`closeOnEose` race), others (`useBookmark.ts`, `useNip65RelayList.ts`,
+`useMyExternalIdentities.ts`, `ProfileEditor.tsx`) with **no explicit
+relay set at all**, meaning they're exposed to *both* this race and the
+original, older unscoped-CONNECTED-only-fallback bug (0b). Not touched
+here — the user's ask was specifically the six flagged in the prior
+entry, and this longer list wasn't confirmed against a live report the
+way the original six were. Flagged for a dedicated follow-up pass,
+matching this project's own "audit for the same pattern everywhere"
+precedent once again.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

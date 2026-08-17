@@ -2,6 +2,7 @@ import { NDKEvent, NDKRelaySet, giftWrap, giftUnwrap } from '@nostr-dev-kit/ndk'
 import type { NDKUser } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, localRelayUrl, authorQueryRelaySet } from './ndk'
 import { makeRelayConnectionFilter } from './relayFilter'
+import { fetchLatestReplaceableEvent } from './fetchLatestReplaceable'
 
 // NIP-17 direct messages: an unsigned kind:14 "rumor" gets sealed (kind:13)
 // then gift-wrapped (kind:1059) via NDK's own giftWrap()/giftUnwrap()
@@ -91,17 +92,25 @@ export async function discoverRecipientDmRelays(pubkey: string): Promise<string[
     // devPublishRelaySet's local-only reach — the exact "the message
     // never actually reached the recipient's real client" failure mode
     // this whole function exists to prevent in the first place.
-    const dmList = await ndk.fetchEvent(
+    //
+    // Uses fetchLatestReplaceableEvent, not plain ndk.fetchEvent(), as
+    // of 2026-08-17 — even scoped, fetchEvent() hardcodes
+    // closeOnEose:true and can converge on a stale relay's copy of these
+    // replaceable lists (kind:10050/10002) before a slower relay's
+    // fresher one arrives — same race found and fixed for
+    // useFollowing.ts/useFollowCounts.ts (see that dated CLAUDE.md
+    // entry). A stale DM relay list here has the same real consequence
+    // this whole function was built to avoid: a message silently never
+    // reaching the recipient's actual current client.
+    const dmList = await fetchLatestReplaceableEvent(
       { kinds: [DM_RELAY_LIST_KIND], authors: [pubkey] },
-      undefined,
       authorQueryRelaySet,
     )
     const dmRelays = dmList?.tags.filter((t) => t[0] === 'r' && !!t[1]).map((t) => t[1]) ?? []
     if (dmRelays.length > 0) return dmRelays.filter(isAllowedRelayUrl)
 
-    const relayList = await ndk.fetchEvent(
+    const relayList = await fetchLatestReplaceableEvent(
       { kinds: [RELAY_LIST_KIND], authors: [pubkey] },
-      undefined,
       authorQueryRelaySet,
     )
     const writeRelays =

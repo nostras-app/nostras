@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
-import type { NDKUserProfile } from '@nostr-dev-kit/ndk'
-import { ndk, authorQueryRelaySet } from '../lib/ndk'
+import { profileFromEvent, type NDKUserProfile } from '@nostr-dev-kit/ndk'
+import { authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 
 // Module-level cache shared across all components so the same pubkey is
 // never fetched more than once per session, and every subscriber re-renders
@@ -21,22 +22,31 @@ function subscribe(listener: () => void) {
 function ensureFetched(pubkey: string) {
   if (cache.has(pubkey) || inFlight.has(pubkey)) return
   inFlight.add(pubkey)
-  // NDKUser.fetchProfile() internally does an unscoped
-  // ndk.fetchEvent({kinds:[0], authors:[pubkey]}) with no relay set —
-  // same bug class as useFollowing/useFollowCounts/useNoteFeed (see
-  // authorQueryRelaySet's comment in lib/ndk.ts). Its own `opts` param
-  // doesn't have a documented relaySet field, but NDK's fetchEvent()
-  // spreads opts into its internal subscribeOpts before checking the
-  // (here-unused) third positional relaySet argument, so opts.relaySet
-  // still flows through — confirmed by reading NDK's own source, not
-  // guessed. Without this, a profile view for anyone not already on our
-  // own relay could show "Anonymous" / no avatar for longer than
-  // necessary while the slower single-relay outbox path was still the
-  // only source.
-  ndk
-    .getUser({ pubkey })
-    .fetchProfile({ relaySet: authorQueryRelaySet })
-    .then((profile) => {
+  // NDKUser.fetchProfile() internally does an authors-filtered
+  // ndk.fetchEvent({kinds:[0], authors:[pubkey]}, opts) — its own `opts`
+  // param doesn't have a documented relaySet field, but NDK's
+  // fetchEvent() spreads opts into its internal subscribeOpts before
+  // checking the (here-unused) third positional relaySet argument, so
+  // opts.relaySet did flow through when this passed
+  // {relaySet: authorQueryRelaySet} directly to fetchProfile(). That
+  // fixed the original unscoped-CONNECTED-only-fallback bug (see
+  // authorQueryRelaySet's own comment in lib/ndk.ts) but not a second,
+  // narrower one: fetchEvent() *also* unconditionally hardcodes
+  // closeOnEose:true (confirmed in NDK's own source — applied after
+  // spreading opts, so a caller's own value is always overwritten),
+  // which can let its EOSE-convergence heuristic resolve on a stale
+  // relay's copy of this replaceable kind:0 event before a slower
+  // relay's genuinely newer one arrives — the same race found and fixed
+  // for useFollowing.ts/useFollowCounts.ts (2026-08-17, see that dated
+  // CLAUDE.md entry). fetchProfile() has no way to opt out of
+  // closeOnEose, so this bypasses it entirely: fetches the raw event via
+  // fetchLatestReplaceableEvent (which never uses closeOnEose/eose at
+  // all) and parses it with NDK's own exported profileFromEvent() —
+  // the exact same parsing fetchProfile() itself uses internally, kept
+  // in sync by construction rather than hand-rolled.
+  fetchLatestReplaceableEvent({ kinds: [0], authors: [pubkey] }, authorQueryRelaySet)
+    .then((event) => {
+      const profile = event ? profileFromEvent(event) : null
       cache.set(pubkey, profile)
       inFlight.delete(pubkey)
       notify()
@@ -46,6 +56,9 @@ function ensureFetched(pubkey: string) {
       // this, a single failed fetch would silently block that pubkey
       // from ever being retried for the rest of the session (ensureFetched
       // refuses to re-run while inFlight.has(pubkey) is true).
+      // fetchLatestReplaceableEvent itself never rejects, but
+      // profileFromEvent() can throw on unparseable JSON content, so
+      // this stays as a real safety net, not dead code.
       inFlight.delete(pubkey)
     })
 }

@@ -3,6 +3,7 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, authorQueryRelaySet } from '../lib/ndk'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { withTimeout } from '../lib/podcast'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { FeedItem, FeedSkeleton } from './Feed'
 
 // Same missing-timeout bug class already found and fixed repeatedly
@@ -45,8 +46,21 @@ export function BookmarksView({ active }: { active: boolean }) {
         // user with a real, previously-confirmed bookmark list saw "No
         // bookmarks yet" after a normal reload, not after any cache
         // clear.
+        //
+        // Uses fetchLatestReplaceableEvent, not plain ndk.fetchEvent(),
+        // as of 2026-08-17 — even scoped, fetchEvent() hardcodes
+        // closeOnEose:true and can converge on a stale relay's copy of
+        // this replaceable kind:10003 before a slower relay's fresher
+        // one arrives (the exact race found and fixed for
+        // useFollowing.ts/useFollowCounts.ts the same day — see that
+        // dated entry in CLAUDE.md for the full mechanism). This never
+        // rejects on its own (resolves null on a genuine timeout), so
+        // the outer withTimeout here is now belt-and-suspenders rather
+        // than the only thing preventing a hang — kept anyway since it
+        // costs nothing and keeps this function's error surface
+        // unchanged.
         const list = await withTimeout(
-          ndk.fetchEvent({ kinds: [10003], authors: [user.pubkey] }, undefined, authorQueryRelaySet),
+          fetchLatestReplaceableEvent({ kinds: [10003], authors: [user.pubkey] }, authorQueryRelaySet),
           BOOKMARKS_TIMEOUT_MS,
           'Timed out loading your bookmark list',
         )

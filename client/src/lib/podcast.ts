@@ -1,6 +1,7 @@
 import { NDKEvent, type NDKKind } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, authorQueryRelaySet } from './ndk'
 import { encryptArticleBody } from './paidArticles'
+import { fetchLatestReplaceableEvent } from './fetchLatestReplaceable'
 
 // NIP-F4 Podcasting. Not in NDK's own kind catalog — same gap already
 // hit for several other project-specific kinds this session.
@@ -166,8 +167,15 @@ export async function publishEpisode(input: {
 
 export async function fetchShowMetaTags(pubkey: string): Promise<string[][] | null> {
   try {
+    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent(), as of
+    // 2026-08-17 — even authorQueryRelaySet-scoped, fetchEvent()
+    // hardcodes closeOnEose:true and can converge on a stale relay's
+    // copy of this replaceable kind:10154 before a slower relay's
+    // fresher one arrives — same race found and fixed for
+    // useFollowing.ts/useFollowCounts.ts, see that dated CLAUDE.md
+    // entry.
     const event = await withTimeout(
-      ndk.fetchEvent({ kinds: [KIND_PODCAST_METADATA], authors: [pubkey] }, undefined, authorQueryRelaySet),
+      fetchLatestReplaceableEvent({ kinds: [KIND_PODCAST_METADATA], authors: [pubkey] }, authorQueryRelaySet),
       FETCH_TIMEOUT_MS,
       'Timed out fetching show info',
     )

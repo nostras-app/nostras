@@ -1,6 +1,7 @@
 import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, authorQueryRelaySet } from './ndk'
 import { getCustomRelays, addCustomRelayUrl, isValidRelayUrl } from './customRelays'
+import { fetchLatestReplaceableEvent } from './fetchLatestReplaceable'
 
 // Real, previously-unbounded hang caught live while verifying this, not
 // hypothetical: ndk.fetchEvent() with no explicit timeout genuinely
@@ -71,10 +72,16 @@ export async function fetchAppPreferences(pubkey: string): Promise<AppPreference
   if (!ndk.signer) return null
   let event
   try {
+    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent(), as of
+    // 2026-08-17 — even authorQueryRelaySet-scoped, fetchEvent()
+    // hardcodes closeOnEose:true and can converge on a stale relay's
+    // copy of this replaceable (kind:30078 + fixed "d" tag) event
+    // before a slower relay's fresher one arrives — same race found
+    // and fixed for useFollowing.ts/useFollowCounts.ts, see that dated
+    // CLAUDE.md entry.
     event = await withTimeout(
-      ndk.fetchEvent(
+      fetchLatestReplaceableEvent(
         { kinds: [KIND_APP_DATA], authors: [pubkey], '#d': [APP_DATA_D_TAG] },
-        undefined,
         authorQueryRelaySet,
       ),
       FETCH_TIMEOUT_MS,

@@ -3,6 +3,7 @@ import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, authorQueryRelaySet } from '../lib/ndk'
 import { useActiveUser } from './useActiveUser'
 import { KIND_PODCAST_METADATA, parseShowMeta, withTimeout, type ShowMeta } from '../lib/podcast'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 
 const PUBLISH_TIMEOUT_MS = 8000
 const FETCH_TIMEOUT_MS = 8000
@@ -33,10 +34,17 @@ export function useMyShowMeta() {
     }
     setLoading(true)
     let cancelled = false
+    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent(), as of
+    // 2026-08-17 — even authorQueryRelaySet-scoped, fetchEvent()
+    // hardcodes closeOnEose:true and can converge on a stale relay's
+    // copy of this replaceable kind:10154 before a slower relay's
+    // fresher one arrives (same race found and fixed for
+    // useFollowing.ts/useFollowCounts.ts — see that dated CLAUDE.md
+    // entry). withTimeout is now belt-and-suspenders (the fetch itself
+    // never rejects, only ever resolves, possibly with null).
     withTimeout(
-      ndk.fetchEvent(
+      fetchLatestReplaceableEvent(
         { kinds: [KIND_PODCAST_METADATA], authors: [activeUser.pubkey] },
-        undefined,
         authorQueryRelaySet,
       ),
       FETCH_TIMEOUT_MS,
