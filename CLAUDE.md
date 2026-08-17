@@ -9705,6 +9705,111 @@ proving the merge didn't break the existing gated/ungated split.
 Temporary test artifacts (`page-views.json`, a throwaway dashboard
 password) fully cleaned up before committing.
 
+## Real, previously-latent bug: authorQueryRelaySet scoping alone doesn't
+prevent NDK's replaceable-event EOSE-convergence race — a genuinely new
+fix, `fetchLatestReplaceableEvent`, closes the gap for real (2026-08-17)
+
+User-reported, real and reproducible: MMOnostr's own real profile showed
+**592 Following on desktop, 3 Following on mobile** for the exact same
+identity's single real kind:3 event — and, separately, opening the
+Following list showed a "Follow" button (implying not-followed) for
+accounts genuinely already followed. Both are the same bug: `Following`
+is genuinely just one replaceable kind:3 event, so two different device
+sessions showing two different counts for it meant one session had
+converged on a stale copy.
+
+**Root cause, confirmed by reading NDK's own installed source, not
+assumed**: `useFollowCounts.ts` and `useFollowing.ts` both fetch via
+`ndk.fetchEvent({kinds:[3], authors:[pubkey]}, undefined,
+authorQueryRelaySet)` — already scoped to `authorQueryRelaySet` from an
+earlier (2026-08-09) fix for a *different* race (NDK's unscoped-query
+CONNECTED-only relay fallback). That earlier fix was real and correct
+for the bug it targeted, but incomplete for this one: `ndk.fetchEvent()`
+hardcodes `closeOnEose: true` internally (`{...opts, closeOnEose: true}`,
+applied *after* spreading caller-supplied opts — confirmed directly in
+NDK's compiled source, not overridable by any option a caller passes),
+which drives `NDKSubscription.eoseReceived()`'s own early-convergence
+heuristic: once at least 2 relays already `CONNECTED` at that moment
+have reported EOSE and their share of the query's *currently-connected*
+relay subset is ≥50%, it schedules an near-immediate close rather than
+waiting for every relay in the explicit set. For a REPLACEABLE event,
+different relays can genuinely hold different-aged copies — if the two
+already-warm relays in `authorQueryRelaySet` both happen to hold an
+older copy while a third, slower-to-connect relay is still mid-handshake
+with the newer one, this heuristic can close the subscription and
+resolve on the stale pair before the fresh copy ever arrives. This is
+the same failure *shape* already documented once before in
+`useFollowing.ts`'s own comments (2026-08-09, relay.damus.io vs. the
+local relay) — scoping to `authorQueryRelaySet` reduced how often this
+manifests but never eliminated the underlying mechanism, since the
+mechanism operates on relay *connection timing*, not which relays are in
+the set.
+
+**Fixed** with a new `client/src/lib/fetchLatestReplaceable.ts`:
+`fetchLatestReplaceableEvent()` bypasses `ndk.fetchEvent()`/
+`fetchEvents()` entirely — uses `ndk.subscribe()` directly with
+`closeOnEose: false`, always waits the full timeout window (default
+5000ms) rather than trusting NDK's internal early-exit heuristic, and
+tracks whichever event seen has the highest `created_at` across the
+whole window. A deliberate speed-for-correctness tradeoff, reasonable
+for a one-shot fetch (not a hot path) on data where showing the wrong
+answer is worse than a few extra seconds to show the right one. Applied
+to both `useFollowCounts.ts` (drives both the Following/Followers counts
+on `ProfileView` and the pubkey lists behind `FollowListModal`) and
+`useFollowing.ts` (drives `isFollowing()`/the Follow-Unfollow button
+state — its existing loading-guard/8s-publish-timeout/error-state safety
+pattern from the 2026-08-07 fix is untouched).
+
+**Verified for real, by actually reproducing the race, not just from
+source reading** — this took real trial and error to get a faithful
+repro, worth recording: a naive 2-relay local setup (one relay warm, one
+cold) never reproduced it, because `eoseReceived`'s early-convergence
+branch structurally requires `eosesSeen.size >= 2` *while* the query's
+full relay-filter set is larger than that — with only 2 relays total,
+`hasSeenAllEoses` (2 EOSEs == 2 relays) always fires the exact same
+"legitimate" full-close regardless of timing. Rebuilt to match
+`authorQueryRelaySet`'s real 3-relay shape instead (local relay + 2
+public relays): two independent local relay processes held an identical
+real, older kind:3 copy (3 `p` tags) and connected instantly; a third
+held a newer real copy (10 `p` tags, ~1000s newer `created_at`) with its
+connection deliberately delayed. Two standalone Node.js scripts (fresh,
+unfiltered NDK instances — this app's own `relayConnectionFilter`, a
+real security boundary, was correctly left untouched rather than
+weakened even temporarily) confirmed, reproducibly: with the third
+relay's connection delayed 3s, `ndk.fetchEvent()` resolved in 180ms with
+only **3** followers — the stale pair winning the race exactly as
+predicted from the source read — while `fetchLatestReplaceableEvent()`
+correctly waited the full window and resolved with all **10** followers,
+the genuinely current data. `tsc -b`, `oxlint` (only the pre-existing,
+already-documented `useNoteFeed.ts` warnings), `vite build` all clean.
+All test infrastructure (two throwaway local relay processes and their
+data directories, the standalone repro script, temporary debug hooks in
+`ndk.ts`) was torn down and confirmed via `git diff` to leave zero net
+change to `ndk.ts` before committing.
+
+**Not yet independently reconfirmed against the user's own real account
+in production** — the reported 592-vs-3 discrepancy is specific to their
+own real kind:3 event's actual relay distribution at a given moment, not
+something this session's synthetic repro can directly replay; the fix
+rests on the mechanism now being both source-confirmed and reproduced
+live under controlled conditions, plus the fact that
+`fetchLatestReplaceableEvent()` is correct *by construction* (it cannot
+suffer this specific early-exit regardless of relay count or timing,
+since it never uses `closeOnEose`/`eoseReceived` at all) — worth having
+the user reload and re-check both devices once this deploys.
+
+**Other call sites using the same `ndk.fetchEvent()` + `authorQueryRelaySet`
+pattern were identified but deliberately not touched in this pass** —
+`BookmarksView.tsx`, `useMyShowMeta.ts`, `dm.ts`, `appData.ts`,
+`useProfile.ts`, `podcast.ts` all share the shape and could carry the
+same latent race for their own replaceable-event fetches. Not extended
+to these here, since the goal was first confirming the specific reported
+bug's fix rather than assuming scope expansion is automatically
+warranted — flagged as a real, likely-systemic follow-up worth a
+dedicated pass, consistent with this project's own "audit for the same
+pattern everywhere" precedent used for prior bug classes (the missing-
+timeout audits, the insecure-image-URL audit).
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

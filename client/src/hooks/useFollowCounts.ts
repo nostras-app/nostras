@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 
 // Following: this pubkey's own kind:3 contact list, counted by its 'p'
 // tags. Followers: every kind:3 event anywhere in the pool that tags this
@@ -42,7 +43,13 @@ export function useFollowCounts(pubkey: string | undefined) {
     // The followers subscribe below is unaffected — it filters on `#p`,
     // not `authors`, so NDK never routes it through the same
     // connected-relays-only fallback and it already queries the full pool.
-    ndk.fetchEvent({ kinds: [3], authors: [pubkey] }, undefined, authorQueryRelaySet).then((event) => {
+    //
+    // Even scoped, ndk.fetchEvent() still resolves on NDK's own internal
+    // EOSE-convergence heuristic rather than waiting for every relay in
+    // the set — real, reported again 2026-08-17 (592 vs. 3 Following for
+    // the same identity on two devices): uses fetchLatestReplaceableEvent
+    // instead, see that function's own comment for the full mechanism.
+    fetchLatestReplaceableEvent({ kinds: [3], authors: [pubkey] }, authorQueryRelaySet).then((event) => {
       if (cancelled) return
       const pubkeys = (event?.tags ?? [])
         .filter((t) => t[0] === 'p' && !!t[1])

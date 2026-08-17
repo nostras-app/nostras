@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { useActiveUser } from './useActiveUser'
 
 // kind:3 contact list — same fetch-then-republish pattern as useBookmark
@@ -64,7 +65,15 @@ export function useFollowing() {
     // anyone not already on our own relay — see authorQueryRelaySet's own
     // comment in lib/ndk.ts for why the explicit multi-relay set is both
     // correct AND fast).
-    ndk.fetchEvent({ kinds: [3], authors: [activeUser.pubkey] }, undefined, authorQueryRelaySet).then((event) => {
+    //
+    // Even scoped, ndk.fetchEvent() still resolves on NDK's own internal
+    // EOSE-convergence heuristic (hardcoded closeOnEose: true, not
+    // overridable) rather than waiting for every relay in the set —
+    // real, reported again 2026-08-17, not just theoretical: uses
+    // fetchLatestReplaceableEvent instead, which always waits the full
+    // window and keeps whichever copy has the highest created_at. See
+    // that function's own comment for the full mechanism.
+    fetchLatestReplaceableEvent({ kinds: [3], authors: [activeUser.pubkey] }, authorQueryRelaySet).then((event) => {
       if (cancelled) return
       const nextTags = event?.tags ?? []
       setTags(nextTags)
