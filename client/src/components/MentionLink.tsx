@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NDKRelaySet, nip19 } from '@nostr-dev-kit/ndk'
 import type { MentionDecoded } from '../lib/parseContent'
 import { ndk, localRelayUrl, publicRelayUrls } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { makeRelayConnectionFilter } from '../lib/relayFilter'
 import { viewProfile, viewNote, viewArticle } from '../lib/navigation'
 import { useProfile } from '../hooks/useProfile'
@@ -34,10 +35,17 @@ async function fetchArticle(pubkey: string, identifier: string, relayHints: stri
     Array.from(new Set([localRelayUrl, ...publicRelayUrls, ...hintUrls])),
     ndk,
   )
+  // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() — this set is
+  // genuinely multi-relay (local + public + untrusted mention hints), so
+  // it's exposed to the same closeOnEose convergence race already found
+  // and fixed elsewhere (2026-08-17, see CLAUDE.md's dated entry): a
+  // mentioned article that was recently edited/republished could
+  // resolve to a stale copy from a fast relay instead of the real
+  // current one from a slower one. Never throws, so the try/catch below
+  // is now belt-and-suspenders.
   try {
-    return await ndk.fetchEvent(
+    return await fetchLatestReplaceableEvent(
       { kinds: [30023], authors: [pubkey], '#d': [identifier] },
-      undefined,
       relaySet,
     )
   } catch {

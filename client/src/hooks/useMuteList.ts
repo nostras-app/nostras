@@ -1,6 +1,7 @@
 import { useCallback, useState, useSyncExternalStore } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { useActiveUser } from './useActiveUser'
 
 // Matches useFollowing.ts/useBookmark.ts/useNip65RelayList.ts's own
@@ -43,8 +44,14 @@ function subscribe(listener: () => void) {
 function ensureFetched(pubkey: string) {
   if (cache.has(pubkey) || inFlight.has(pubkey)) return
   inFlight.add(pubkey)
-  ndk
-    .fetchEvent({ kinds: [10000], authors: [pubkey] }, undefined, authorQueryRelaySet)
+  // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() — even
+  // authorQueryRelaySet-scoped, fetchEvent() hardcodes closeOnEose:true
+  // and can converge on a stale relay's copy of this replaceable
+  // kind:10000 mute list before a slower relay's fresher one arrives
+  // (2026-08-17, see CLAUDE.md's dated entry). A stale copy here is a
+  // real toggle() data-loss risk, not just cosmetic — same class of
+  // risk useFollowing.ts's own loading-guard exists to prevent.
+  fetchLatestReplaceableEvent({ kinds: [10000], authors: [pubkey] }, authorQueryRelaySet)
     .then((event) => {
       cache.set(pubkey, { tags: event?.tags ?? [], content: event?.content ?? '' })
       inFlight.delete(pubkey)

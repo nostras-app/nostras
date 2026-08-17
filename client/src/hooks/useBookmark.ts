@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet } from '../lib/ndk'
+import { ndk, devPublishRelaySet, authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { useActiveUser } from './useActiveUser'
 
 // NDKEvent.publish() defaults to a 2.5s per-relay timeout — tight under
@@ -41,8 +42,14 @@ export function useBookmark(eventId: string) {
     }
     let cancelled = false
     setLoading(true)
-    ndk
-      .fetchEvent({ kinds: [10003], authors: [activeUser.pubkey] })
+    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() with no
+    // relay set at all — exposed to both the unscoped-CONNECTED-only-
+    // fallback race (2026-08-09) and closeOnEose's own convergence race
+    // (2026-08-17, see CLAUDE.md's dated entry). A stale copy here is a
+    // real toggle() data-loss risk, same reason the loading-guard above
+    // exists — a bookmark toggled against a stale/partial list would
+    // silently overwrite the user's real one.
+    fetchLatestReplaceableEvent({ kinds: [10003], authors: [activeUser.pubkey] }, authorQueryRelaySet)
       .then((event) => {
         if (cancelled) return
         setListEvent(event)

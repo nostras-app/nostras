@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { NDKKind } from '@nostr-dev-kit/ndk'
-import { ndk, authorQueryRelaySet } from '../lib/ndk'
+import { authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { parseExternalIdentityTag, type ExternalIdentity } from '../lib/externalIdentities'
 
 // Same NDKKind-enum gap already hit for NIP-29's delete kinds, the
@@ -21,12 +22,15 @@ export function useExternalIdentities(pubkey: string | undefined): ExternalIdent
     setIdentities([])
     if (!pubkey) return
     let cancelled = false
-    ndk
-      .fetchEvent(
-        { kinds: [KIND_EXTERNAL_IDENTITIES], authors: [pubkey] },
-        undefined,
-        authorQueryRelaySet,
-      )
+    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() — even
+    // authorQueryRelaySet-scoped, fetchEvent() hardcodes closeOnEose:true
+    // and can converge on a stale relay's copy of this replaceable
+    // kind:10011 list before a slower relay's fresher one arrives
+    // (2026-08-17, see CLAUDE.md's dated entry).
+    fetchLatestReplaceableEvent(
+      { kinds: [KIND_EXTERNAL_IDENTITIES], authors: [pubkey] },
+      authorQueryRelaySet,
+    )
       .then((event) => {
         if (cancelled || !event) return
         setIdentities(event.tags.map(parseExternalIdentityTag).filter((x): x is ExternalIdentity => x !== null))

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NDKEvent, normalizeRelayUrl } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet, localRelayUrl } from '../lib/ndk'
+import { ndk, devPublishRelaySet, localRelayUrl, authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { useActiveUser } from './useActiveUser'
 
 const normalizedLocalRelayUrl = normalizeRelayUrl(localRelayUrl)
@@ -54,8 +55,13 @@ export function useNip65RelayList() {
       return
     }
     let cancelled = false
-    ndk
-      .fetchEvent({ kinds: [10002], authors: [activeUser.pubkey] })
+    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() with no
+    // relay set at all — exposed to both the unscoped-CONNECTED-only-
+    // fallback race (2026-08-09) and closeOnEose's own convergence race
+    // (2026-08-17, see CLAUDE.md's dated entry). A stale copy here would
+    // seed the editor with an outdated relay list rather than the real
+    // current one.
+    fetchLatestReplaceableEvent({ kinds: [10002], authors: [activeUser.pubkey] }, authorQueryRelaySet)
       .then((event) => {
         if (cancelled) return
         if (event) {

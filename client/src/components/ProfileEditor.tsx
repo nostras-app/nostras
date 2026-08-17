@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet } from '../lib/ndk'
+import { ndk, devPublishRelaySet, authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { useProfile, setCachedProfile } from '../hooks/useProfile'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useUserStatus } from '../hooks/useUserStatus'
@@ -85,8 +86,17 @@ export function ProfileEditor() {
   useEffect(() => {
     if (!pubkey) return
     let cancelled = false
-    ndk
-      .fetchEvent({ kinds: [0], authors: [pubkey] })
+    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() with no
+    // relay set at all — the original had neither the authorQueryRelaySet
+    // scoping fix (2026-08-09, the unscoped-CONNECTED-only-fallback bug)
+    // nor this one (2026-08-17, closeOnEose's own convergence race). Both
+    // matter more than usual here specifically: handleSave() below merges
+    // edits onto whatever this fetch returns (`{...rawProfile, name,
+    // about, picture, banner}`), so a stale/incomplete raw profile here
+    // would silently wipe real fields (nip05, lud16, website, etc.) on
+    // the very next save — the exact data-loss bug this fetch-then-
+    // merge pattern was built to prevent in the first place.
+    fetchLatestReplaceableEvent({ kinds: [0], authors: [pubkey] }, authorQueryRelaySet)
       .then((event) => {
         if (cancelled || !event) return
         try {

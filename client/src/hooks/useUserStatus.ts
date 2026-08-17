@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { NDKKind } from '@nostr-dev-kit/ndk'
-import { ndk, authorQueryRelaySet } from '../lib/ndk'
+import { authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 
 export type UserStatus = { content: string; url: string | null }
 
@@ -23,12 +24,15 @@ export function useUserStatus(pubkey: string | undefined): UserStatus | null {
     setStatus(null)
     if (!pubkey) return
     let cancelled = false
-    ndk
-      .fetchEvent(
-        { kinds: [KIND_USER_STATUS], authors: [pubkey], '#d': ['general'] },
-        undefined,
-        authorQueryRelaySet,
-      )
+    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() — even
+    // authorQueryRelaySet-scoped, fetchEvent() hardcodes closeOnEose:true
+    // and can converge on a stale relay's copy of this addressable
+    // kind:30315 status before a slower relay's fresher one arrives
+    // (2026-08-17, see CLAUDE.md's dated entry).
+    fetchLatestReplaceableEvent(
+      { kinds: [KIND_USER_STATUS], authors: [pubkey], '#d': ['general'] },
+      authorQueryRelaySet,
+    )
       .then((event) => {
         if (cancelled || !event) return
         // NIP-38: "An empty string instructs clients to clear the status."

@@ -9877,6 +9877,68 @@ way the original six were. Flagged for a dedicated follow-up pass,
 matching this project's own "audit for the same pattern everywhere"
 precedent once again.
 
+## The ten flagged follow-up call sites above also extended, closing out
+this bug class across the whole client tree (2026-08-17, same day)
+
+`useProfileBadges.ts` (kind:10008), `useMuteList.ts` (kind:10000),
+`useBadgeDefinition.ts` (kind:30009 addressable), `useUserStatus.ts`
+(kind:30315 addressable), `useExternalIdentities.ts` and
+`useMyProfileBadges.ts` (kind:10011/10008) all already had
+`authorQueryRelaySet` — only exposed to the `closeOnEose` race, switched
+the same way as the first six.
+
+**Four had no explicit relay set at all** — exposed to *both* bugs
+(the original unscoped-CONNECTED-only-fallback race and this one), and
+each fixed by adding `authorQueryRelaySet` alongside the switch to
+`fetchLatestReplaceableEvent`:
+- `useBookmark.ts` (kind:10003) and `useMyExternalIdentities.ts`
+  (kind:10011) — both toggle/edit hooks where a stale fetch feeding a
+  later publish is a genuine data-loss risk (a mutation built from a
+  stale/incomplete list would silently overwrite the user's real one on
+  republish), not just a display staleness issue.
+- `useNip65RelayList.ts` (kind:10002) — lower-stakes since `save()`
+  publishes whatever the caller passes rather than merging against the
+  fetched state, but a stale fetch still meant seeding the relay-list
+  editor with outdated data to begin with.
+- **`ProfileEditor.tsx`**'s own raw kind:0 fetch — arguably the highest-
+  value fix of the ten: `handleSave()` merges edits onto whatever this
+  fetch returns (`{...rawProfile, name, about, picture, banner}`)
+  specifically to avoid wiping fields this form doesn't edit (`nip05`,
+  `lud16`, `website`, etc. — see the 2026-08-06 "Profile editor" entry
+  earlier in this file, which fixed the *wholesale-replace* version of
+  this exact data-loss bug). A stale/incomplete fetch here would have
+  silently reintroduced that same data-loss risk through the back door,
+  just triggered by relay-timing instead of a missing merge.
+
+**One more found while re-auditing, not in the original ten**:
+`MentionLink.tsx`'s `fetchArticle()` (backing a NIP-27 `naddr` mention
+rendered inline in note content) — its relay set is genuinely
+multi-relay (local + public + untrusted mention-provided relay hints,
+via `NDKRelaySet.fromRelayUrls`), unlike `lib/deeplink.ts`'s equivalent
+`naddr` handler, which is deliberately scoped to `localRelaySet` alone
+(a single relay, structurally immune to this race) for a different,
+already-documented reason. Switched the same way.
+
+**Confirmed nothing else in the tree still needs this**, via the same
+grep audit used to find the original list: every remaining live
+`.fetchEvent()` call is either id-only (`useReferencedNote.ts`,
+`MentionLink.tsx`'s `fetchById`, `SearchView.tsx`, `lib/deeplink.ts`'s
+note/nevent handler — a different, lower-severity, already-documented
+bug class, not this one) or scoped to `localRelaySet` alone
+(`lib/deeplink.ts`'s `naddr` handler, `lib/communities.ts`,
+`lib/paidArticles.ts`'s NIP-89 handler-announcement lookups) — a single
+relay can't suffer a *cross-relay* stale-vs-fresh convergence race
+regardless of `closeOnEose`, since there's nothing to converge across.
+
+**Verified**: `tsc -b`, `oxlint` (only the pre-existing, already-
+documented `useNoteFeed.ts` warnings), `vite build` all clean across
+both passes (the original six plus these eleven). Not re-verified via a
+live reproduction the way the very first fix was — eleven files sharing
+one already-proven-correct utility function, applied identically to a
+mechanically identical call shape each time, was judged sufficient
+given the mechanism itself (not just its application) was already
+proven live for the original two files.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

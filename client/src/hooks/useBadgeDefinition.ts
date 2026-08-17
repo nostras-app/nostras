@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import { ndk, authorQueryRelaySet } from '../lib/ndk'
+import { authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import {
   KIND_BADGE_DEFINITION,
   parseBadgeAddress,
@@ -34,12 +35,15 @@ function ensureFetched(address: string) {
     return
   }
   inFlight.add(address)
-  ndk
-    .fetchEvent(
-      { kinds: [KIND_BADGE_DEFINITION], authors: [parsed.pubkey], '#d': [parsed.d] },
-      undefined,
-      authorQueryRelaySet,
-    )
+  // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() — even
+  // authorQueryRelaySet-scoped, fetchEvent() hardcodes closeOnEose:true
+  // and can converge on a stale relay's copy of this addressable
+  // kind:30009 definition before a slower relay's fresher one arrives
+  // (2026-08-17, see CLAUDE.md's dated entry).
+  fetchLatestReplaceableEvent(
+    { kinds: [KIND_BADGE_DEFINITION], authors: [parsed.pubkey], '#d': [parsed.d] },
+    authorQueryRelaySet,
+  )
     .then((event) => {
       cache.set(address, event ? parseBadgeDefinition(event) : null)
       inFlight.delete(address)

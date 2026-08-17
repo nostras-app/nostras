@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, authorQueryRelaySet } from '../lib/ndk'
+import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { useActiveUser } from './useActiveUser'
 import {
   KIND_PROFILE_BADGES,
@@ -42,8 +43,17 @@ export function useMyProfileBadges() {
     }
     let cancelled = false
     setLoading(true)
-    ndk
-      .fetchEvent({ kinds: [KIND_PROFILE_BADGES], authors: [activeUser.pubkey] }, undefined, authorQueryRelaySet)
+    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() — even
+    // authorQueryRelaySet-scoped, fetchEvent() hardcodes closeOnEose:true
+    // and can converge on a stale relay's copy of this replaceable
+    // kind:10008 list before a slower relay's fresher one arrives
+    // (2026-08-17, see CLAUDE.md's dated entry). A stale copy here is a
+    // real accept/remove/reorder data-loss risk, same reason the
+    // loading guard above exists.
+    fetchLatestReplaceableEvent(
+      { kinds: [KIND_PROFILE_BADGES], authors: [activeUser.pubkey] },
+      authorQueryRelaySet,
+    )
       .then((event) => {
         if (cancelled) return
         setEntries(event ? parseProfileBadgeTags(event.tags) : [])
