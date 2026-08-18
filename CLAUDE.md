@@ -9938,6 +9938,227 @@ one already-proven-correct utility function, applied identically to a
 mechanically identical call shape each time, was judged sufficient
 given the mechanism itself (not just its application) was already
 proven live for the original two files.
+
+## nostr-agent — a local, DM-controlled Claude Code daemon (2026-08-17)
+
+A new, separate top-level component: `agent/`, a standalone Node ESM
+daemon with its own persisted Nostr identity that lets the user task
+Claude Code (headless, `claude -p`) against this exact repo by sending it
+real NIP-17 DMs from their own real identity — remote control when away
+from the desktop it runs on. **Deliberately local-only**: never deployed
+to Fly, never public infrastructure, scoped to this repo only for v1 (a
+future public "chat with your own agent over Nostr" product is an
+explicit someday-maybe, not part of this build). Full design rationale
+and the original implementation plan live at
+`/home/user/.claude/plans/crystalline-puzzling-gosling.md` — this entry
+covers what actually shipped and what live verification found, including
+two real bugs neither the plan nor the first working version caught.
+
+**Scope, chosen explicitly by the user after being asked to pick**:
+full autonomy (`--permission-mode bypassPermissions`, no per-action
+confirmation while unattended) — except the project's standing
+financial-custody rule (never send a real payment) stays a hard
+invariant regardless, defended in three independent layers rather than
+one soft rule: an `--append-system-prompt` reminder broadened beyond
+just "don't call `payInvoiceWithNwc`" to "never send a payment through
+any code path"; a real `PreToolUse` hook
+(`agent/claude-settings.json` → `agent/hooks/deny-payments.sh`, loaded
+only for daemon-spawned sessions via `--settings`, never the operator's
+own interactive ones) pattern-matching payment-shaped Bash commands and
+denying them outright; and the daemon's own process never holding
+`NOSTRAS_DVM_NWC_URI` at all, since it loads a separate `agent/agent.env`
+rather than the root `nostras.env` — same reasoning already used twice
+for the DVM's own sub-keys ("so a bug in this still-new code path can't
+touch the already-proven identity").
+
+**Reused, not reinvented, wherever this project already had a proven
+pattern**: `giftWrap`/`giftUnwrap` and the fail-closed decrypt shape from
+`client/src/lib/dm.ts`; `fetchLatestReplaceableEvent`
+(`client/src/lib/fetchLatestReplaceable.ts`, this same day's own earlier
+fix) for the owner's kind:10050/10002 DM-relay lookup, not plain
+`ndk.fetchEvent()`; `relayFilter.ts`'s private/local-address guard,
+ported verbatim, applied at the identical point `dm.ts` already
+established as necessary (`NDKRelaySet.fromRelayUrls()` bypasses NDK's
+own pool-level filter); the DVM's exact reconnect-backoff shape
+(1s→30s doubling, reset after a minute stable) from
+`server/cmd/dvm/main.go`. A real correction found while researching, not
+assumed: there is no `webSocketImpl` NDK constructor option in this
+version — the fix is a global `globalThis.WebSocket = require('ws')`
+polyfill applied as the literal first lines of `index.js`, before any
+other import (several modules transitively import NDK).
+
+**Session continuity**: `claude -p --session-id <uuid>` on the first
+message, `-r <uuid>` on every later one, persisted to `agent/state/state.json`
+so a daemon restart resumes the same conversation — verified live across
+genuinely separate processes. A resume against an invalid/expired id
+returns exit 1 with **plain-text** stderr even though
+`--output-format json` was requested (verified live) — `claudeSession.js`
+always checks the exit code before ever trying to parse stdout, and
+falls back to exactly one fresh-session retry with the same content
+before surfacing a real error DM, never a crash loop.
+
+**Cost guardrail, with real numbers from this exact repo**: a first
+message in a fresh session cost **~$1.42** (almost entirely
+`cache_creation` from CLAUDE.md's ~600KB+ being written fresh into the
+prompt cache), a follow-up minutes later in the same session cost
+**~$0.08** (cache hit). Expected, not a bug — `--max-budget-usd`
+(default 5) is a real per-invocation ceiling, not a soft target.
+
+**Real bug #1, found live during first-ever real-DM verification, not
+caught by the plan or by initial testing**: a genuine DM from the real
+owner (sent while the daemon had been running for over an hour) never
+triggered "Accepted DM from owner" in the live subscription — confirmed
+present on both `nostras.app` and `relay.damus.io` via direct `nak`
+query, confirmed **absent** from the daemon's own processed-wraps state
+and log. Root-caused by restarting the daemon: a fresh subscription
+(same `since` floor) picked it up and processed it correctly
+immediately, proving the *code path* was correct — the live,
+already-open subscription simply never received the real-time push. This
+is the identical root cause already fixed once in this project's own
+client (`client/src/lib/relayStatus.ts`'s "generation counter" fix for
+`useNoteFeed.ts`/`useNotifications.ts`): NDK does not automatically
+resend an existing subscription's REQ to a relay that reconnects after a
+drop, and this daemon's `nostras.app` connection had in fact briefly
+dropped and recovered earlier the same session. The reconnect loop
+(`relayReconnect.js`) was ported without its necessary counterpart.
+**Fixed** by having `relayReconnect.js`'s `onRecovery(url)` callback
+(fires only on a disconnected→connected *transition*, never the initial
+connect) drive `index.js` to `.stop()` and reissue `dmInbox.js`'s
+subscription — safe and idempotent regardless of cause, since the
+persisted `processedWraps` set means anything already handled is
+silently skipped on the fresh REQ's replayed backlog, never reprocessed.
+
+**Real bug #2, found in the same verification session**: the first
+version of `relayReconnect.js` iterated `ndk.pool.relays` wholesale, not
+just the daemon's own fixed `LISTEN_RELAY_URLS`. Confirmed live: after a
+single reply round-trip (which calls `discoverRecipientDmRelays` to find
+the owner's real, many-relay kind:10050/10002 list), the reconnect loop
+had picked up **24 distinct relay URLs** — every relay `NDKRelaySet.fromRelayUrls()`
+had added to the shared pool as an ordinary side effect of that one-off
+discovery lookup, none of which this daemon has any reason to actively
+monitor or reconnect. **Fixed** by looking up only the 3 configured
+listen relays from the pool by their exact normalized URL
+(`normalizeRelayUrl`), rather than iterating whatever the pool happens
+to contain at any given moment — the pool itself is genuinely dynamic by
+design (same already-documented NDK behavior noted for the browser
+client's own relay list), and only the daemon's own fixed set should
+ever be actively managed.
+
+**Verified for real, end to end, against real production infrastructure
+— not a mock**: `node --check` clean on every file. Daemon boots,
+generates and persists a stable identity, connects to all three listen
+relays. `npm run setup-identity` published a real kind:0 + kind:10050 to
+`nostras.app`, confirmed via direct `nak` query. A gift-wrapped DM from a
+real throwaway (non-owner) identity was correctly decrypted, correctly
+identified as not-the-owner, and silently dropped — no Claude spawn, no
+reply, confirmed via the daemon's own log showing zero other activity.
+A **real DM from the real owner** (sent live, from their own NOSTRAS
+session) was — after the resubscribe fix — decrypted, verified, and
+dispatched to a real headless Claude Code session with full autonomy;
+the daemon received a real reply and sent it back as a real gift-wrapped
+DM, confirmed present on `nostras.app` via `nak`. Post-fix, a fresh
+20-second observation window showed the reconnect loop tracking exactly
+the 3 intended relay URLs and nothing else.
+
+**Not yet independently re-verified after this entry's two fixes**:
+the original owner-DM round trip that surfaced both bugs was completed
+*before* bug #2's fix (the 24-relay scope creep) was applied — worth a
+fresh end-to-end DM once the daemon has been running a while, to confirm
+the fixed reconnect loop doesn't reintroduce either gap. Session
+continuity across multiple real DMs, and a deliberate daemon-restart-
+mid-conversation test, are both still open from the original
+verification plan — not yet exercised against the fixed code.
+
+## Known future idea, not started: "Nostras Agent" — a public, autonomous
+lead-gen identity (2026-08-17)
+
+Brainstormed directly after the Desktop Agent's first successful real-DM
+round trip: could the same underlying mechanism (an LLM agent
+controllable via NIP-17 DM) power a second, **separate** public identity
+whose job is business development rather than coding — explain itself
+honestly, engage with the Nostr community where genuinely relevant, and
+funnel people who want something similar to DM MMO directly. Explicitly
+reframed and agreed before any scoping: the objective is "explain itself
+honestly and engage where genuinely relevant," follower growth as a
+*side effect* not the target metric — matching this project's own
+already-established growth philosophy (trust over volume) rather than
+another engagement-farming bot. Real, already-proven precedent already
+exists in this exact ecosystem: `SOVEREIGN_CITIZENS`, a second identity
+already run as "a local-first AI agent that runs a business," reached
+~500 followers organically with none of this built.
+
+**The bigger thesis this agent would market for, not itself**: a
+generic, LLM-agnostic "bring your own agent to Nostr" service — not
+scoped to NOSTRAS or Anthropic specifically, since the underlying
+mechanism is a protocol-level integration any NIP-17-compliant client
+could use. This one evangelist identity would be the top-of-funnel for
+that eventual product, not the product itself; the generic multi-tenant
+platform is a separate, much larger, not-yet-scoped initiative.
+
+**One real, deliberate departure from this project's own standing
+pattern, confirmed explicitly, not assumed**: asked directly whether
+"100% autonomous" meant operational autonomy (runs unattended, on its
+own schedule) or content autonomy (posts/engages with strangers with no
+review step) — the user chose **fully autonomous, no review**. Every
+other public-facing action in this project's history (`/engage`, every
+real reply, every real post) has gone through a human-approval step
+first; this would be the first exception. Named clearly as a real
+tradeoff before the decision was made, not glossed over.
+
+**Full scoping (open infra/landing-page/content-policy questions, the
+explicit "concept only, nothing built" status) lives in
+`NOSTRAS-AGENT.md`'s second section**, kept in that operator-facing doc
+rather than duplicated here — this entry is the pointer + the
+decision-history record. Not started; needs its own dedicated planning
+pass (new identity, Fly deploy shape, a stop/pause mechanism given the
+no-review-step decision above) before any code gets written.
+
+## Cheap first test shipped, same day: the existing Desktop Agent identity's
+public profile updated — no new infra (2026-08-17)
+
+Before committing to a whole new identity + Fly infra + landing page for
+the "Nostras Agent" concept above, the user proposed a genuinely cheap
+validation: just make the *existing* Desktop Agent's already-public
+kind:0 profile honestly explain itself to anyone who stumbles on it,
+and point them at MMO's own npub — testing the actual hypothesis
+(does an "AI agent with a real owner" profile draw curiosity?) with zero
+new infrastructure. This changes nothing about what the daemon
+*does* — it still only ever acts on real DMs from MMO's real pubkey,
+exactly as before; this is purely a public metadata edit on an identity
+that was already publicly visible.
+
+New `agent/scripts/update-profile.js`: fetches the current kind:0 first
+and merges onto it (`{...current, about, picture}`), not a wholesale
+replace — same discipline `ProfileEditor.tsx` already established for
+the client's own profile editing, for the identical reason (a blind
+replace would silently wipe fields this script doesn't know about,
+though in this case there were none yet beyond `name`). Uploads a new
+avatar to Blossom first, reusing the exact BUD-11 auth-header encoding
+`client/src/lib/blossom.ts` already verified this real server actually
+accepts (standard base64 with padding, not the spec's base64url-without-
+padding — a real spec-vs-server mismatch this project already found
+once). The source avatar (575×513, not square) was padded to a 575×575
+square using its own sampled background color before upload, so the
+logo isn't cropped by whichever client's own avatar-circle rendering —
+not assumed safe, checked the actual corner pixel color first so the
+padding blends in rather than introducing a visible seam.
+
+New bio, explicit about the one thing that actually matters for a
+stranger reading it: "I only take instructions from my operator, MMO —
+I never act on messages from anyone else... want something like it for
+yourself? DM MMO: npub1pks6z6dyu6z...". Deliberately corrects the
+previous wording ("DM me and I'll work on the NOSTRAS repo"), which
+read as an open invitation rather than what's actually true.
+
+**Verified for real, not just published and trusted**: confirmed via a
+direct `nak req -k 0` against `wss://nostras.app` that the live event's
+`content` matches exactly, and confirmed via a direct `curl -I` against
+the resulting Blossom URL that the new avatar genuinely serves
+(`200`, `image/png`, byte-count matching the uploaded file). The running
+Desktop Agent daemon was left untouched throughout — this script runs as
+a separate one-off process using the same persisted identity, no
+daemon restart needed.
+
 ## Page Views moved admin-only; a real waitlist "data loss" report traced
 to a known deploy-timing gap, not a new bug (2026-08-17)
 

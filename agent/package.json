@@ -1,0 +1,16 @@
+{
+  "name": "nostr-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local, single-user Nostr-DM-controlled Claude Code daemon, scoped to the NOSTR repo. Never deployed — runs only on the operator's own desktop.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "setup-identity": "node scripts/setup-identity.js"
+  },
+  "dependencies": {
+    "@nostr-dev-kit/ndk": "^3.0.3",
+    "ws": "^8.21.2"
+  }
+}

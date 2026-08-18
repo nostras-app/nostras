@@ -1,0 +1,9 @@
+node_modules
+
+# Runtime state — session id, processed-DM dedup set, local logs. Not
+# secrets, but not something to check in either (machine-specific,
+# constantly changing).
+state/*.json
+state/*.log
+state/*.pid
+*.log
