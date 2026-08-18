@@ -280,11 +280,18 @@ func main() {
 	// is the exact same aggregate, no-PII connection-count/country data
 	// the public /stats page (see stats.go) fetches directly from a
 	// visitor's own browser, which can't attach the dashboard password.
-	// Real health/DVM-health/waitlist data stays gated below; this
-	// endpoint was already the one genuinely safe-to-publish piece of
-	// what /dashboard/data-adjacent routes expose.
-	relay.Router().HandleFunc("GET /dashboard/data", handleDashboardData(analytics, pageViews))
+	// Real health/DVM-health/waitlist/page-view data stays gated below;
+	// this endpoint was already the one genuinely safe-to-publish piece
+	// of what /dashboard/data-adjacent routes expose.
+	relay.Router().HandleFunc("GET /dashboard/data", handleDashboardData(analytics))
 	relay.Router().HandleFunc("GET /dashboard/health", requireDashboardAuth(dashboardPassword, handleDashboardHealth))
+	// Per-page landing traffic — briefly public alongside /dashboard/data
+	// above (shipped 2026-08-16), moved behind the same auth gate as
+	// waitlist signups the same day, per an explicit reconsideration:
+	// unlike aggregate connection counts, per-page breakdowns were judged
+	// worth keeping operator-only. See handleDashboardPageViews's own
+	// comment in dashboard.go.
+	relay.Router().HandleFunc("GET /dashboard/pageviews", requireDashboardAuth(dashboardPassword, handleDashboardPageViews(pageViews)))
 
 	// NOSTRAS Node waitlist — see waitlist.go/waitlist_handlers.go/
 	// node.html. A real signup (email + optional note), not a mock,

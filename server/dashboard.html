@@ -540,7 +540,21 @@ async function load() {
 
   drawChart(byDay);
   renderCountries(byDay);
-  renderPageViews((data.page_views && data.page_views.by_page) || {});
+}
+
+// Separate, gated endpoint as of the same day this was made admin-only
+// (previously piggybacked on the public /dashboard/data response) — see
+// handleDashboardPageViews's own comment in dashboard.go.
+async function loadPageViews() {
+  let res;
+  try {
+    res = await fetch("/dashboard/pageviews");
+  } catch {
+    return;
+  }
+  if (!res.ok) return;
+  const data = await res.json();
+  renderPageViews(data.by_page || {});
 }
 
 function fmtUptime(seconds) {
@@ -625,6 +639,7 @@ async function loadHealth() {
 load();
 loadHealth();
 loadWaitlist();
+loadPageViews();
 setInterval(load, 60000);
 setInterval(loadHealth, 3000);
 window.addEventListener("resize", load);

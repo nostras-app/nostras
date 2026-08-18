@@ -37,16 +37,28 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	w.Write(dashboardHTML)
 }
 
-func handleDashboardData(store *analyticsStore, pageViews *pageViewStore) http.HandlerFunc {
+func handleDashboardData(store *analyticsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(struct {
-			analyticsStore
-			PageViews pageViewStore `json:"page_views"`
-		}{
-			analyticsStore: store.snapshot(),
-			PageViews:      pageViews.snapshot(),
-		})
+		json.NewEncoder(w).Encode(store.snapshot())
+	}
+}
+
+// Real per-page landing-page traffic, deliberately admin-only — unlike
+// the connection/country analytics in handleDashboardData, this was
+// briefly public (shipped that way 2026-08-16, following the same
+// "operator-visible usage data should be public" reasoning already
+// applied to connection counts) and then explicitly reconsidered:
+// the user asked for it moved behind the same auth gate as the
+// waitlist. Kept as its own endpoint, same shape as
+// handleDashboardWaitlist, rather than folded back into
+// handleDashboardData behind a conditional — a public/private split at
+// the endpoint level is harder to accidentally regress than a runtime
+// check inside a handler shared by both a public and a gated page.
+func handleDashboardPageViews(pageViews *pageViewStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(pageViews.snapshot())
 	}
 }
 

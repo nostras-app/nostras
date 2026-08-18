@@ -9938,6 +9938,66 @@ one already-proven-correct utility function, applied identically to a
 mechanically identical call shape each time, was judged sufficient
 given the mechanism itself (not just its application) was already
 proven live for the original two files.
+## Page Views moved admin-only; a real waitlist "data loss" report traced
+to a known deploy-timing gap, not a new bug (2026-08-17)
+
+Two real user reports, checked directly rather than assumed.
+
+**Page Views**: shipped public on `/stats` the day before (2026-08-16),
+following the same "operator-visible usage data should be public"
+reasoning already applied to connection analytics — a deliberate choice
+at the time, not a bug, confirmed by re-reading that entry before
+touching anything. User reconsidered and asked for it moved behind the
+same auth gate as the waitlist. `handleDashboardData` (`server/
+dashboard.go`) no longer takes or returns `pageViews` — split into its
+own `handleDashboardPageViews`, registered as `GET /dashboard/pageviews`
+behind `requireDashboardAuth` (`server/main.go`), same shape as the
+existing `handleDashboardWaitlist`. `stats.html` had its "Page views —
+landing pages" section and `renderPageViews`/`PAGE_LABELS` JS removed
+entirely (with the method-note footer text corrected — it previously
+claimed all shown data was "the exact same data our own operator
+dashboard uses internally," no longer accurate once page views became
+admin-only there). `dashboard.html` keeps its own already-existing
+`renderPageViews`, now fed by a new `loadPageViews()` fetching the
+gated endpoint separately instead of pulling it off the shared public
+`/dashboard/data` response.
+
+**Verified locally before deploying, all three real behaviors, not
+assumed from reading the diff**: ran the relay with a real dashboard
+password set, hit `/` and `/why` a few real times to generate genuine
+page-view data, then confirmed directly — `/dashboard/data` no longer
+contains a `page_views` key at all; `/dashboard/pageviews` with no
+credentials returns a real `401`; the same endpoint with correct
+credentials returns the real counts matching the actual requests just
+made (`{"total":3,"by_page":{"home":{...2},"why":{...1}}}`); `/stats`'s
+HTML no longer contains the string "Page views" anywhere; `/dashboard`'s
+HTML (with auth) still does.
+
+**The waitlist "disappeared" report, investigated live against the
+production machine, not assumed**: the user reported a real signup from
+"yesterday" was gone (`/dashboard` showing "No signups yet"). Confirmed
+via `flyctl ssh console` that `NOSTRAS_WAITLIST_PATH` is correctly set
+and active on the live machine (`/data/node-waitlist.json`), but that
+exact file didn't exist on disk at all — narrowed via `git log`/`gh run
+list` to a real, already-understood timing gap: the `/node` waitlist
+page itself went live 2026-08-15 at 20:20 UTC, but the fix making its
+storage persistent (the same `/data`-volume convention already applied
+to analytics/push-subscriptions) didn't deploy until 2026-08-16 at
+18:40 UTC — nearly 22 hours where any signup would have landed on the
+container's ephemeral filesystem and been lost on that exact deploy's
+restart. No deploy has happened since, so a signup from within that
+window explains the empty state without indicating any new problem.
+
+**Confirmed the fix holds, not just configured correctly**: the user
+submitted a genuine fresh test signup through the real `/node` page;
+independently verified via `flyctl ssh console` that
+`/data/node-waitlist.json` on the live machine now contains that exact
+entry (`mauromoro@msn.com`, `"this is a test"`) — real persistence,
+confirmed on disk, not just trusted from the dashboard UI.
+
+`go build`/`go vet`/`gofmt -l` all clean. Not yet deployed as of this
+entry — verified entirely against a local instance plus direct
+inspection of the live production filesystem, deploy still pending.
 
 ## Architecture
 

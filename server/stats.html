@@ -153,24 +153,18 @@
       <div id="countries-wrap"></div>
     </section>
 
-    <section class="panel">
-      <h2>Page views — landing pages</h2>
-      <div id="pageviews-wrap"></div>
-    </section>
-
     <div class="method-note">
       <strong>What this counts, honestly:</strong> unique relay WebSocket
       connections to NOSTRAS's own node — not unique visitors. A reload,
       a reconnect after a network hiccup, or the same person on multiple
       devices each count separately, so treat this as a volume/trend
-      signal, not a precise headcount. Page views (above) count each
-      real HTTP request to these three pages the same way — a reload
-      counts again, there's no cookie or session tracking involved.
-      Country is looked up from the connecting IP address at request
-      time only; the IP itself is never stored, only the resulting
-      country code. This is the exact same data our own operator
-      dashboard uses internally — nothing here is a separate, curated
-      number.
+      signal, not a precise headcount. Country is looked up from the
+      connecting IP address at request time only; the IP itself is never
+      stored, only the resulting country code. This is the exact same
+      connection data our own operator dashboard uses internally —
+      nothing here is a separate, curated number. (Per-page landing
+      traffic is tracked too, but kept operator-only rather than shown
+      here.)
     </div>
   </div>
 </main>
@@ -317,44 +311,6 @@ function renderCountries(byDay) {
   wrap.innerHTML = html;
 }
 
-const PAGE_LABELS = { home: "Home (/)", why: "Why NOSTRAS (/why)", node: "NOSTRAS Node (/node)" };
-
-function renderPageViews(byPage) {
-  const wrap = document.getElementById("pageviews-wrap");
-  const pages = Object.keys(byPage);
-  if (pages.length === 0) {
-    wrap.innerHTML = '<div class="empty">No page views recorded yet.</div>';
-    return;
-  }
-
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const weekKeys = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() - i);
-    weekKeys.push(d.toISOString().slice(0, 10));
-  }
-
-  const rows = pages.map((page) => {
-    const byDay = byPage[page] || {};
-    let total = 0, today = 0, week = 0;
-    for (const [day, countries] of Object.entries(byDay)) {
-      const sum = Object.values(countries).reduce((a, b) => a + b, 0);
-      total += sum;
-      if (day === todayKey) today += sum;
-      if (weekKeys.includes(day)) week += sum;
-    }
-    return { page, total, today, week };
-  }).sort((a, b) => b.total - a.total);
-
-  let html = '<table><thead><tr><th>Page</th><th class="num">Total</th><th class="num">Today</th><th class="num">Last 7 days</th></tr></thead><tbody>';
-  for (const r of rows) {
-    html += `<tr><td>${PAGE_LABELS[r.page] || r.page}</td><td class="num">${r.total.toLocaleString()}</td><td class="num">${r.today.toLocaleString()}</td><td class="num">${r.week.toLocaleString()}</td></tr>`;
-  }
-  html += "</tbody></table>";
-  wrap.innerHTML = html;
-}
-
 async function load() {
   const res = await fetch("/dashboard/data");
   if (!res.ok) {
@@ -389,7 +345,6 @@ async function load() {
 
   drawChart(byDay);
   renderCountries(byDay);
-  renderPageViews((data.page_views && data.page_views.by_page) || {});
 }
 
 load();
