@@ -678,7 +678,7 @@ func handleArticleUnlockJob(ctx context.Context, relay *nostr.Relay, sk, article
 	}
 
 	publishPaymentRequiredFor(ctx, relay, sk, req, priceMsat, authorInvoice.PR, "author")
-	if settled, _ := pollLnurlVerify(ctx, authorInvoice.Verify); !settled {
+	if settled, _, _ := pollLnurlVerify(ctx, authorInvoice.Verify); !settled {
 		publishFeedback(ctx, relay, sk, req, "error", "author payment not received in time")
 		return
 	}
@@ -858,7 +858,7 @@ func handleGroupJoinJob(ctx context.Context, relay *nostr.Relay, sk, communityKe
 	}
 
 	publishPaymentRequiredFor(ctx, relay, sk, req, priceMsat, payoutInvoice.PR, "group")
-	if settled, _ := pollLnurlVerify(ctx, payoutInvoice.Verify); !settled {
+	if settled, _, _ := pollLnurlVerify(ctx, payoutInvoice.Verify); !settled {
 		publishFeedback(ctx, relay, sk, req, "error", "group payment not received in time")
 		return
 	}
@@ -1024,7 +1024,8 @@ func handleListingPurchaseJob(ctx context.Context, relay *nostr.Relay, sk string
 	}
 
 	publishPaymentRequiredFor(ctx, relay, sk, req, priceMsat, sellerInvoice.PR, "seller")
-	if settled, _ := pollLnurlVerify(ctx, sellerInvoice.Verify); !settled {
+	settled, preimage, _ := pollLnurlVerify(ctx, sellerInvoice.Verify)
+	if !settled {
 		publishFeedback(ctx, relay, sk, req, "error", "seller payment not received in time")
 		return
 	}
@@ -1046,7 +1047,7 @@ func handleListingPurchaseJob(ctx context.Context, relay *nostr.Relay, sk string
 
 	publishFeedback(ctx, relay, sk, req, "processing", "")
 
-	receiptID, err := publishMarketplaceLabel(ctx, relay, sk, listingID, req.PubKey, priceSats)
+	receiptID, err := publishMarketplaceLabel(ctx, relay, sk, listingID, req.PubKey, priceSats, preimage)
 	if err != nil {
 		publishFeedback(ctx, relay, sk, req, "error", "seller payment received, but the receipt could not be published — please contact support")
 		return
@@ -1061,17 +1062,30 @@ func handleListingPurchaseJob(ctx context.Context, relay *nostr.Relay, sk string
 	signAndPublish(ctx, relay, sk, result)
 }
 
-// publishMarketplaceLabel publishes a real, independently-verifiable
-// NIP-32 label (kind:1985) attesting a listing's Buy Now payment
-// genuinely settled — the DVM's honest ceiling, since it cannot sign as
-// the listing's own seller to mark it "sold" directly (see
-// handleListingPurchaseJob above). Mirrors publishModerationLabel's L/l
-// namespace-tag shape with a different namespace/value. Signs and
-// publishes directly here, not via signAndPublish/signAndPublishChecked
-// (which take the event by value, so the ID they compute internally
-// never reaches the caller) — the caller needs the real event id back
-// to link the buyer straight to the receipt.
-func publishMarketplaceLabel(ctx context.Context, relay *nostr.Relay, sk, listingID, buyerPubkey string, amountSats int64) (string, error) {
+// publishMarketplaceLabel publishes a NIP-32 label (kind:1985) attesting
+// a listing's Buy Now payment genuinely settled — the DVM's honest
+// ceiling, since it cannot sign as the listing's own seller to mark it
+// "sold" directly (see handleListingPurchaseJob above). Mirrors
+// publishModerationLabel's L/l namespace-tag shape with a different
+// namespace/value. Signs and publishes directly here, not via
+// signAndPublish/signAndPublishChecked (which take the event by value,
+// so the ID they compute internally never reaches the caller) — the
+// caller needs the real event id back to link the buyer straight to
+// the receipt.
+//
+// Includes the real Lightning payment preimage from the seller's own
+// LUD-21 verify response, as a "preimage" tag — added 2026-08-21, in
+// direct response to a real public question asking exactly what this
+// receipt proves. Before this, the preimage was fetched from the
+// verify endpoint and then silently discarded, so the receipt was only
+// ever "the DVM independently checked with the seller's own service and
+// it said yes" — a real, honest limitation, not something to overstate:
+// this still doesn't make the receipt *self-verifying* by a third party
+// without also being able to check the preimage against the invoice's
+// own payment_hash, which this DVM doesn't currently decode from the
+// bolt11 string — but it's real cryptographic evidence tied to this
+// specific payment now, not just an attestation.
+func publishMarketplaceLabel(ctx context.Context, relay *nostr.Relay, sk, listingID, buyerPubkey string, amountSats int64, preimage string) (string, error) {
 	evt := nostr.Event{
 		Kind:    kindLabel,
 		Content: fmt.Sprintf("Payment of %d sats confirmed for this listing from %s at %s.", amountSats, buyerPubkey, time.Now().UTC().Format(time.RFC3339)),
@@ -1080,6 +1094,7 @@ func publishMarketplaceLabel(ctx context.Context, relay *nostr.Relay, sk, listin
 			{"l", "purchased", marketplaceLabelNamespace},
 			{"e", listingID},
 			{"p", buyerPubkey},
+			{"preimage", preimage},
 		},
 		CreatedAt: nostr.Now(),
 	}

@@ -135,7 +135,17 @@ func fetchLnurlInvoice(ctx context.Context, callback string, msat int64) (*lnurl
 // or paymentWaitWindow elapses — same polling shape as requirePayment's
 // own lookup_invoice loop, just over HTTP instead of NWC, since this
 // DVM has no wallet connection to the author's own wallet.
-func pollLnurlVerify(ctx context.Context, verifyURL string) (bool, error) {
+//
+// Real gap found and fixed 2026-08-21, prompted by a real public
+// question about the marketplace receipt's own proof strength: the
+// verify response already carries a real payment preimage, but this
+// function used to discard it and return only the settled boolean —
+// so publishMarketplaceLabel's receipt was "the DVM says it checked
+// and it settled," not something carrying its own cryptographic
+// evidence. Now returns the preimage too, so callers that want a
+// stronger receipt (currently just the marketplace one) can include
+// it.
+func pollLnurlVerify(ctx context.Context, verifyURL string) (bool, string, error) {
 	deadline := time.Now().Add(paymentWaitWindow)
 	for time.Now().Before(deadline) {
 		time.Sleep(paymentPollEvery)
@@ -144,8 +154,8 @@ func pollLnurlVerify(ctx context.Context, verifyURL string) (bool, error) {
 			continue // transient failure — keep polling until the deadline
 		}
 		if v.Status == "OK" && v.Settled {
-			return true, nil
+			return true, v.Preimage, nil
 		}
 	}
-	return false, nil
+	return false, "", nil
 }
