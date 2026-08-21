@@ -71,6 +71,26 @@ const (
 	kindJobRequestCommunityJoin = 5906
 	kindJobResultCommunityJoin  = 6906
 
+	// Marketplace "Buy Now" purchase confirmation — 5907/6907, the next
+	// free slot in the same custom 590x cluster paid-article-unlock
+	// (5904) and paid-community-join (5906) already live in. Checked
+	// against the vendored NIP-90 kind registry (go-nostr's
+	// nip90/kinds.go — 5900/5901/5905/5970 taken nearby, nothing at
+	// 5907), the live upstream registry (github.com/nostr-protocol/
+	// data-vending-machines/kinds — same four files, no 5907.md), and
+	// NDK's own NDKKind enum (no entry at all), same discipline as
+	// every prior job kind pick here. Structurally the DVM cannot sign
+	// as the listing's own seller (unlike Communities, there's no
+	// persisted "listing-admin" key concept), so this job's actual
+	// output is a real, independently-verifiable NIP-32 label (see
+	// publishMarketplaceLabel) attesting the seller was paid — not a
+	// state change to the listing itself, which stays the seller's own
+	// action, same fetch-then-merge republish every other owner-edit in
+	// this app already uses.
+	kindJobRequestListingPurchase = 5907
+	kindJobResultListingPurchase  = 6907
+	kindListing                   = 30402
+
 	kindJobFeedback = 7000
 
 	// NIP-32 labeling — see publishModerationLabel. A moderate-job result
@@ -80,6 +100,11 @@ const (
 	// for it independently of ever having run this exact job.
 	kindLabel                = 1985
 	moderationLabelNamespace = "org.nostras.moderation"
+	// A second, separate NIP-32 namespace for marketplace purchase
+	// receipts — see publishMarketplaceLabel. Distinct from the
+	// moderation namespace above; same kindLabel (1985), different `L`
+	// value, so the two never collide despite sharing an event kind.
+	marketplaceLabelNamespace = "org.nostras.marketplace"
 
 	// NIP-89 handler information event, reused by NIP-90 (Appendix 2:
 	// "Service provider discoverability") to advertise a DVM's supported
@@ -123,6 +148,13 @@ const (
 	// recipient; this is NOSTRAS's own flat fee for running the join/
 	// admission service, near-zero marginal cost either way.
 	communityJoinFeeSats = 21
+
+	// Same shape and reasoning again: a listing's own price goes
+	// straight to the seller; this is NOSTRAS's own flat fee for
+	// running the purchase-confirmation/receipt service. Reuses the
+	// existing flat-fee convention rather than a dedicated env var —
+	// one can be added later if a different rate is ever wanted.
+	marketplacePurchaseFeeSats = 21
 
 	// claude-opus-5 pricing (per shared/models.md — keep in sync if the
 	// model ever changes). Job pricing is computed from these rather than
@@ -336,7 +368,7 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, a
 	publishHandlerAnnouncement(ctx, relay, sk, articleKeyPk, communityKeyPk)
 	publishClientHandlerAnnouncement(ctx, relay, sk)
 
-	kinds := []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate, kindJobRequestModerate}
+	kinds := []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate, kindJobRequestModerate, kindJobRequestListingPurchase}
 	if articleKeySk != "" {
 		kinds = append(kinds, kindJobRequestArticleUnlock)
 	}
@@ -399,6 +431,10 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 	}
 	if req.Kind == kindJobRequestCommunityJoin {
 		handleGroupJoinJob(ctx, relay, sk, communityKeySk, payment, req)
+		return
+	}
+	if req.Kind == kindJobRequestListingPurchase {
+		handleListingPurchaseJob(ctx, relay, sk, payment, req)
 		return
 	}
 
@@ -873,6 +909,189 @@ func handleGroupJoinJob(ctx context.Context, relay *nostr.Relay, sk, communityKe
 	signAndPublish(ctx, relay, sk, result)
 }
 
+// listingPriceSats converts a NIP-99 listing's ["price", amount, currency,
+// frequency?] tag into a real sats amount to invoice. "sats"/"btc" convert
+// directly; "usd" converts via the same live BTC/USD rate feed already
+// used for dynamic job pricing (fetchBTCUSDRate). Any other currency, or
+// a missing/malformed price tag, is a real, stated scope limit for Buy
+// Now — not silently mishandled.
+func listingPriceSats(ctx context.Context, tags nostr.Tags) (int64, error) {
+	priceTag := tags.Find("price")
+	if len(priceTag) < 3 {
+		return 0, fmt.Errorf("this listing has no price set")
+	}
+	amount, err := strconv.ParseFloat(priceTag[1], 64)
+	if err != nil || amount <= 0 {
+		return 0, fmt.Errorf("this listing has an invalid price")
+	}
+	switch strings.ToLower(priceTag[2]) {
+	case "sats", "sat":
+		return int64(math.Round(amount)), nil
+	case "btc":
+		return int64(math.Round(amount * 100_000_000)), nil
+	case "usd":
+		rate, err := fetchBTCUSDRate(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("could not look up a live BTC/USD rate to price this listing: %w", err)
+		}
+		return int64(math.Round(amount / rate * 100_000_000)), nil
+	default:
+		return 0, fmt.Errorf("this listing is priced in %s, which Buy Now doesn't support yet (sats, btc, and usd only)", priceTag[2])
+	}
+}
+
+// handleListingPurchaseJob confirms a real "Buy Now" payment for a
+// NIP-99 classified listing (kind:30402) and publishes a public,
+// independently-verifiable receipt. This DVM structurally cannot mark
+// the listing itself "sold" — that event is signed by the seller's own
+// key, and unlike Communities there's no persisted "listing-admin" key
+// concept to lean on — so the receipt (see publishMarketplaceLabel) is
+// the honest ceiling: an attested statement that a real payment
+// settled, not a state change to the listing. Marking it sold stays
+// the seller's own action, same fetch-then-merge republish every other
+// owner-edit in this app already uses.
+func handleListingPurchaseJob(ctx context.Context, relay *nostr.Relay, sk string, payment *paymentConfig, req *nostr.Event) {
+	markJobReceived()
+
+	// Deliberately not requiring iTag[2] == "event" (unlike
+	// handleArticleUnlockJob) — this reuses the client's generic
+	// requestDvmJob() helper (lib/dvm.ts), which always sends a plain
+	// ["i", value, "text"] tag with no per-call override, same
+	// convention handleGroupJoinJob already accepts. The value is still
+	// a real event id either way, just not marked "event" — the DVM
+	// looks it up by id regardless of the tag's own type marker.
+	iTag := req.Tags.Find("i")
+	if len(iTag) < 2 || iTag[1] == "" {
+		publishFeedback(ctx, relay, sk, req, "error", `missing required i tag naming the listing (["i", "<listing-event-id>"])`)
+		return
+	}
+	listingID := iTag[1]
+
+	found, err := relay.QuerySync(ctx, nostr.Filter{IDs: []string{listingID}, Kinds: []int{kindListing}})
+	if err != nil || len(found) == 0 {
+		publishFeedback(ctx, relay, sk, req, "error", "could not find that listing")
+		return
+	}
+	listing := found[0]
+
+	if statusTag := listing.Tags.Find("status"); len(statusTag) >= 2 && statusTag[1] == "sold" {
+		publishFeedback(ctx, relay, sk, req, "error", "this listing has already been marked sold")
+		return
+	}
+
+	priceSats, err := listingPriceSats(ctx, listing.Tags)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+
+	// Same real-provenance reasoning as the paid-article author payout:
+	// this DVM fetches a real invoice itself, directly from the domain
+	// in the seller's own published lud16 — that HTTPS call is what
+	// actually establishes it's genuine, not anything checkable about
+	// an invoice string after the fact.
+	sellerProfileEvents, err := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{0}, Authors: []string{listing.PubKey}, Limit: 1})
+	if err != nil || len(sellerProfileEvents) == 0 {
+		publishFeedback(ctx, relay, sk, req, "error", "could not find the seller's profile")
+		return
+	}
+	var sellerProfile struct {
+		Lud16 string `json:"lud16"`
+	}
+	if err := json.Unmarshal([]byte(sellerProfileEvents[0].Content), &sellerProfile); err != nil || sellerProfile.Lud16 == "" {
+		publishFeedback(ctx, relay, sk, req, "error", "the seller has no Lightning address set — cannot pay them")
+		return
+	}
+
+	lnurlParams, err := fetchLnurlPayParams(ctx, sellerProfile.Lud16)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+	priceMsat := priceSats * 1000
+	if priceMsat < lnurlParams.MinSendable || priceMsat > lnurlParams.MaxSendable {
+		publishFeedback(ctx, relay, sk, req, "error", "this listing's price is outside the seller's wallet's accepted range")
+		return
+	}
+	sellerInvoice, err := fetchLnurlInvoice(ctx, lnurlParams.Callback, priceMsat)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+	if invoiceMsat, err := bolt11Amount(sellerInvoice.PR); err != nil || invoiceMsat != priceMsat {
+		publishFeedback(ctx, relay, sk, req, "error", "the seller's wallet returned an invoice for the wrong amount")
+		return
+	}
+
+	publishPaymentRequiredFor(ctx, relay, sk, req, priceMsat, sellerInvoice.PR, "seller")
+	if settled, _ := pollLnurlVerify(ctx, sellerInvoice.Verify); !settled {
+		publishFeedback(ctx, relay, sk, req, "error", "seller payment not received in time")
+		return
+	}
+
+	// NOSTRAS's own flat fee for running the purchase-confirmation
+	// service — same operator wallet and requirePayment mechanism as
+	// every other job kind, a small flat amount separate from the
+	// listing's own price above.
+	if payment != nil {
+		paid, err := requirePayment(ctx, relay, sk, payment, req, marketplacePurchaseFeeSats)
+		if err != nil {
+			publishFeedback(ctx, relay, sk, req, "error", err.Error())
+			return
+		}
+		if !paid {
+			return
+		}
+	}
+
+	publishFeedback(ctx, relay, sk, req, "processing", "")
+
+	receiptID, err := publishMarketplaceLabel(ctx, relay, sk, listingID, req.PubKey, priceSats)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", "seller payment received, but the receipt could not be published — please contact support")
+		return
+	}
+
+	result := nostr.Event{
+		Kind:      kindJobResultListingPurchase,
+		CreatedAt: nostr.Now(),
+		Content:   receiptID,
+		Tags:      nostr.Tags{{"e", req.ID}, {"p", req.PubKey}, {"e", listingID, "", "listing"}},
+	}
+	signAndPublish(ctx, relay, sk, result)
+}
+
+// publishMarketplaceLabel publishes a real, independently-verifiable
+// NIP-32 label (kind:1985) attesting a listing's Buy Now payment
+// genuinely settled — the DVM's honest ceiling, since it cannot sign as
+// the listing's own seller to mark it "sold" directly (see
+// handleListingPurchaseJob above). Mirrors publishModerationLabel's L/l
+// namespace-tag shape with a different namespace/value. Signs and
+// publishes directly here, not via signAndPublish/signAndPublishChecked
+// (which take the event by value, so the ID they compute internally
+// never reaches the caller) — the caller needs the real event id back
+// to link the buyer straight to the receipt.
+func publishMarketplaceLabel(ctx context.Context, relay *nostr.Relay, sk, listingID, buyerPubkey string, amountSats int64) (string, error) {
+	evt := nostr.Event{
+		Kind:    kindLabel,
+		Content: fmt.Sprintf("Payment of %d sats confirmed for this listing from %s at %s.", amountSats, buyerPubkey, time.Now().UTC().Format(time.RFC3339)),
+		Tags: nostr.Tags{
+			{"L", marketplaceLabelNamespace},
+			{"l", "purchased", marketplaceLabelNamespace},
+			{"e", listingID},
+			{"p", buyerPubkey},
+		},
+		CreatedAt: nostr.Now(),
+	}
+	if err := evt.Sign(sk); err != nil {
+		return "", fmt.Errorf("sign error: %w", err)
+	}
+	if err := relay.Publish(ctx, evt); err != nil {
+		return "", fmt.Errorf("publish error: %w", err)
+	}
+	return evt.ID, nil
+}
+
 // estimateJobCostSats prices a job proportionally to its actual expected
 // API cost: exact input tokens via the real count_tokens endpoint (free to
 // call, runs no inference), plus a typical-case assumption for the
@@ -1002,13 +1221,14 @@ func callClaude(ctx context.Context, claude anthropic.Client, systemPrompt, user
 // is dynamic per job (see estimateJobCostSats), so the description gives
 // a representative price band instead of a number that would go stale.
 func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, articleKeyPk, communityKeyPk string) {
-	about := "Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes."
+	about := fmt.Sprintf("Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes. Marketplace purchase confirmation (5907) — pay a NIP-99 listing's own seller directly via their real Lightning address, and get back a public, independently-verifiable NIP-32 receipt; NOSTRAS keeps a flat %d-sat fee for the confirmation service.", marketplacePurchaseFeeSats)
 	tags := nostr.Tags{
 		{"d", dvmHandlerDTag},
 		{"k", strconv.Itoa(kindJobRequestSummarize)},
 		{"k", strconv.Itoa(kindJobRequestTranslate)},
 		{"k", strconv.Itoa(kindJobRequestGenerate)},
 		{"k", strconv.Itoa(kindJobRequestModerate)},
+		{"k", strconv.Itoa(kindJobRequestListingPurchase)},
 	}
 	if articleKeyPk != "" {
 		about += fmt.Sprintf(" Paid long-form article unlock (5904) — the author sets the price and is paid directly via a real zap on the article; NOSTRAS keeps a flat %d-sat fee for the unlock service. Decrypted content is NIP-44-encrypted back to you specifically, not published in the clear.", articleAuthorPayoutFeeSats)

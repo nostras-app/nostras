@@ -5,6 +5,7 @@ import { useRelayStatus } from './useRelayStatus'
 import { KIND_POLL } from '../lib/poll'
 import { KIND_FORUM_THREAD } from '../lib/forum'
 import { KIND_PODCAST_EPISODE } from '../lib/podcast'
+import { KIND_LISTING } from '../lib/listing'
 
 // Not in NDK's own kind catalog — same gap already hit for several
 // other project-specific kinds this session (NIP-29 delete kinds,
@@ -43,13 +44,13 @@ const EOSE_FALLBACK_MS = 12000
 const MAX_RENDERED_EVENTS = 200
 
 // Subscribes to kind:1 notes, kind:30023 long-form articles, kind:9041
-// zap goals, kind:1068 polls, kind:11 forum threads, and kind:54 podcast
-// episodes — either the global feed (authors omitted) or a single
-// author's notes (profile view). Shared here so both call sites get the
-// same dedup/sort/eose/event:dup handling instead of two copies.
-// FeedItem (Feed.tsx) branches on event.kind to render a normal note, an
-// article card, a zap goal card, a poll card, a thread card, or a
-// podcast episode card.
+// zap goals, kind:1068 polls, kind:11 forum threads, kind:54 podcast
+// episodes, and kind:30402 classified listings — either the global feed
+// (authors omitted) or a single author's notes (profile view). Shared
+// here so both call sites get the same dedup/sort/eose/event:dup
+// handling instead of two copies. FeedItem (Feed.tsx) branches on
+// event.kind to render a normal note, an article card, a zap goal card,
+// a poll card, a thread card, a podcast episode card, or a listing card.
 //
 // Real, live UX report (2026-08-14): on a busy feed, a note arriving
 // live got prepended straight into `events`, reflowing everything below
@@ -180,7 +181,15 @@ export function useNoteFeed(
     // in the filter, NDK already queries the full explicit relay list
     // unconditionally, not gated on which relays happen to be CONNECTED
     // yet, so it was never subject to this race.
-    const kinds = [1, 30023, KIND_ZAP_GOAL, KIND_POLL as NDKKind, KIND_FORUM_THREAD, KIND_PODCAST_EPISODE]
+    const kinds = [
+      1,
+      30023,
+      KIND_ZAP_GOAL,
+      KIND_POLL as NDKKind,
+      KIND_FORUM_THREAD,
+      KIND_PODCAST_EPISODE,
+      KIND_LISTING,
+    ]
     const sub = ndk.subscribe(
       authors ? { kinds, authors, limit: 50 } : { kinds, limit: 50 },
       authors ? { relaySet: authorQueryRelaySet } : undefined,

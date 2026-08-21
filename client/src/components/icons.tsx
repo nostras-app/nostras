@@ -326,3 +326,16 @@ export function AwardIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+// NIP-99 Marketplace nav icon — a generic storefront/tag glyph, standard
+// icon-library shape, not a reproduction of any specific product's logo.
+export function StoreIcon({ className }: IconProps) {
+  return (
+    <svg {...shared} fill="none" stroke="currentColor" className={className}>
+      <path d="M3 9 5 3h14l2 6" />
+      <path d="M3 9a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0" />
+      <path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9" />
+      <path d="M9 21v-6h6v6" />
+    </svg>
+  )
+}

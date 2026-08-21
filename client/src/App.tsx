@@ -12,6 +12,8 @@ import { ArticleView } from './components/ArticleView'
 import { SingleNoteView } from './components/SingleNoteView'
 import { ThreadView } from './components/ThreadView'
 import { PodcastEpisodeView } from './components/PodcastEpisodeView'
+import { ListingView } from './components/ListingView'
+import { MarketplaceView } from './components/MarketplaceView'
 import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
 import { ProfileView } from './components/ProfileView'
@@ -50,7 +52,17 @@ function App() {
   // from anywhere (e.g. clicking an author's name deep inside FeedItem)
   // without prop-drilling a callback through every component that
   // renders one.
-  const { view: activeView, profilePubkey, article, note, thread, episode, dmTarget, groupTarget } = useNavState()
+  const {
+    view: activeView,
+    profilePubkey,
+    article,
+    note,
+    thread,
+    episode,
+    listing,
+    dmTarget,
+    groupTarget,
+  } = useNavState()
   const deepLinkResolved = useRef(false)
   const appPreferencesSynced = useRef(false)
 
@@ -220,6 +232,10 @@ function App() {
               {episode && <PodcastEpisodeView event={episode} />}
             </div>
 
+            <div className={panelClass('listing')}>
+              {listing && <ListingView event={listing} />}
+            </div>
+
             <section className={`card ${panelClass('ask-claude')}`}>
               <AskClaudeCard />
             </section>
@@ -238,6 +254,10 @@ function App() {
 
             <section className={`card ${panelClass('communities')}`}>
               <CommunitiesView groupTarget={groupTarget} />
+            </section>
+
+            <section className={`card ${panelClass('marketplace')}`}>
+              <MarketplaceView />
             </section>
 
             <div className={panelClass('notifications')}>

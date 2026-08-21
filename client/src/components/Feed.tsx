@@ -19,9 +19,11 @@ import { ZapGoalCard } from './ZapGoalCard'
 import { PollCard } from './PollCard'
 import { ThreadCard } from './ThreadCard'
 import { PodcastEpisodeCard } from './PodcastEpisodeCard'
+import { ListingCard } from './ListingCard'
 import { KIND_POLL } from '../lib/poll'
 import { KIND_FORUM_THREAD } from '../lib/forum'
 import { KIND_PODCAST_EPISODE } from '../lib/podcast'
+import { KIND_LISTING } from '../lib/listing'
 import { ReplyIcon } from './icons'
 
 // Real user-reported gap (2026-08-07): replies rendered as ordinary,
@@ -71,8 +73,8 @@ function ReplyContext({ replyToId }: { replyToId: string }) {
 // Branches on event.kind here (not at each call site) so every place
 // that already renders FeedItem — the global/following feed, search
 // results, bookmarks, a profile's own notes — automatically gets article
-// cards, zap goal cards, and poll cards mixed in for kind:30023/9041/1068
-// events too, no separate call needed.
+// cards, zap goal cards, poll cards, and listing cards mixed in for
+// kind:30023/9041/1068/30402 events too, no separate call needed.
 export function FeedItem({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
   const label = profile?.name || profile?.displayName || `${event.author.npub.slice(0, 12)}…`
@@ -96,6 +98,10 @@ export function FeedItem({ event }: { event: NDKEvent }) {
 
   if (event.kind === KIND_PODCAST_EPISODE) {
     return <PodcastEpisodeCard event={event} />
+  }
+
+  if (event.kind === KIND_LISTING) {
+    return <ListingCard event={event} />
   }
 
   return (

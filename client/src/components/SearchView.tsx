@@ -3,9 +3,25 @@ import { NDKRelaySet, NDKSubscriptionCacheUsage, type NDKEvent } from '@nostr-de
 import { ndk, localRelaySet, localRelayUrl, publicRelayUrls } from '../lib/ndk'
 import { resolvePubkeyInput, resolveNoteReference } from '../lib/resolvePubkey'
 import { makeRelayConnectionFilter } from '../lib/relayFilter'
+import type { NDKKind } from '@nostr-dev-kit/ndk'
 import { viewProfile, viewNote } from '../lib/navigation'
 import { FeedItem } from './Feed'
 import { SearchIcon } from './icons'
+import { KIND_POLL } from '../lib/poll'
+import { KIND_FORUM_THREAD } from '../lib/forum'
+import { KIND_PODCAST_EPISODE } from '../lib/podcast'
+import { KIND_LISTING } from '../lib/listing'
+
+// Same kind list useNoteFeed.ts subscribes the main feed to — search had
+// been kind:1-only since it was first built, so every other content type
+// this app supports (articles, zap goals, polls, forum threads, podcast
+// episodes, and now listings) was structurally unsearchable through this
+// UI even though the relay's own NIP-50 index (server/search.go) has
+// always indexed them regardless of kind. Found live while verifying
+// NIP-99 listings: a real published listing, confirmed present via a
+// direct `nak req --search` against the relay, came back "No results"
+// through this exact search box.
+const SEARCH_KINDS = [1, 30023, 9041, KIND_POLL as NDKKind, KIND_FORUM_THREAD, KIND_PODCAST_EPISODE, KIND_LISTING]
 
 type State = 'idle' | 'loading' | 'results' | 'empty' | 'error'
 
@@ -109,7 +125,7 @@ export function SearchView() {
       // relay's real NIP-50 match.
       const found = await withTimeout(
         ndk.fetchEvents(
-          { kinds: [1], search: trimmed, limit: 50 },
+          { kinds: SEARCH_KINDS, search: trimmed, limit: 50 },
           { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY, closeOnEose: true },
           localRelaySet,
         ),

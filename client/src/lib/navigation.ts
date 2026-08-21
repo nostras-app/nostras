@@ -9,6 +9,7 @@ type NavState = {
   note: NDKEvent | null
   thread: NDKEvent | null
   episode: NDKEvent | null
+  listing: NDKEvent | null
   dmTarget: string | null
   groupTarget: string | null
 }
@@ -20,6 +21,7 @@ let state: NavState = {
   note: null,
   thread: null,
   episode: null,
+  listing: null,
   dmTarget: null,
   groupTarget: null,
 }
@@ -35,14 +37,14 @@ function subscribe(listener: () => void) {
 }
 
 // Switching tabs via the nav rail always resets the profile/article/note/
-// thread/episode/dm/group panels back to their defaults — distinct from
-// viewProfile()/viewArticle()/viewNote()/viewThread()/viewEpisode()/
-// startDmWith()/viewGroup(), the only ways a specific pubkey/article/
-// note/thread/episode/dm/group target get shown there. Without this
-// reset, clicking Home then back could leave a previously-viewed
-// stranger's profile, an old article, a stale single-note view, a stale
-// thread, a stale episode, a stale DM thread, or a stale group chat
-// still showing.
+// thread/episode/listing/dm/group panels back to their defaults —
+// distinct from viewProfile()/viewArticle()/viewNote()/viewThread()/
+// viewEpisode()/viewListing()/startDmWith()/viewGroup(), the only ways a
+// specific pubkey/article/note/thread/episode/listing/dm/group target get
+// shown there. Without this reset, clicking Home then back could leave a
+// previously-viewed stranger's profile, an old article, a stale
+// single-note view, a stale thread, a stale episode, a stale listing, a
+// stale DM thread, or a stale group chat still showing.
 export function setActiveView(view: View) {
   state = {
     view,
@@ -51,6 +53,7 @@ export function setActiveView(view: View) {
     note: null,
     thread: null,
     episode: null,
+    listing: null,
     dmTarget: null,
     groupTarget: null,
   }
@@ -69,6 +72,7 @@ export function viewProfile(pubkey: string) {
     note: null,
     thread: null,
     episode: null,
+    listing: null,
     dmTarget: null,
     groupTarget: null,
   }
@@ -86,6 +90,7 @@ export function viewArticle(event: NDKEvent) {
     note: null,
     thread: null,
     episode: null,
+    listing: null,
     dmTarget: null,
     groupTarget: null,
   }
@@ -105,6 +110,7 @@ export function viewNote(event: NDKEvent) {
     note: event,
     thread: null,
     episode: null,
+    listing: null,
     dmTarget: null,
     groupTarget: null,
   }
@@ -122,6 +128,7 @@ export function viewThread(event: NDKEvent) {
     note: null,
     thread: event,
     episode: null,
+    listing: null,
     dmTarget: null,
     groupTarget: null,
   }
@@ -139,6 +146,25 @@ export function viewEpisode(event: NDKEvent) {
     note: null,
     thread: null,
     episode: event,
+    listing: null,
+    dmTarget: null,
+    groupTarget: null,
+  }
+  notify()
+}
+
+// Opens a NIP-99 classified listing's full view — same "already-fetched
+// event in hand" shape as viewArticle/viewNote/viewThread/viewEpisode,
+// reached by clicking a ListingCard in the feed or the Marketplace view.
+export function viewListing(event: NDKEvent) {
+  state = {
+    view: 'listing',
+    profilePubkey: null,
+    article: null,
+    note: null,
+    thread: null,
+    episode: null,
+    listing: event,
     dmTarget: null,
     groupTarget: null,
   }
@@ -157,6 +183,7 @@ export function startDmWith(pubkey: string) {
     note: null,
     thread: null,
     episode: null,
+    listing: null,
     dmTarget: pubkey,
     groupTarget: null,
   }
@@ -166,8 +193,8 @@ export function startDmWith(pubkey: string) {
 // Opens a specific group's chat view within Communities — used when
 // clicking a group card in the discovery list. Just an id (not an
 // already-fetched event, unlike viewArticle/viewNote/viewThread/
-// viewEpisode): group state is a live subscription (useGroupChat/
-// useGroupList), not a one-off fetch.
+// viewEpisode/viewListing): group state is a live subscription
+// (useGroupChat/useGroupList), not a one-off fetch.
 export function viewGroup(groupId: string) {
   state = {
     view: 'communities',
@@ -176,6 +203,7 @@ export function viewGroup(groupId: string) {
     note: null,
     thread: null,
     episode: null,
+    listing: null,
     dmTarget: null,
     groupTarget: groupId,
   }
