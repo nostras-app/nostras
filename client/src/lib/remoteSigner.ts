@@ -1,6 +1,7 @@
 import { NDKNip46Signer, NDKNip07Signer, type NDKUser } from '@nostr-dev-kit/ndk'
 import { ndk } from './ndk'
 import { getActiveIdentitySigner } from './identities'
+import { watchNip46RpcReconnect } from './nip46RpcReconnect'
 
 const MODE_KEY = 'nostras:signer-mode'
 const URI_KEY = 'nostras:remote-signer-uri'
@@ -35,12 +36,31 @@ function saveBunkerSession(uri: string, signer: NDKNip46Signer) {
   localStorage.setItem(LOCAL_KEY_KEY, signer.localSigner.privateKey)
 }
 
+// Tracks the currently-active NIP-46 RPC reconnect watcher (see
+// nip46RpcReconnect.ts) so a stale one is always torn down before a new
+// one starts — connecting a different bunker, restoring a saved
+// session, or logging off all need this cleared, or an old watcher
+// could keep retrying/resubscribing against a pool that's no longer in
+// use.
+let stopRpcReconnectWatcher: (() => void) | null = null
+
+function watchBunkerConnection(signer: NDKNip46Signer) {
+  stopRpcReconnectWatcher?.()
+  stopRpcReconnectWatcher = watchNip46RpcReconnect(signer)
+}
+
+function stopWatchingBunkerConnection() {
+  stopRpcReconnectWatcher?.()
+  stopRpcReconnectWatcher = null
+}
+
 // Exported separately from disconnectSigner() below — logOff() (lib/
 // authState.ts) needs to clear a NIP-46/07 session WITHOUT falling back
 // to the dev key the way a plain "Disconnect" does, since logging off
 // should return to AuthGate's own choice screen, not silently swap to a
 // different identity.
 export function clearSignerSession() {
+  stopWatchingBunkerConnection()
   localStorage.removeItem(MODE_KEY)
   localStorage.removeItem(URI_KEY)
   localStorage.removeItem(LOCAL_KEY_KEY)
@@ -124,6 +144,7 @@ export async function connectBunker(uri: string) {
 
   saveBunkerSession(uri, signer)
   ndk.signer = signer
+  watchBunkerConnection(signer)
   return user
 }
 
@@ -146,6 +167,7 @@ export async function restoreSignerSession() {
     const signer = NDKNip46Signer.bunker(ndk, saved.uri, saved.localKey)
     const user = await blockUntilReadyWithAckFallback(signer)
     ndk.signer = signer
+    watchBunkerConnection(signer)
     return { user, mode }
   }
   if (mode === 'nip07') {
