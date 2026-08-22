@@ -190,6 +190,12 @@
     overflow: hidden;
   }
   .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+  /* For a grid with an odd card count (e.g. 5 in a 4-col grid) — spans
+     the lone trailing card full-width instead of leaving it stranded
+     next to an empty cell. grid-column: 1 / -1 works at every
+     breakpoint automatically, since -1 always means "last column"
+     regardless of how many columns are currently defined. */
+  .card-wide { grid-column: 1 / -1; }
 
   @media (max-width: 860px) {
     .grid, .grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
@@ -518,6 +524,11 @@
         <span class="nip-badge">5501 → 6501</span>
         <h3>Spam / scam check</h3>
         <p>Publishes a real NIP-32 label, so the verdict is independently queryable by any client — not locked inside ours.</p>
+      </div>
+      <div class="card card-wide">
+        <span class="nip-badge">5907 → 6907</span>
+        <h3>Buy Now</h3>
+        <p>Pay a NIP-99 listing's seller directly over Lightning, get back a public, independently-verifiable receipt — not locked inside our own UI.</p>
       </div>
     </div>
   </div>
