@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>NOSTRAS — Enumeration</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<style>
+  :root {
+    --bg: #fdfcff;
+    --bg-card: #f7f5fb;
+    --bg-raised: #ffffff;
+    --text: #5c5566;
+    --text-h: #0d0a14;
+    --text-dim: #8b839a;
+    --border: #e6e2ee;
+    --accent: #7e14ff;
+    --accent-soft: rgba(126, 20, 255, 0.1);
+    --data: #0891b2;
+    --data-soft: rgba(8, 145, 178, 0.1);
+    --warm: #d6336c;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e0e13;
+      --bg-card: #17161f;
+      --bg-raised: #1c1b26;
+      --text: #a39cb0;
+      --text-h: #f5f2fa;
+      --text-dim: #6b6478;
+      --border: #2a2833;
+      --accent: #a970ff;
+      --accent-soft: rgba(169, 112, 255, 0.14);
+      --data: #47bfff;
+      --data-soft: rgba(71, 191, 255, 0.12);
+      --warm: #ff6fb0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 20px 64px;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: 0.02em; color: var(--text-h); margin: 0; }
+  .brand span { font-size: 0.95rem; color: var(--text-dim); }
+  .brand a { color: var(--text-dim); text-decoration: none; font-size: 0.85rem; }
+  .brand a:hover { color: var(--accent); }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    background: none;
+    border: none;
+    font: inherit;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tab-btn.active { color: var(--text-h); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  section.panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px 22px 18px;
+    margin-bottom: 22px;
+  }
+  section.panel h2 { font-size: 0.95rem; font-weight: 600; color: var(--text-h); margin: 0 0 10px; }
+  .panel-note { font-size: 0.85rem; color: var(--text-dim); margin: 0 0 16px; line-height: 1.5; }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font: inherit;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .status-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin: 14px 0;
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-dim); flex: none;
+  }
+  .status-dot.running { background: var(--data); box-shadow: 0 0 0 0 var(--data-soft); animation: pulse 2s infinite; }
+  .status-dot.error { background: var(--warm); }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 var(--data-soft); }
+    70% { box-shadow: 0 0 0 6px rgba(0,0,0,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .card .label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin-bottom: 6px; }
+  .card .value { font-size: 1.5rem; font-weight: 700; color: var(--text-h); font-variant-numeric: tabular-nums; line-height: 1; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th {
+    text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-dim); font-weight: 600; padding: 0 0 8px; border-bottom: 1px solid var(--border);
+  }
+  td { padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--text); font-family: var(--mono); word-break: break-all; }
+  tr:last-child td { border-bottom: none; }
+  .results-wrap { max-height: 420px; overflow-y: auto; }
+  .empty { color: var(--text-dim); font-size: 0.85rem; padding: 16px 0; text-align: center; }
+  .error-box {
+    background: rgba(214, 51, 108, 0.08);
+    border: 1px solid var(--warm);
+    color: var(--warm);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+    margin: 12px 0;
+  }
+  footer {
+    font-size: 0.8rem; color: var(--text-dim); line-height: 1.6;
+    border-top: 1px solid var(--border); padding-top: 16px; margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>NOSTRAS</h1>
+    <span>Enumeration</span>
+  </div>
+  <a href="/dashboard">&larr; Back to dashboard</a>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="relays">Relays</button>
+  <button class="tab-btn" data-tab="identities">Identities</button>
+</div>
+
+<div class="tab-panel active" id="tab-relays">
+  <section class="panel">
+    <h2>Relay discovery</h2>
+    <p class="panel-note">
+      Same passive-discovery approach sites like nostrwat.ch use: watches a
+      handful of well-known bootstrap relays (<code>relay.damus.io</code>,
+      <code>relay.primal.net</code>, <code>purplepag.es</code>) for events
+      that name other relays — NIP-65 relay lists (kind:10002) and NIP-66
+      relay discovery records (kind:30166) — and collects the distinct URLs.
+      Bounded to a 30-second scan; does not recursively crawl newly-found
+      relays for more relays.
+    </p>
+    <button class="btn" id="relay-scan-btn">Launch relay scan</button>
+    <div class="status-line"><span class="status-dot" id="relay-status-dot"></span><span id="relay-status-text">idle</span></div>
+    <div id="relay-error"></div>
+    <div class="cards">
+      <div class="card"><div class="label">Relays found</div><div class="value" id="relay-count">—</div></div>
+      <div class="card"><div class="label">Events scanned</div><div class="value" id="relay-events">—</div></div>
+      <div class="card"><div class="label">Skipped (unsafe)</div><div class="value" id="relay-skipped">—</div></div>
+    </div>
+    <div class="results-wrap" id="relay-results"><div class="empty">No scan run yet.</div></div>
+  </section>
+</div>
+
+<div class="tab-panel" id="tab-identities">
+  <section class="panel">
+    <h2>Identity enumeration</h2>
+    <p class="panel-note">
+      For each relay in the set below, requests every kind:0 profile it has
+      and collects distinct pubkeys — the same thing an unauthenticated
+      <code>REQ {"kinds":[0]}</code> already reveals from any single relay,
+      just aggregated across several. Uses the relay list from the last
+      relay scan above if one has run; otherwise falls back to the bootstrap
+      set. Capped at 20 relays and a 30-second budget per scan — a bounded
+      sample, not an exhaustive crawl of any relay's full history. The total
+      count reflects every distinct pubkey actually seen; only the first
+      500 are listed below.
+    </p>
+    <button class="btn" id="identity-scan-btn">Launch identity scan</button>
+    <div class="status-line"><span class="status-dot" id="identity-status-dot"></span><span id="identity-status-text">idle</span></div>
+    <div id="identity-error"></div>
+    <div class="cards">
+      <div class="card"><div class="label">Distinct pubkeys</div><div class="value" id="identity-count">—</div></div>
+      <div class="card"><div class="label">Relays used</div><div class="value" id="identity-relay-count">—</div></div>
+    </div>
+    <div class="results-wrap" id="identity-results"><div class="empty">No scan run yet.</div></div>
+  </section>
+</div>
+
+<footer>
+  Admin-only — gated behind the same dashboard password as everything else
+  operator-facing. Results are kept in memory only and replaced on each new
+  scan, not persisted or logged anywhere. Every discovered relay URL is
+  checked against a private/loopback/link-local address guard (including
+  Fly's own <code>.internal</code> private networking) before this server
+  ever connects to it, since relay URLs come from third-party event content
+  an attacker could craft.
+</footer>
+
+<script>
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s == null ? "" : String(s);
+  return div.innerHTML;
+}
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+function fmtAgo(unixSeconds) {
+  if (!unixSeconds) return "—";
+  const secs = Math.max(0, Math.floor(Date.now() / 1000) - unixSeconds);
+  if (secs < 60) return secs + "s ago";
+  if (secs < 3600) return Math.floor(secs / 60) + "m ago";
+  return Math.floor(secs / 3600) + "h ago";
+}
+
+let relayPollTimer = null;
+let identityPollTimer = null;
+
+function renderRelayResult(r) {
+  const dot = document.getElementById("relay-status-dot");
+  const text = document.getElementById("relay-status-text");
+  const errBox = document.getElementById("relay-error");
+  const btn = document.getElementById("relay-scan-btn");
+
+  dot.className = "status-dot" + (r.running ? " running" : (r.error ? " error" : ""));
+  btn.disabled = !!r.running;
+
+  if (r.running) {
+    text.textContent = "scanning… (started " + fmtAgo(r.startedAt) + ")";
+  } else if (r.error) {
+    text.textContent = "failed";
+  } else if (r.finishedAt) {
+    text.textContent = "last run finished " + fmtAgo(r.finishedAt);
+  } else {
+    text.textContent = "idle";
+  }
+
+  errBox.innerHTML = r.error ? `<div class="error-box">${escapeHtml(r.error)}</div>` : "";
+
+  document.getElementById("relay-count").textContent = (r.relays || []).length || "—";
+  document.getElementById("relay-events").textContent = r.eventsScanned != null ? r.eventsScanned : "—";
+  document.getElementById("relay-skipped").textContent = r.skippedUnsafe != null ? r.skippedUnsafe : "—";
+
+  const wrap = document.getElementById("relay-results");
+  if (!r.relays || r.relays.length === 0) {
+    wrap.innerHTML = `<div class="empty">${r.running ? "Scanning…" : "No relays found yet."}</div>`;
+  } else {
+    let html = "<table><thead><tr><th>Relay URL</th></tr></thead><tbody>";
+    for (const url of r.relays) html += `<tr><td>${escapeHtml(url)}</td></tr>`;
+    html += "</tbody></table>";
+    wrap.innerHTML = html;
+  }
+}
+
+function renderIdentityResult(r) {
+  const dot = document.getElementById("identity-status-dot");
+  const text = document.getElementById("identity-status-text");
+  const errBox = document.getElementById("identity-error");
+  const btn = document.getElementById("identity-scan-btn");
+
+  dot.className = "status-dot" + (r.running ? " running" : (r.error ? " error" : ""));
+  btn.disabled = !!r.running;
+
+  if (r.running) {
+    text.textContent = "scanning " + (r.relaysUsed || []).length + " relay(s)… (started " + fmtAgo(r.startedAt) + ")";
+  } else if (r.error) {
+    text.textContent = "failed";
+  } else if (r.finishedAt) {
+    text.textContent = "last run finished " + fmtAgo(r.finishedAt);
+  } else {
+    text.textContent = "idle";
+  }
+
+  errBox.innerHTML = r.error ? `<div class="error-box">${escapeHtml(r.error)}</div>` : "";
+
+  document.getElementById("identity-count").textContent = r.total != null ? r.total : "—";
+  document.getElementById("identity-relay-count").textContent = (r.relaysUsed || []).length || "—";
+
+  const wrap = document.getElementById("identity-results");
+  if (!r.sample || r.sample.length === 0) {
+    wrap.innerHTML = `<div class="empty">${r.running ? "Scanning…" : "No identities found yet."}</div>`;
+  } else {
+    let html = `<table><thead><tr><th>Pubkey (hex) — showing ${r.sample.length} of ${r.total}</th></tr></thead><tbody>`;
+    for (const pk of r.sample) html += `<tr><td>${escapeHtml(pk)}</td></tr>`;
+    html += "</tbody></table>";
+    wrap.innerHTML = html;
+  }
+}
+
+async function pollRelayStatus() {
+  let res;
+  try {
+    res = await fetch("/dashboard/enumerate/relays/status");
+  } catch {
+    return;
+  }
+  if (!res.ok) return;
+  const r = await res.json();
+  renderRelayResult(r);
+  if (r.running) {
+    relayPollTimer = setTimeout(pollRelayStatus, 1500);
+  } else {
+    clearTimeout(relayPollTimer);
+  }
+}
+
+async function pollIdentityStatus() {
+  let res;
+  try {
+    res = await fetch("/dashboard/enumerate/identities/status");
+  } catch {
+    return;
+  }
+  if (!res.ok) return;
+  const r = await res.json();
+  renderIdentityResult(r);
+  if (r.running) {
+    identityPollTimer = setTimeout(pollIdentityStatus, 1500);
+  } else {
+    clearTimeout(identityPollTimer);
+  }
+}
+
+document.getElementById("relay-scan-btn").addEventListener("click", async () => {
+  const res = await fetch("/dashboard/enumerate/relays/start", { method: "POST" });
+  if (res.status === 409) return; // already running
+  pollRelayStatus();
+});
+
+document.getElementById("identity-scan-btn").addEventListener("click", async () => {
+  const res = await fetch("/dashboard/enumerate/identities/start", { method: "POST" });
+  if (res.status === 409) return; // already running
+  pollIdentityStatus();
+});
+
+pollRelayStatus();
+pollIdentityStatus();
+</script>
+
+</body>
+</html>
