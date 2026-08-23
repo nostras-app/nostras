@@ -188,17 +188,23 @@
       handful of well-known bootstrap relays (<code>relay.damus.io</code>,
       <code>relay.primal.net</code>, <code>purplepag.es</code>) for events
       that name other relays — NIP-65 relay lists (kind:10002) and NIP-66
-      relay discovery records (kind:30166) — and collects the distinct URLs.
-      Bounded to a 30-second scan; does not recursively crawl newly-found
-      relays for more relays.
+      relay discovery records (kind:30166) — and collects the distinct URLs,
+      paginating each relay's full history rather than one capped request.
+      Up to a 3-minute budget per scan; does not recursively crawl
+      newly-found relays for more relays. <strong>Results accumulate across
+      runs</strong> — each scan merges into the full list below rather than
+      replacing it, so repeated runs (this relay's own kind:10002/30166
+      history changes over time) converge toward broader real coverage
+      instead of resetting to zero.
     </p>
     <button class="btn" id="relay-scan-btn">Launch relay scan</button>
     <div class="status-line"><span class="status-dot" id="relay-status-dot"></span><span id="relay-status-text">idle</span></div>
     <div id="relay-error"></div>
     <div class="cards">
-      <div class="card"><div class="label">Relays found</div><div class="value" id="relay-count">—</div></div>
-      <div class="card"><div class="label">Events scanned</div><div class="value" id="relay-events">—</div></div>
-      <div class="card"><div class="label">Skipped (unsafe)</div><div class="value" id="relay-skipped">—</div></div>
+      <div class="card"><div class="label">Relays known (all-time)</div><div class="value" id="relay-count">—</div></div>
+      <div class="card"><div class="label">New this run</div><div class="value" id="relay-new">—</div></div>
+      <div class="card"><div class="label">Events scanned (this run)</div><div class="value" id="relay-events">—</div></div>
+      <div class="card"><div class="label">Skipped, unsafe (this run)</div><div class="value" id="relay-skipped">—</div></div>
     </div>
     <div class="results-wrap" id="relay-results"><div class="empty">No scan run yet.</div></div>
   </section>
@@ -211,19 +217,23 @@
       For each relay in the set below, requests every kind:0 profile it has
       and collects distinct pubkeys — the same thing an unauthenticated
       <code>REQ {"kinds":[0]}</code> already reveals from any single relay,
-      just aggregated across several. Uses the relay list from the last
-      relay scan above if one has run; otherwise falls back to the bootstrap
-      set. Capped at 20 relays and a 30-second budget per scan — a bounded
-      sample, not an exhaustive crawl of any relay's full history. The total
-      count reflects every distinct pubkey actually seen; only the first
-      500 are listed below.
+      just aggregated across several, paginated backward through each
+      relay's history rather than only the most recent slice. Uses
+      <strong>every relay ever discovered</strong> by the relay scan above
+      (not a fixed small set) — however many that is, at most 12 connections
+      run at once, so a longer list just means more waves, not more
+      simultaneous load. Up to a 5-minute budget per scan; a scan that runs
+      out of time simply leaves the rest of the relay list for next time.
+      <strong>The distinct-pubkey total accumulates across runs</strong> the
+      same way the relay list does; only the first 500 are listed below.
     </p>
     <button class="btn" id="identity-scan-btn">Launch identity scan</button>
     <div class="status-line"><span class="status-dot" id="identity-status-dot"></span><span id="identity-status-text">idle</span></div>
     <div id="identity-error"></div>
     <div class="cards">
-      <div class="card"><div class="label">Distinct pubkeys</div><div class="value" id="identity-count">—</div></div>
-      <div class="card"><div class="label">Relays used</div><div class="value" id="identity-relay-count">—</div></div>
+      <div class="card"><div class="label">Distinct pubkeys (all-time)</div><div class="value" id="identity-count">—</div></div>
+      <div class="card"><div class="label">New this run</div><div class="value" id="identity-new">—</div></div>
+      <div class="card"><div class="label">Relays used (this run)</div><div class="value" id="identity-relay-count">—</div></div>
     </div>
     <div class="results-wrap" id="identity-results"><div class="empty">No scan run yet.</div></div>
   </section>
@@ -231,12 +241,14 @@
 
 <footer>
   Admin-only — gated behind the same dashboard password as everything else
-  operator-facing. Results are kept in memory only and replaced on each new
-  scan, not persisted or logged anywhere. Every discovered relay URL is
-  checked against a private/loopback/link-local address guard (including
-  Fly's own <code>.internal</code> private networking) before this server
-  ever connects to it, since relay URLs come from third-party event content
-  an attacker could craft.
+  operator-facing. Results accumulate on disk across runs (merged, not
+  replaced) so a scan today builds on everything discovered in every prior
+  scan, the same way a real crawler's index grows over time — nothing here
+  is a fresh, empty snapshot on every click. Every discovered relay URL is
+  checked against a private/loopback/link-local/CGNAT address guard
+  (including Fly's own <code>.internal</code> private networking) before
+  this server ever connects to it, since relay URLs come from third-party
+  event content an attacker could craft.
 </footer>
 
 <script>
@@ -288,8 +300,9 @@ function renderRelayResult(r) {
   errBox.innerHTML = r.error ? `<div class="error-box">${escapeHtml(r.error)}</div>` : "";
 
   document.getElementById("relay-count").textContent = (r.relays || []).length || "—";
-  document.getElementById("relay-events").textContent = r.eventsScanned != null ? r.eventsScanned : "—";
-  document.getElementById("relay-skipped").textContent = r.skippedUnsafe != null ? r.skippedUnsafe : "—";
+  document.getElementById("relay-new").textContent = r.lastRunNewRelays != null ? r.lastRunNewRelays : "—";
+  document.getElementById("relay-events").textContent = r.lastRunEvents != null ? r.lastRunEvents : "—";
+  document.getElementById("relay-skipped").textContent = r.lastRunSkipped != null ? r.lastRunSkipped : "—";
 
   const wrap = document.getElementById("relay-results");
   if (!r.relays || r.relays.length === 0) {
@@ -324,6 +337,7 @@ function renderIdentityResult(r) {
   errBox.innerHTML = r.error ? `<div class="error-box">${escapeHtml(r.error)}</div>` : "";
 
   document.getElementById("identity-count").textContent = r.total != null ? r.total : "—";
+  document.getElementById("identity-new").textContent = r.lastRunNew != null ? r.lastRunNew : "—";
   document.getElementById("identity-relay-count").textContent = (r.relaysUsed || []).length || "—";
 
   const wrap = document.getElementById("identity-results");

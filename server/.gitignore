@@ -6,6 +6,8 @@
 /nip86-admin.json
 /node-waitlist.json
 /page-views.json
+/enumerated-relays.json
+/enumerated-identities.json
 *.exe
 nostras-server
 /cmd/dvm/dvm

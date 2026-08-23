@@ -73,6 +73,12 @@ primary_region = "fra"
   # ban/allow/moderation-queue/admin-grant store (adminapi.go) also needs
   # the persistent volume, set here from the start.
   NOSTRAS_NIP86_STORE_PATH          = "/data/nip86-admin.json"
+  # Same lesson a fourth time (2026-08-23): the admin-only relay/identity
+  # enumeration stores (enumerate.go) accumulate across scans by design —
+  # losing that on every redeploy would defeat the entire point of merging
+  # results instead of resetting to a fresh snapshot each run.
+  NOSTRAS_ENUMERATE_RELAYS_PATH      = "/data/enumerated-relays.json"
+  NOSTRAS_ENUMERATE_IDENTITIES_PATH  = "/data/enumerated-identities.json"
   # NIP-66 relay self-discovery (nip66.go): the address advertised *in*
   # the discovery event's own d tag, not what the self-probe dials (that
   # always stays localhost, same host as the listener). Not a secret —

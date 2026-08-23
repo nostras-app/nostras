@@ -296,14 +296,29 @@ func main() {
 	// Relay/identity enumeration — see enumerate.go/enumerate.html. Admin-
 	// only, same password gate as the rest of /dashboard/*. Each scan is
 	// triggered by a POST and polled via a GET status endpoint rather than
-	// blocking a single long-lived request, since a 30-second scan budget
-	// is comfortably longer than most reverse-proxy idle-connection timeouts
-	// are worth relying on.
+	// blocking a single long-lived request, since the (now multi-minute)
+	// scan budget is far longer than most reverse-proxy idle-connection
+	// timeouts are worth relying on. Both stores accumulate across runs
+	// (merge, not replace) and persist to the /data volume — applying the
+	// "don't leave a new store on the ephemeral filesystem" lesson from the
+	// start this time (see fly.toml), not after a redeploy quietly wipes
+	// out accumulated discovery data the way it did for four earlier
+	// stores in this project's own history.
+	enumerateRelaysPath := envOr("NOSTRAS_ENUMERATE_RELAYS_PATH", "./enumerated-relays.json")
+	relayEnum, err := newRelayEnumerator(enumerateRelaysPath)
+	if err != nil {
+		panic(err)
+	}
+	enumerateIdentitiesPath := envOr("NOSTRAS_ENUMERATE_IDENTITIES_PATH", "./enumerated-identities.json")
+	identityEnum, err := newIdentityEnumerator(enumerateIdentitiesPath)
+	if err != nil {
+		panic(err)
+	}
 	relay.Router().HandleFunc("GET /dashboard/enumerate", requireDashboardAuth(dashboardPassword, handleEnumeratePage))
-	relay.Router().HandleFunc("POST /dashboard/enumerate/relays/start", requireDashboardAuth(dashboardPassword, handleEnumerateRelaysStart))
-	relay.Router().HandleFunc("GET /dashboard/enumerate/relays/status", requireDashboardAuth(dashboardPassword, handleEnumerateRelaysStatus))
-	relay.Router().HandleFunc("POST /dashboard/enumerate/identities/start", requireDashboardAuth(dashboardPassword, handleEnumerateIdentitiesStart))
-	relay.Router().HandleFunc("GET /dashboard/enumerate/identities/status", requireDashboardAuth(dashboardPassword, handleEnumerateIdentitiesStatus))
+	relay.Router().HandleFunc("POST /dashboard/enumerate/relays/start", requireDashboardAuth(dashboardPassword, handleEnumerateRelaysStart(relayEnum)))
+	relay.Router().HandleFunc("GET /dashboard/enumerate/relays/status", requireDashboardAuth(dashboardPassword, handleEnumerateRelaysStatus(relayEnum)))
+	relay.Router().HandleFunc("POST /dashboard/enumerate/identities/start", requireDashboardAuth(dashboardPassword, handleEnumerateIdentitiesStart(identityEnum, relayEnum)))
+	relay.Router().HandleFunc("GET /dashboard/enumerate/identities/status", requireDashboardAuth(dashboardPassword, handleEnumerateIdentitiesStatus(identityEnum)))
 
 	// NOSTRAS Node waitlist — see waitlist.go/waitlist_handlers.go/
 	// node.html. A real signup (email + optional note), not a mock,
