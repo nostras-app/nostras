@@ -42,6 +42,24 @@ progress — not follower counts.
   relays queried, not the whole network (same caveat `useFollowCounts.ts`
   documents client-side). Useful as one data point, not the headline
   number.
+- **Distribution post engagement** (added 2026-08-23, after the first
+  Stacker News + r/nostr announcement) — a real signal category
+  `/distribute`'s own PR/listing-status checks don't cover, since a
+  live post can keep accumulating engagement long after the submission
+  itself is "done." Check the Decisions log for any live announcement
+  post, then: **Stacker News** has a real, unauthenticated public
+  GraphQL API — `curl -s https://stacker.news/api/graphql -X POST -H
+  "Content-Type: application/json" -d '{"query":"{ item(id:
+  \"<item-id>\") { ncomments sats } }"}'` returns genuine comment/sats
+  counts, confirmed live against the real NOSTRAS post (item `1553166`).
+  The **Nostr crosspost note** (if the post used Stacker News'
+  "crosspost to nostr" option) is a genuine kind:1 event, countable the
+  same way as any other tracked note via `nak req -k 1,7,9735 -e
+  <crosspost-id>`. **Reddit is not checkable this way** — confirmed
+  blocked at the network level (both `WebFetch` and a direct `curl`
+  with a browser user-agent get refused by Reddit's own edge) — ask the
+  user to report real upvote/comment numbers rather than claim a
+  number this skill can't actually verify.
 
 ## 2. Log each check as a dated snapshot
 

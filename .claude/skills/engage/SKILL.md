@@ -72,20 +72,74 @@ say so plainly and move on to step 2 — a quiet week for replies-to-
 replies is a real, expected outcome most of the time, not a sign
 anything's broken.
 
+**Cross-platform distribution posts (2026-08-23)**: `/distribute`'s own
+Decisions log is where live announcement posts outside Nostr get
+recorded (Stacker News, r/nostr, and whatever comes after) — check
+there too, not just this skill's own Engagement log, for any post with
+its own reply surface worth following up on. Three real, distinct cases
+from the first Stacker News + r/nostr announcement, each handled
+differently:
+
+- **A Stacker News "crosspost to nostr" note is a genuine kind:1
+  event** — check it exactly like any other tracked reply id
+  (`{"kinds":[1,7,9735], "#e":["<crosspost-id>"]}`), no special handling
+  needed. First real instance: `35e20d39c107ce3b3b6cb3e17cbe34c7ce88fb98af6f5e54a6561f4220bda4c6`
+  (landed on `nostrue.com`/`relay.damus.io`/`relay.nostr.band`/
+  `relay.snort.social`/`relay.primal.net` — Stacker News' own default
+  relay set, not this skill's usual three).
+- **Stacker News' native comment thread** (separate from the Nostr
+  crosspost) isn't reachable via relay queries, but Stacker News has a
+  real, working, unauthenticated public GraphQL API — confirmed live:
+  `curl -s https://stacker.news/api/graphql -X POST -H "Content-Type:
+  application/json" -d '{"query":"{ item(id: \"<item-id>\") { title
+  ncomments sats } }"}'` returns genuine data (verified against item
+  `1553166`, the real NOSTRAS post). Comment *content* is reachable too
+  (a real `comments` field exists on the schema — confirmed via a
+  GraphQL validation error naming the type, not a wall — worth a quick
+  introspection query to get the exact field names before relying on
+  this, not guessed here).
+- **Reddit is confirmed unreachable, not just unattempted**: both
+  `WebFetch` (explicit tool-level refusal for `www.reddit.com`) and a
+  direct `curl` with a real browser user-agent (Reddit's own edge
+  returns a hard "Blocked" page either way) fail. No automated path
+  exists from this environment — ask the user to check and report back,
+  or paste a screenshot, rather than claim this is checkable the same
+  way as the other two.
+
 ## 2. Find genuinely relevant threads, not just anything trending
 
 The app's own search (`SearchView.tsx`, NIP-50) is scoped to the local
 relay only and isn't built for this — it won't surface broad public
-discourse. Query public relays directly instead
-(`wss://relay.damus.io`, `wss://relay.primal.net`, `wss://nos.lol`, and
-similar), using `nak`, for recent notes matching topics the user has
-real standing to speak on: Nostr protocol/NIP discussion, Lightning/
-NWC payment rails, relay operation (khatru, badger, Go), NIP-90 DVMs,
-agent-to-agent payments — the actual subject matter of NOSTRAS and the
+discourse. Query public relays directly instead, using `nak`, for
+recent notes matching topics the user has real standing to speak on:
+Nostr protocol/NIP discussion, Lightning/NWC payment rails, relay
+operation (khatru, badger, Go), NIP-90 DVMs, agent-to-agent payments,
+Blossom media hosting — the actual subject matter of NOSTRAS and the
 user's own adjacent work (`llmops-pro`, `nostr-merchant`). Use `#t`
 hashtag-tag filters (`#nostr`, `#nostrdev`, `#asknostr`, `#lightning`,
-`#bitcoin`) and pull a recent window, then read the actual content —
+`#bitcoin`, `#nip90`, `#dvm`, `#nwc`, `#relay`, `#mcp`, `#agents`,
+`#blossom`) within a 48h `--since` window (not just `--limit` — see
+step 2's own methodology note below), then read the actual content —
 don't just count matches.
+
+**Query the app's own `CURATED_RELAYS` list** (`client/src/lib/
+curatedRelays.ts` — the 15-relay list already vetted for NOSTRAS's
+Rebroadcast picker), minus `purplepag.es` (a metadata-only relay that
+structurally rejects kind:1 queries, so it never has anything to find
+here). Real, user-prompted fix (2026-08-21): every session before this
+one queried only 2-3 relays (`relay.primal.net`/`nos.lol`, sometimes
+`relay.damus.io`), which the user correctly flagged as too narrow given
+how much real traffic NOSTRAS's own unfiltered Global feed shows moving
+every minute. Verified directly before adopting this, not assumed: a
+test `#asknostr` query against the full list found real notes on
+`nostr.wine`/`relay.snort.social`/`nostr21.com`/`offchain.pub`/
+`nostr.mom`/`nostr.oxtr.dev` that the original 2-3-relay set alone
+would have missed entirely. **Honest caveat, also confirmed by that
+same test**: several of the 15 (`relay.nostr.band`, `eden.nostr.land`,
+`relay.nostr.bg`, `relay.current.fyi`, `relayable.org`) were
+unreachable at test time — query all of them every run, but don't
+expect every one to answer; that's normal relay-availability churn, not
+a sign the list is wrong.
 
 ## 3. Filter for substance
 
@@ -154,6 +208,16 @@ is the point — this is about spending *their* limited time well, not
 replacing their judgment. Applies equally to a fresh-thread reply
 (step 4) and a follow-up to a reaction found in step 1 — neither ever
 gets sent unconfirmed.
+
+**Include each target note's `nevent` (bech32, with relay hints via
+`nak encode nevent -a <pubkey> --relay <url> --relay <url> <id>`) right
+alongside its draft in this same first presentation** — real friction
+found live (2026-08-21): every prior session made the user ask a
+separate follow-up message just to get these, purely because step 7
+never said to include them up front. The user needs the `nevent` to
+actually locate and send the reply themselves (from NOSTRAS's own
+search or any other client) — there's no reason to make that a second
+round trip.
 
 ## 8. Log the session
 
