@@ -7,7 +7,16 @@ import { normalizeRelayUrl } from '@nostr-dev-kit/ndk'
 // UI layer's job (RelaySettings.tsx), not this module's.
 const STORAGE_KEY = 'nostras:custom-relays'
 
+// Real bug found and fixed 2026-08-27, live in production: a comma-
+// separated paste ("wss://a, wss://b, wss://c") can leak a trailing
+// comma into a single relay field, and the built-in URL constructor is
+// lenient enough to silently absorb it into the hostname rather than
+// throw — `new URL("wss://nostras.app,")` parses "successfully" with
+// hostname "nostras.app,". A real relay hostname never legitimately
+// contains a comma, so reject it outright before even attempting to
+// parse, rather than trust protocol-only validation.
 export function isValidRelayUrl(url: string): boolean {
+  if (url.includes(',')) return false
   try {
     const parsed = new URL(url)
     return parsed.protocol === 'ws:' || parsed.protocol === 'wss:'
