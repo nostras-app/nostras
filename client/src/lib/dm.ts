@@ -24,10 +24,27 @@ export const DM_RELAY_LIST_KIND = 10050
 const RELAY_LIST_KIND = 10002
 
 // Shared with useDmRelayList.ts, which reads/writes the active user's own
-// kind:10050 list — same tag shape (flat "r" URLs, no read/write markers),
-// named once rather than duplicated.
+// kind:10050 list — same tag shape, named once rather than duplicated.
+//
+// Real bug found and fixed 2026-08-27, live in production: NIP-17's own
+// spec text is explicit — "The event MUST include a list of relay tags"
+// — kind:10050 uses the tag name "relay", not "r" (unlike kind:10002's
+// NIP-65 "r" tags, an easy mix-up since every other relay-list kind in
+// this codebase does use "r"). This function originally read "r" tags,
+// which meant it never correctly parsed a real, spec-compliant kind:10050
+// published by another client — confirmed live against a real one (an
+// older list on the user's own identity, published by 0xchat, using
+// correct "relay" tags) that this code would have silently returned zero
+// relays for. Also meant useDmRelayList.save() published a genuinely
+// non-compliant event: a real NIP-17 client reading it correctly (per
+// spec, "if such a list is not found... clients shouldn't try") would
+// have concluded the user has no DM relay preference at all — worse than
+// publishing nothing, since it replaced (kind:10050 is plain
+// replaceable) an older, correctly-tagged list that had real relays in
+// it. Fixed by matching "relay", not "r" — the shared function means
+// fixing it once corrects both the read side and the write side.
 export function parseDmRelayTags(tags: string[][]): string[] {
-  return tags.filter((t) => t[0] === 'r' && !!t[1]).map((t) => t[1])
+  return tags.filter((t) => t[0] === 'relay' && !!t[1]).map((t) => t[1])
 }
 
 // Matches the 8s per-publish convention used everywhere else in this

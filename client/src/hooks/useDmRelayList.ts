@@ -61,7 +61,10 @@ export function useDmRelayList() {
       try {
         const event = new NDKEvent(ndk, {
           kind: DM_RELAY_LIST_KIND,
-          tags: next.map((url) => ['r', url]),
+          // NIP-17's own spec text: kind:10050 uses "relay" tags, not
+          // "r" — see parseDmRelayTags's comment in lib/dm.ts for the
+          // real production bug this fixed.
+          tags: next.map((url) => ['relay', url]),
           content: '',
         })
         await event.publish(devPublishRelaySet, PUBLISH_TIMEOUT_MS)
