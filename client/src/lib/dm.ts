@@ -20,8 +20,15 @@ export type DecryptedDm = {
   createdAt: number
 }
 
-const DM_RELAY_LIST_KIND = 10050
+export const DM_RELAY_LIST_KIND = 10050
 const RELAY_LIST_KIND = 10002
+
+// Shared with useDmRelayList.ts, which reads/writes the active user's own
+// kind:10050 list — same tag shape (flat "r" URLs, no read/write markers),
+// named once rather than duplicated.
+export function parseDmRelayTags(tags: string[][]): string[] {
+  return tags.filter((t) => t[0] === 'r' && !!t[1]).map((t) => t[1])
+}
 
 // Matches the 8s per-publish convention used everywhere else in this
 // codebase (Composer.tsx, useFollowing.ts, the group hooks, etc.).
@@ -106,7 +113,7 @@ export async function discoverRecipientDmRelays(pubkey: string): Promise<string[
       { kinds: [DM_RELAY_LIST_KIND], authors: [pubkey] },
       authorQueryRelaySet,
     )
-    const dmRelays = dmList?.tags.filter((t) => t[0] === 'r' && !!t[1]).map((t) => t[1]) ?? []
+    const dmRelays = dmList ? parseDmRelayTags(dmList.tags) : []
     if (dmRelays.length > 0) return dmRelays.filter(isAllowedRelayUrl)
 
     const relayList = await fetchLatestReplaceableEvent(

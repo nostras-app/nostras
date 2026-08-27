@@ -31,6 +31,7 @@ import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
 import { RelaySettings } from './components/RelaySettings'
 import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
+import { DmRelayListEditor } from './components/DmRelayListEditor'
 import { PushNotificationSettings } from './components/PushNotificationSettings'
 import { InstallPwaSettings } from './components/InstallPwaSettings'
 import { AboutSettings } from './components/AboutSettings'
@@ -316,6 +317,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Your Relay List (NIP-65)</span>
                 <Nip65RelayListEditor />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">DM Relays (NIP-17)</span>
+                <DmRelayListEditor />
               </div>
               <div className="settings-section">
                 <span className="settings-section-title">About</span>
