@@ -353,6 +353,10 @@ func main() {
 	// NOSTRAS Node waitlist page — see node.go/node.html.
 	relay.Router().HandleFunc("GET /node", wrapPageView(pageViews, "node", handleNode))
 
+	// "Own Your Money" — self-hosted Alby Hub onboarding guide, see
+	// wallet.go/wallet.html.
+	relay.Router().HandleFunc("GET /wallet", wrapPageView(pageViews, "wallet", handleWallet))
+
 	// Public live usage stats — see stats.go/stats.html. The public half
 	// of the dashboard split: real connection/geography data, no
 	// password, backed by the now-public GET /dashboard/data above.

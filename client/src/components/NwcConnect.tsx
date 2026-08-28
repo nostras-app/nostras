@@ -52,21 +52,30 @@ export function NwcConnect() {
   }
 
   return (
-    <div className="field-row">
-      <input
-        className="input"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder="nostr+walletconnect://..."
-      />
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        onClick={handleConnect}
-        disabled={!input.trim()}
-      >
-        Connect wallet
-      </button>
+    <div className="stack">
+      <div className="field-row">
+        <input
+          className="input"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="nostr+walletconnect://..."
+        />
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={handleConnect}
+          disabled={!input.trim()}
+        >
+          Connect wallet
+        </button>
+      </div>
+      <p className="field-hint">
+        Don't have a wallet that speaks NWC yet? See{' '}
+        <a href="https://nostras.app/wallet" target="_blank" rel="noreferrer">
+          how to run your own self-custodial one
+        </a>
+        .
+      </p>
     </div>
   )
 }
