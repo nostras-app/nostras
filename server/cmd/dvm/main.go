@@ -223,11 +223,11 @@ type paymentConfig struct {
 }
 
 func main() {
-	loadEnvFile("../nostras.env")
+	loadEnvFile("../.nostras.env")
 
 	apiKey := os.Getenv("NOSTRAS_ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		fmt.Println("NOSTRAS_ANTHROPIC_API_KEY not set (checked environment and ../nostras.env)")
+		fmt.Println("NOSTRAS_ANTHROPIC_API_KEY not set (checked environment and ../.nostras.env)")
 		os.Exit(1)
 	}
 	claude := anthropic.NewClient(option.WithAPIKey(apiKey))
@@ -252,7 +252,7 @@ func main() {
 	pk, _ := nostr.GetPublicKey(sk)
 
 	// Deliberately a *separate* key from sk above, and — unlike sk — must
-	// be persisted (nostras.env), not regenerated per boot: sk only needs
+	// be persisted (.nostras.env), not regenerated per boot: sk only needs
 	// to be stable within one process's lifetime (jobs correlate by
 	// request id, not by a client trusting the DVM's pubkey across
 	// restarts), but articles are NIP-44-encrypted to this key at publish
@@ -1475,7 +1475,7 @@ func signAndPublishChecked(ctx context.Context, relay *nostr.Relay, sk string, e
 
 // loadEnvFile does a minimal KEY=VALUE .env parse, only filling in variables
 // not already set in the environment. Missing file is not an error — the
-// caller falls back to a real env var if nostras.env isn't present.
+// caller falls back to a real env var if .nostras.env isn't present.
 func loadEnvFile(path string) {
 	f, err := os.Open(path)
 	if err != nil {

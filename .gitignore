@@ -1,5 +1,5 @@
 # Local secrets — never commit
-nostras.env
+.nostras.env
 *.env
 *.env.*
 .nostr

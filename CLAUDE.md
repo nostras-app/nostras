@@ -10220,6 +10220,148 @@ confirmed on disk, not just trusted from the dashboard UI.
 entry — verified entirely against a local instance plus direct
 inspection of the live production filesystem, deploy still pending.
 
+## Real production outage, diagnosed and fixed entirely by the unattended
+nostr-agent daemon while the user was in the office (2026-08-20)
+
+The first genuinely live test of `nostr-agent` (the local, DM-controlled
+Claude Code daemon shipped a few days earlier — see its own dated entry
+above) responding to a real incident, not a designed verification round
+trip. `nostras_data` (the `web` process's persistent volume, provisioned
+at 1GB weeks earlier, before this project's several later JSON-store
+additions — analytics, push subscriptions, page views, waitlist, vanish
+list, NIP-86 admin data — piled on top of badger's event store and
+bluge's search index) filled to 100% used, 0 bytes free. Badger can't
+open its store on a full disk, so the relay crashed roughly every
+15-20 seconds, repeatedly, until it exhausted Fly's restart budget and
+went fully `stopped` — the real trigger behind the GitHub "Uptime check"
+failure-email notifications the user started getting on their phone
+while at the office, away from any development environment.
+
+Rather than investigate it themselves later, the user DM'd the question
+straight to the Desktop Agent identity: "I am receiving notifications
+from github run fails of nostras.app, what is going on?" The agent
+found the root cause on its own within seconds, explained it plainly
+(disk full, not the usual memory/CPU shape every prior capacity
+incident in this project has been), and — matching this project's own
+standing "confirm any recurring cost increase with the user first" rule
+already applied to every past CPU/memory upgrade — asked before acting:
+"The real fix is extending the volume... Want me to go ahead and extend
+it?" The user replied "Can you extend the volume to fix it?" and the
+agent executed it unattended: `flyctl volumes extend` from 1GB to 5GB,
+stopped/started the `web` machine so the resize actually took effect,
+confirmed the relay was serving real traffic again, and manually
+re-ran the uptime-check workflow to confirm a clean pass — all inside
+a second DM reply, with zero involvement from the user beyond the two
+messages sent from their phone.
+
+**Independently re-verified after the fact, not just trusted from the
+DM transcript** — same standing discipline as every other incident
+logged in this file: `gh run list`/`gh run view --log` against the real
+`uptime-check.yml` history confirms three genuine consecutive failures
+(07:13, 08:01, 09:01 UTC on 2026-08-20) — the 09:01 run's own log shows
+the relay's HTTP endpoint returning a real `curl` `503`, not a flaky
+CI artifact — followed by a clean recovery at 09:26 UTC, a real
+~2h13m outage window matching the agent's own reported timeline almost
+exactly. A live `flyctl volumes list` plus an SSH disk check at the
+time of writing this entry confirms `nostras_data` genuinely is 5GB
+today (687MB used, 14%) — matching the agent's own closing report
+("649M used / 4.9G, 14% full") word for word. The `dvm` process was
+correctly untouched throughout, consistent with this project's own
+long-standing architecture: the persistent Volume has only ever been
+mounted for `web`.
+
+This is this project's first disk-space-caused capacity incident —
+every prior one (the near-OOM connection-growth incident, the badger
+memory-tuning saga, the CPU-contention move to a dedicated
+performance-1x machine) was memory or CPU, never disk. Logged in full
+in `NOSTRAS-CSV.md` as PQ-058, cross-referenced against OQ-49/PQ-056
+(the daemon's own build and first-verification entries). Worth
+watching whether 5GB proves durable as more stores accumulate over
+time, per the agent's own closing note — not treated as resolved
+forever, just resolved for now.
+
+## Local secrets file renamed to `.nostras.env` — correcting an
+original naming mistake (2026-08-25)
+
+The project-root secrets file was originally created as plain
+`nostras.env` — the user's own explicit correction, wanting it as a
+proper hidden dotfile instead. Renamed to `.nostras.env` via a pure
+filesystem `mv` (content never read or re-displayed in the process,
+even though a system-level tool result had already surfaced the file's
+plaintext contents earlier in the same session — flagged to the user
+at the time rather than silently proceeding). The file was never
+git-tracked to begin with (confirmed via `git ls-files` before
+touching anything), so this was a pure local-filesystem/code-reference
+fix, not a history-rewrite concern.
+
+Every functional and forward-looking reference updated to match:
+`.gitignore`'s explicit entry (the existing `*.env` glob already
+covered the new hidden name too, but the explicit line was kept
+accurate rather than left stale), `server/cmd/dvm/main.go`'s
+`loadEnvFile("../nostras.env")` call plus its three surrounding
+comments (this is the one actual code path that opens the file by
+name — the relay itself never called `loadEnvFile` directly, it just
+expects real env vars already present, sourced by hand), and
+`agent/src/env.js`'s one stylistic comment referencing the same
+convention. **Deliberately left the file's six historical CLAUDE.md
+narrations untouched** (the "Pass A payment gating ON, real operator
+wallet from `nostras.env`" — style entries) — those describe what was
+literally true in specific past sessions, and this file's own standing
+convention throughout is to never rewrite history, only add corrections
+as new entries.
+
+**Verified for real, not just edited and trusted**: `go build ./...`
+and `go vet ./...` both clean after the edit; confirmed the new
+relative path (`../.nostras.env`, resolved from the DVM's actual `cd
+server && go run ./cmd/dvm` working directory) genuinely points at the
+renamed file via a direct `test -f` check, not just reasoned about;
+confirmed via `git status` that the renamed file still produces zero
+trace in git's view, exactly as before.
+
+**Separately, incidentally found three pre-existing untracked files
+during this same `git status` check** — `NOSTR.MD` (a two-link
+bookmarks file), `nostr-identities.md` (a large list of public hex
+pubkeys, confirmed via `grep -l "nsec1"` to contain no private key
+material), `nostr-relays.md` (a list of public relay URLs). None
+sensitive, none created this session, left as-is at the user's own
+choice rather than cleaned up unprompted.
+
+**A second, larger ask from the same conversation — renaming the
+project folder itself from `NOSTR` to `NOSTRAS`** — was investigated in
+full (grepped for absolute-path references across the whole tracked
+codebase, checked `.claude/settings*.json`, checked for systemd/cron
+entries, checked running local processes) but **deliberately not
+executed**. Real reasons, not just caution for its own sake: this
+exact live session's own Claude Code process is anchored to the
+`-home-user-Documents-NOSTR` project/memory namespace, derived from the
+absolute path — renaming the folder wouldn't migrate that, a session
+started later from a renamed folder would get a genuinely fresh, empty
+memory. There's also a live local instance of the desktop agent
+(`node src/index.js`, cwd `agent/`) and a live local instance of the
+relay itself (`nostras-server`, cwd `server/`, running on a
+non-default `:7778` — **not** the DVM, an earlier guess in this exact
+conversation that was wrong and corrected live by directly querying
+the process's own NIP-11 endpoint rather than left uncorrected) both
+running with their working directory inside this exact folder tree.
+
+The user's actual motivation, clarified directly rather than assumed:
+this is purely a preventive measure for a **possible future transfer
+of this project folder to a laptop that already has an unrelated,
+differently-scoped "Nostr" folder** — not a rename needed today. Given
+that, the folder stays `NOSTR` on this desktop for now; the
+recommended approach when a real transfer actually happens is to copy
+the folder to the destination machine directly under the new name
+(rename-on-copy), rather than renaming the desktop original in place —
+this achieves the same collision-avoidance goal with zero disruption
+to this desktop's live session, live processes, or accumulated memory,
+since a machine transfer means starting fresh on the memory side
+regardless of whether the folder is renamed before or during that
+move. `NOSTRAS-AGENT.md`'s four hardcoded `cd
+/home/user/Documents/NOSTR/agent` instructions were also explicitly
+left as-is at the user's request (offered to make them portable, user
+said leave it for now) — worth revisiting only if/when the transfer
+actually happens.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
@@ -10308,7 +10450,7 @@ inspection of the live production filesystem, deploy still pending.
   (`github.com/anthropics/anthropic-sdk-go`, model `claude-opus-5`) for the
   actual summarization — this is not a placeholder/mock, per an explicit
   user decision to wire up a real LLM rather than a naive heuristic.
-  **Requires `NOSTRAS_ANTHROPIC_API_KEY` in `nostras.env`** at the project
+  **Requires `NOSTRAS_ANTHROPIC_API_KEY` in `.nostras.env`** at the project
   root (loaded via a minimal hand-rolled `.env` parser in `main.go`, since
   no dotenv dependency was added for one variable) — the DVM won't start
   without it. Verified end-to-end with a real API call: published a
@@ -10328,7 +10470,7 @@ inspection of the live production filesystem, deploy still pending.
   up to 2 minutes before either proceeding (summary published normally) or
   giving up with an `error` feedback. **Set `NOSTRAS_DVM_NWC_URI`** (a
   `nostr+walletconnect://` string for a wallet *you* control that can mint
-  invoices) **in `nostras.env` to enable gating** — unset, or unreachable
+  invoices) **in `.nostras.env` to enable gating** — unset, or unreachable
   at startup, and the DVM degrades to free mode with a warning rather than
   refusing to start. `NOSTRAS_DVM_PRICE_SATS` (default 21) is now a
   **fallback only** — see the dynamic-pricing entry below — used solely if

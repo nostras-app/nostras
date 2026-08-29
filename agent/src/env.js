@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 // Same minimal, dependency-free convention server/cmd/dvm/main.go's
-// loadEnvFile already uses for nostras.env — no dotenv package added for
+// loadEnvFile already uses for .nostras.env — no dotenv package added for
 // one small config file. Missing file is not an error (first-boot case,
 // before identity.js has generated anything to persist); existing
 // process env vars always win over the file, so a real deployment can
