@@ -3,14 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
+	"net/netip"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/fiatjaf/khatru"
+	geoip2 "github.com/oschwald/geoip2-golang/v2"
 )
 
 // Counts unique relay WebSocket connections, bucketed by day and by country
@@ -81,107 +80,76 @@ func (s *analyticsStore) snapshot() analyticsStore {
 	return analyticsStore{Total: s.Total, ByDay: byDay}
 }
 
-// Free, no-API-key country lookup — returns "" on any failure (rate limit,
-// timeout, malformed response), which record() buckets as "unknown" rather
-// than blocking or erroring. The IP is sent to this third party for the
-// lookup itself (unavoidable — that's how IP geolocation works) but is
-// never written to disk or logged by this relay.
-func geoLookupCountry(ip string) string {
-	if ip == "" {
+// Country lookup used to be a live HTTPS call to ipapi.co's free tier per
+// connection (cached for an hour to cut *repeat* lookups of the same IP).
+// Confirmed live (2026-08-29) that this was never actually the fix it
+// looked like: firing a handful of rapid lookups from this relay's own Fly
+// egress IP against ipapi.co got real 429s within the first ~5 requests,
+// and every subsequent request stayed 429'd — this relay's real connection
+// volume (tens of thousands/day) blows through whatever ipapi.co's actual
+// burst/quota limit is almost immediately, regardless of the cache, since
+// the cache only ever helped with *repeat* IPs, never the dominant case of
+// many distinct new ones. This directly explains the "unknown" bucket
+// dominating every day's real data by one to two orders of magnitude,
+// something earlier investigation flagged as a genuine, unresolved gap.
+//
+// Replaced with a local, offline MMDB (MaxMind DB format) country lookup —
+// DB-IP's free "Lite" country database (CC BY 4.0, no signup/API key,
+// updated monthly, schema-compatible with MaxMind's own GeoLite2-Country
+// via the same `country.iso_code` field — see server/Dockerfile for where
+// it's downloaded into the image). This eliminates the whole class of
+// problem: no network call, no rate limit, no daily quota, sub-millisecond
+// lookups regardless of connection volume — and, as a genuine side benefit
+// consistent with this project's own "IP used only transiently, never
+// stored" design intent, no third party ever sees a visitor's IP at all
+// anymore, not even transiently.
+type geoIPLookup struct {
+	reader *geoip2.Reader
+}
+
+// openGeoIPLookup returns a nil-reader lookup (degrades every country to
+// "unknown", not an error) if the database file isn't present — matters
+// for local dev, which never bakes the Docker-image-only file in, and
+// matches this codebase's standing "OFF (X not set/found)" degrade
+// convention for every other optional feature.
+func openGeoIPLookup(path string) (*geoIPLookup, error) {
+	reader, err := geoip2.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &geoIPLookup{}, nil
+		}
+		return nil, err
+	}
+	return &geoIPLookup{reader: reader}, nil
+}
+
+func (g *geoIPLookup) country(ip string) string {
+	if g.reader == nil || ip == "" {
 		return ""
 	}
-	client := http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("https://ipapi.co/" + ip + "/country/")
+	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	record, err := g.reader.Country(addr)
+	if err != nil || record.Country.ISOCode == "" {
 		return ""
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 16))
-	if err != nil {
-		return ""
-	}
-	code := strings.ToUpper(strings.TrimSpace(string(body)))
-	if len(code) != 2 {
-		return ""
-	}
-	return code
+	return record.Country.ISOCode
 }
 
-// geoCache avoids re-querying ipapi.co for an IP that was already resolved
-// recently — every connection previously triggered a brand-new lookup, even
-// a same-IP reconnect seconds later (a browser reload, NDK's own
-// reconnect-after-hiccup logic, repeated dev/testing connections from the
-// same machine). ipapi.co's free tier has a real daily request quota; once
-// it's exhausted, every lookup for the rest of that window silently
-// degrades to "unknown" regardless of true origin — confirmed as the likely
-// driver of this relay's real dashboard data showing "unknown" dominating
-// by two orders of magnitude over every real country combined. Caching
-// directly cuts how often that quota gets hit, so "unknown" going forward
-// more accurately reflects genuinely-unresolvable connections rather than
-// quota exhaustion from redundant lookups of IPs already seen.
-const (
-	geoCacheTTL = time.Hour
-	// Bounded so a long-running process can't slowly leak memory as it
-	// accumulates entries for thousands of unique IPs over weeks/months —
-	// this relay has already had real near-OOM incidents on this exact
-	// machine (see CLAUDE.md), so an unbounded cache isn't a risk worth
-	// taking for what's just a best-effort accuracy optimization.
-	geoCacheMaxSize = 5000
-)
-
-type geoCacheEntry struct {
-	country   string
-	expiresAt time.Time
-}
-
-var (
-	geoCacheMu sync.Mutex
-	geoCache   = map[string]geoCacheEntry{}
-)
-
-func geoLookupCountryCached(ip string) string {
-	if ip == "" {
-		return ""
-	}
-
-	geoCacheMu.Lock()
-	if entry, ok := geoCache[ip]; ok && time.Now().Before(entry.expiresAt) {
-		geoCacheMu.Unlock()
-		return entry.country
-	}
-	geoCacheMu.Unlock()
-
-	country := geoLookupCountry(ip)
-
-	geoCacheMu.Lock()
-	// Simplest possible bound: rather than a real LRU, just wipe the whole
-	// cache once it grows past the cap. This is a best-effort optimization,
-	// not a correctness-critical structure — losing early entries
-	// occasionally just costs one extra API call to re-resolve them, no
-	// more than if the cache didn't exist at all.
-	if len(geoCache) >= geoCacheMaxSize {
-		geoCache = map[string]geoCacheEntry{}
-	}
-	geoCache[ip] = geoCacheEntry{country: country, expiresAt: time.Now().Add(geoCacheTTL)}
-	geoCacheMu.Unlock()
-
-	return country
-}
-
-// newAnalyticsConnectHook returns a khatru OnConnect hook. Dispatches the
-// geo lookup and the store write in a goroutine so a slow/unreachable geo
-// API never adds latency to the connection handshake itself — the same
-// "never block the hot path" lesson learned the hard way from the push
-// notification lock-contention incident (see CLAUDE.md).
-func newAnalyticsConnectHook(store *analyticsStore) func(ctx context.Context) {
+// newAnalyticsConnectHook returns a khatru OnConnect hook. The lookup
+// itself is now a fast local operation (no network round trip), but the
+// store write still happens in a goroutine — same "never block the
+// connection handshake" discipline as every other hot-path hook in this
+// codebase, cheap insurance against ever reintroducing that class of
+// problem even though this particular call is no longer the risk it once
+// was.
+func newAnalyticsConnectHook(store *analyticsStore, geoip *geoIPLookup) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		ip := khatru.GetIP(ctx)
 		go func() {
-			country := geoLookupCountryCached(ip)
-			store.record(country)
+			store.record(geoip.country(ip))
 		}()
 	}
 }

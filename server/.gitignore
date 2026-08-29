@@ -8,6 +8,7 @@
 /page-views.json
 /enumerated-relays.json
 /enumerated-identities.json
+*.mmdb
 *.exe
 nostras-server
 /cmd/dvm/dvm

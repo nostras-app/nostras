@@ -244,6 +244,21 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	// Local MMDB country lookup (see analytics.go's own comment on why
+	// this replaced a live ipapi.co call) — baked into the Docker image
+	// at build time, not on the persistent /data volume, since it's
+	// static reference data refreshed by rebuilding the image, not
+	// something this process ever writes to.
+	geoipPath := envOr("NOSTRAS_GEOIP_DB_PATH", "./geoip-country-lite.mmdb")
+	geoip, err := openGeoIPLookup(geoipPath)
+	if err != nil {
+		panic(err)
+	}
+	if geoip.reader != nil {
+		fmt.Println("GeoIP country lookup: ON (local database)")
+	} else {
+		fmt.Printf("GeoIP country lookup: OFF (%s not found — connection analytics will show \"unknown\" for every country)\n", geoipPath)
+	}
 	// Page-view analytics for the static public pages (landing, /why,
 	// /node) — see pageviews.go. Same aggregate, no-PII shape as the
 	// connection analytics above, answering a different question ("is
@@ -256,7 +271,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	relay.OnConnect = append(relay.OnConnect, newAnalyticsConnectHook(analytics), newHealthConnectHook())
+	relay.OnConnect = append(relay.OnConnect, newAnalyticsConnectHook(analytics, geoip), newHealthConnectHook())
 	relay.OnDisconnect = append(relay.OnDisconnect, newHealthDisconnectHook())
 	relay.OnEventSaved = append(relay.OnEventSaved, newHealthEventSavedHook(), newNip29CacheUpdateHook(nip29Cache),
 		newVanishEventSavedHook(relay, &db, vanished))
@@ -343,19 +358,19 @@ func main() {
 	// routes WS upgrades and NIP-11 (Accept: application/nostr+json)
 	// requests to the relay itself before anything reaches this router,
 	// so a plain browser visit is the only thing that lands here.
-	relay.Router().HandleFunc("GET /{$}", wrapPageView(pageViews, "home", handleLanding))
+	relay.Router().HandleFunc("GET /{$}", wrapPageView(pageViews, geoip, "home", handleLanding))
 
 	// "Why NOSTRAS" — see why.go/why.html. A normal (non-root) path, so
 	// no "/{$}" subtlety here: Go's ServeMux only treats a bare "/" as a
 	// catch-all subtree, an exact path like "/why" matches only itself.
-	relay.Router().HandleFunc("GET /why", wrapPageView(pageViews, "why", handleWhy))
+	relay.Router().HandleFunc("GET /why", wrapPageView(pageViews, geoip, "why", handleWhy))
 
 	// NOSTRAS Node waitlist page — see node.go/node.html.
-	relay.Router().HandleFunc("GET /node", wrapPageView(pageViews, "node", handleNode))
+	relay.Router().HandleFunc("GET /node", wrapPageView(pageViews, geoip, "node", handleNode))
 
 	// "Own Your Money" — self-hosted Alby Hub onboarding guide, see
 	// wallet.go/wallet.html.
-	relay.Router().HandleFunc("GET /wallet", wrapPageView(pageViews, "wallet", handleWallet))
+	relay.Router().HandleFunc("GET /wallet", wrapPageView(pageViews, geoip, "wallet", handleWallet))
 
 	// Public live usage stats — see stats.go/stats.html. The public half
 	// of the dashboard split: real connection/geography data, no

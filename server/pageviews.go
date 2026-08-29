@@ -14,7 +14,7 @@ import (
 // bucketed by page, day, and country — the same aggregate, no-PII shape
 // already proven for relay-connection analytics (analytics.go), just with
 // an extra "which page" dimension. The raw IP is used only transiently for
-// the country lookup (geoLookupCountryCached, reused as-is) and is never
+// the country lookup (the local MMDB reader, reused as-is) and is never
 // stored.
 type pageViewStore struct {
 	mu     sync.Mutex
@@ -89,14 +89,12 @@ func (s *pageViewStore) snapshot() pageViewStore {
 
 // wrapPageView returns a middleware that records a page view (geo lookup +
 // store write dispatched in a goroutine, same "never block the hot path"
-// reasoning as newAnalyticsConnectHook — a page load must never wait on a
-// third-party geo API) before serving the page itself.
-func wrapPageView(store *pageViewStore, page string, next http.HandlerFunc) http.HandlerFunc {
+// reasoning as newAnalyticsConnectHook) before serving the page itself.
+func wrapPageView(store *pageViewStore, geoip *geoIPLookup, page string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ip := khatru.GetIPFromRequest(r)
 		go func() {
-			country := geoLookupCountryCached(ip)
-			store.record(page, country)
+			store.record(page, geoip.country(ip))
 		}()
 		next(w, r)
 	}
