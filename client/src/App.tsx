@@ -3,7 +3,15 @@ import { ndk } from './lib/ndk'
 import { hasAnyLocalIdentity, getBootSignerState } from './lib/identities'
 import { restoreSignerSession } from './lib/remoteSigner'
 import { resolveDeepLinkFromUrl } from './lib/deeplink'
-import { fetchAppPreferences, applyFetchedPreferences } from './lib/appData'
+import { fetchAppPreferences, applyFetchedPreferences, publishCurrentPreferences } from './lib/appData'
+import {
+  loadLastSeenNotifications,
+  saveLastSeenNotifications,
+  loadSeenMessageWrapIds,
+  saveSeenMessageWrapIds,
+} from './lib/unreadState'
+import { useNotifications } from './hooks/useNotifications'
+import { useDirectMessages } from './hooks/useDirectMessages'
 import { setAuthState, useAuthState } from './lib/authState'
 import { AuthGate } from './components/AuthGate'
 import { UnlockIdentityGate } from './components/UnlockIdentityGate'
@@ -66,6 +74,94 @@ function App() {
   } = useNavState()
   const deepLinkResolved = useRef(false)
   const appPreferencesSynced = useRef(false)
+
+  // Owned here, not inside NotificationsView/MessagesView, specifically
+  // so the nav rail's unread badges can read the exact same live
+  // events/conversations/wrapIds those views render, without opening a
+  // second duplicate subscription just to compute a count (this
+  // codebase has hit that exact duplicate-subscription bug class more
+  // than once already). Passed down as props to both views below.
+  const { events: notificationEvents, loading: notificationsLoading } = useNotifications()
+  const {
+    conversations,
+    loading: messagesLoading,
+    decrypting,
+    wrapIds: messageWrapIds,
+  } = useDirectMessages(activeView === 'messages')
+
+  // "Seen" markers backing the badges — initialized once from
+  // localStorage (possibly already advanced by an earlier NIP-78 sync
+  // from another device, restored below); read via refs inside the
+  // marking effects so those effects don't need these in their own
+  // dependency arrays (the same activeRef pattern useDirectMessages.ts
+  // already uses for its own `active` flag). Notifications track a
+  // plain timestamp (a real, honest created_at exists to compare
+  // against); DMs track a *set of wrap ids* instead — NIP-59
+  // deliberately randomizes a gift wrap's own outer created_at, so
+  // there is no real timestamp available to compare against here (see
+  // lib/unreadState.ts's own comment). Using `conversations` for the
+  // DM badge would also be wrong on its own: decryption is deliberately
+  // lazy (only runs once Messages is the active view, a real fix for
+  // NIP-46 bunker signer cost — see useDirectMessages.ts), so an unread
+  // wrap sitting undecrypted would never show up in `conversations` at
+  // all — confirmed live while building this, not theoretical.
+  const [lastSeenNotificationsAt, setLastSeenNotificationsAt] = useState(loadLastSeenNotifications)
+  const [seenMessageWrapIds, setSeenMessageWrapIds] = useState(
+    () => new Set(loadSeenMessageWrapIds()),
+  )
+  const lastSeenNotificationsRef = useRef(lastSeenNotificationsAt)
+  lastSeenNotificationsRef.current = lastSeenNotificationsAt
+  const seenMessageWrapIdsRef = useRef(seenMessageWrapIds)
+  seenMessageWrapIdsRef.current = seenMessageWrapIds
+  const notificationsSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const messagesSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Marks Notifications "seen" up through whatever's currently newest
+  // (events is sorted newest-first) the whole time this view stays
+  // active — not just once on arrival — so a note that arrives while
+  // you're already looking at the tab is immediately "seen" too, rather
+  // than flashing unread the instant you navigate away. The actual NIP-78
+  // publish is debounced (not fired on every single new event) so a
+  // burst of live notifications doesn't spam the relay with republishes.
+  useEffect(() => {
+    if (activeView !== 'notifications' || notificationEvents.length === 0) return
+    const latest = notificationEvents[0].created_at ?? Math.floor(Date.now() / 1000)
+    if (latest <= lastSeenNotificationsRef.current) return
+    setLastSeenNotificationsAt(latest)
+    saveLastSeenNotifications(latest)
+    if (notificationsSyncTimer.current) clearTimeout(notificationsSyncTimer.current)
+    notificationsSyncTimer.current = setTimeout(() => {
+      publishCurrentPreferences().catch(() => {})
+    }, 3000)
+  }, [activeView, notificationEvents])
+
+  // Same "seen" semantics for Messages (only while the view is actually
+  // open), just diffing wrap ids instead of a timestamp — see the
+  // comment above.
+  useEffect(() => {
+    if (activeView !== 'messages' || messageWrapIds.length === 0) return
+    const hasNew = messageWrapIds.some((id) => !seenMessageWrapIdsRef.current.has(id))
+    if (!hasNew) return
+    const merged = new Set([...seenMessageWrapIdsRef.current, ...messageWrapIds])
+    setSeenMessageWrapIds(merged)
+    saveSeenMessageWrapIds(Array.from(merged))
+    if (messagesSyncTimer.current) clearTimeout(messagesSyncTimer.current)
+    messagesSyncTimer.current = setTimeout(() => {
+      publishCurrentPreferences().catch(() => {})
+    }, 3000)
+  }, [activeView, messageWrapIds])
+
+  // While a view is the one actually on screen, nothing in it should
+  // read as "unread" regardless of how fresh the marking effects above
+  // have managed to catch up yet.
+  const unreadNotifications =
+    activeView === 'notifications'
+      ? 0
+      : notificationEvents.filter((e) => (e.created_at ?? 0) > lastSeenNotificationsAt).length
+  const unreadMessages =
+    activeView === 'messages'
+      ? 0
+      : messageWrapIds.filter((id) => !seenMessageWrapIds.has(id)).length
 
   useEffect(() => {
     let cancelled = false
@@ -172,7 +268,12 @@ function App() {
   return (
     <div className="app">
       {state === 'connected' && authState === 'ready' && (
-        <NavRail activeView={activeView} onSelect={setActiveView} />
+        <NavRail
+          activeView={activeView}
+          onSelect={setActiveView}
+          unreadNotifications={unreadNotifications}
+          unreadMessages={unreadMessages}
+        />
       )}
 
       <div className="app-content">
@@ -262,11 +363,16 @@ function App() {
             </section>
 
             <div className={panelClass('notifications')}>
-              <NotificationsView />
+              <NotificationsView events={notificationEvents} loading={notificationsLoading} />
             </div>
 
             <div className={panelClass('messages')}>
-              <MessagesView initialPeer={dmTarget} active={activeView === 'messages'} />
+              <MessagesView
+                initialPeer={dmTarget}
+                conversations={conversations}
+                loading={messagesLoading}
+                decrypting={decrypting}
+              />
             </div>
 
             <section className={`card settings-panel ${panelClass('settings')}`}>

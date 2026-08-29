@@ -30,6 +30,7 @@
 }
 
 .nav-rail-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -42,6 +43,28 @@
   color: var(--text-muted);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Unread count on Notifications/Messages (NavRail.tsx) — a fixed-size
+   circular badge pinned to the button's own corner regardless of the
+   button's hover/active background, since .nav-rail-btn is already
+   position:relative. */
+.nav-rail-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-sizing: border-box;
+  pointer-events: none;
 }
 
 .nav-rail-btn svg {

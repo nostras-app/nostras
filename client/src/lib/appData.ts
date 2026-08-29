@@ -2,6 +2,13 @@ import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, authorQueryRelaySet } from './ndk'
 import { getCustomRelays, addCustomRelayUrl, isValidRelayUrl } from './customRelays'
 import { fetchLatestReplaceableEvent } from './fetchLatestReplaceable'
+import {
+  loadLastSeenNotifications,
+  saveLastSeenNotifications,
+  loadSeenMessageWrapIds,
+  saveSeenMessageWrapIds,
+  MAX_SEEN_MESSAGE_WRAP_IDS,
+} from './unreadState'
 
 // Real, previously-unbounded hang caught live while verifying this, not
 // hypothetical: ndk.fetchEvent() with no explicit timeout genuinely
@@ -52,6 +59,18 @@ export function loadFeedMode(): FeedMode {
 export type AppPreferences = {
   feedMode?: FeedMode
   customRelays?: string[]
+  // Backs the nav rail's unread badges (NavRail.tsx). Synced (unlike a
+  // purely local preference) specifically because the whole point of a
+  // badge is not showing a stale unread count on a device you weren't
+  // just using — reading something on your phone should clear the
+  // badge on desktop too, not just on the phone. Notification events
+  // carry a real, honest created_at, so a plain "seen up through this
+  // timestamp" marker works for them; DM gift wraps do not (NIP-59
+  // deliberately randomizes a wrap's own outer created_at), so those
+  // instead sync a bounded set of already-seen wrap ids — see
+  // lib/unreadState.ts's own comment on why.
+  lastSeenNotificationsAt?: number
+  seenMessageWrapIds?: string[]
 }
 
 // Deliberately small: only preferences that are (a) genuinely useful
@@ -59,12 +78,13 @@ export type AppPreferences = {
 // NWC wallet connection string, and local identity keys all live in
 // localStorage too but must never be published anywhere, encrypted or
 // not — syncing those would be a real security regression, not a
-// convenience. Feed mode and the custom relay list are the only two
-// current localStorage values that are both safe and worth syncing.
+// convenience.
 function currentLocalPreferences(): AppPreferences {
   return {
     feedMode: loadFeedMode(),
     customRelays: getCustomRelays(),
+    lastSeenNotificationsAt: loadLastSeenNotifications(),
+    seenMessageWrapIds: loadSeenMessageWrapIds(),
   }
 }
 
@@ -130,9 +150,23 @@ export async function publishCurrentPreferences(): Promise<void> {
 // overwrite, one value, nothing to merge. A newly-added relay needs a
 // reload to actually connect — same as any locally-added custom relay
 // (see customRelays.ts) — this only updates storage, not the live pool.
+// The notifications marker takes whichever is newer, local or remote —
+// never regress: a slightly-stale remote snapshot (published before
+// this device's own more recent read) must not resurrect an already-
+// cleared badge as unread again. The seen-wrap-id set is a plain union
+// (there's no single "newer" between two id sets the way there is for
+// one timestamp), capped back down to the same bounded window it's
+// always kept to.
 export function applyFetchedPreferences(prefs: AppPreferences): void {
   if (prefs.feedMode) localStorage.setItem(FEED_MODE_KEY, prefs.feedMode)
   for (const url of prefs.customRelays ?? []) {
     if (isValidRelayUrl(url)) addCustomRelayUrl(url)
+  }
+  if (prefs.lastSeenNotificationsAt && prefs.lastSeenNotificationsAt > loadLastSeenNotifications()) {
+    saveLastSeenNotifications(prefs.lastSeenNotificationsAt)
+  }
+  if (prefs.seenMessageWrapIds?.length) {
+    const merged = Array.from(new Set([...loadSeenMessageWrapIds(), ...prefs.seenMessageWrapIds]))
+    saveSeenMessageWrapIds(merged.slice(-MAX_SEEN_MESSAGE_WRAP_IDS))
   }
 }

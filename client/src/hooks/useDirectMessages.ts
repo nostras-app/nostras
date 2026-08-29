@@ -42,6 +42,17 @@ export function useDirectMessages(active: boolean) {
   const [messages, setMessages] = useState<DecryptedDm[]>([])
   const [loading, setLoading] = useState(true)
   const [pendingCount, setPendingCount] = useState(0)
+  // Every wrap id seen this mount, decrypted or still pending — exposed
+  // so App.tsx's unread-DM badge can react to a *raw* wrap's arrival
+  // without needing it decrypted first. NIP-59 deliberately randomizes
+  // a wrap's own outer `created_at` (see the comment on `messages`'s own
+  // sort elsewhere in this codebase), so there is no real timestamp to
+  // compare against a "last seen at" marker the way notifications can —
+  // App.tsx instead persists a set of already-seen wrap ids and diffs
+  // against this list. Deliberately does not itself decrypt anything;
+  // this is purely bookkeeping over ids that are already free to know
+  // (they're right there in the subscription's own 'event' callback).
+  const [wrapIds, setWrapIds] = useState<string[]>([])
   const { generation } = useRelayStatus()
 
   const activeRef = useRef(active)
@@ -76,6 +87,7 @@ export function useDirectMessages(active: boolean) {
     setLoading(true)
     pendingWrapsRef.current.clear()
     setPendingCount(0)
+    setWrapIds([])
     const seenWrapIds = new Set<string>()
 
     const sub = ndk.subscribe({
@@ -87,6 +99,7 @@ export function useDirectMessages(active: boolean) {
     sub.on('event', (wrap: NDKEvent) => {
       if (seenWrapIds.has(wrap.id)) return
       seenWrapIds.add(wrap.id)
+      setWrapIds((prev) => [...prev, wrap.id])
       if (activeRef.current) {
         decryptOneRef.current(wrap)
       } else {
@@ -138,5 +151,5 @@ export function useDirectMessages(active: boolean) {
   // bunker) signer catches up on a real inbox.
   const decrypting = active && pendingCount > 0
 
-  return { conversations, loading, decrypting }
+  return { conversations, loading, decrypting, wrapIds }
 }

@@ -3,7 +3,7 @@ import { nip19 } from '@nostr-dev-kit/ndk'
 import { ndk } from '../lib/ndk'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useProfile } from '../hooks/useProfile'
-import { useDirectMessages, type Conversation } from '../hooks/useDirectMessages'
+import type { Conversation } from '../hooks/useDirectMessages'
 import { sendDirectMessage } from '../lib/dm'
 import { formatRelativeTime } from '../lib/time'
 import { ArrowLeftIcon, MessageSquareIcon } from './icons'
@@ -190,14 +190,25 @@ function Thread({
   )
 }
 
+// conversations/loading/decrypting are lifted to App.tsx (which owns
+// useDirectMessages(active) directly) rather than called here, so the
+// nav rail's unread badge can read the exact same live conversation
+// list without opening a second, duplicate subscription to the same
+// filter/decrypt pipeline — this hook's own lazy-decrypt design
+// (see useDirectMessages.ts) already depends on there being exactly one
+// instance keyed to the real `active` state, not two independent ones
+// that could each think they own the "active" catch-up behavior.
 export function MessagesView({
   initialPeer,
-  active,
+  conversations,
+  loading,
+  decrypting,
 }: {
   initialPeer?: string | null
-  active: boolean
+  conversations: Conversation[]
+  loading: boolean
+  decrypting: boolean
 }) {
-  const { conversations, loading, decrypting } = useDirectMessages(active)
   const [selectedPeer, setSelectedPeer] = useState<string | null>(null)
   const [newPeerInput, setNewPeerInput] = useState('')
   const [newPeerError, setNewPeerError] = useState(false)

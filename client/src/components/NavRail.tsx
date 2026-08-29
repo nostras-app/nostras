@@ -35,12 +35,23 @@ export type View =
   | 'episode'
   | 'listing'
 
+// Caps the displayed number so a genuinely large backlog (e.g. a fresh
+// account importing years of history) doesn't blow out the badge's fixed
+// circular layout.
+function badgeLabel(count: number): string {
+  return count > 99 ? '99+' : String(count)
+}
+
 export function NavRail({
   activeView,
   onSelect,
+  unreadNotifications = 0,
+  unreadMessages = 0,
 }: {
   activeView: View
   onSelect: (view: View) => void
+  unreadNotifications?: number
+  unreadMessages?: number
 }) {
   const activeUser = useActiveUser()
   const profile = useProfile(activeUser?.pubkey)
@@ -95,17 +106,25 @@ export function NavRail({
         type="button"
         className={`nav-rail-btn${activeClass('notifications')}`}
         onClick={() => onSelect('notifications')}
-        title="Notifications"
+        title={
+          unreadNotifications > 0
+            ? `Notifications (${unreadNotifications} unread)`
+            : 'Notifications'
+        }
       >
         <BellIcon />
+        {unreadNotifications > 0 && (
+          <span className="nav-rail-badge">{badgeLabel(unreadNotifications)}</span>
+        )}
       </button>
       <button
         type="button"
         className={`nav-rail-btn${activeClass('messages')}`}
         onClick={() => onSelect('messages')}
-        title="Messages"
+        title={unreadMessages > 0 ? `Messages (${unreadMessages} unread)` : 'Messages'}
       >
         <MessageSquareIcon />
+        {unreadMessages > 0 && <span className="nav-rail-badge">{badgeLabel(unreadMessages)}</span>}
       </button>
       <button
         type="button"

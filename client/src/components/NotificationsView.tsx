@@ -1,6 +1,5 @@
 import { zapInvoiceFromEvent, type NDKEvent } from '@nostr-dev-kit/ndk'
 import { useProfile } from '../hooks/useProfile'
-import { useNotifications } from '../hooks/useNotifications'
 import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
@@ -101,9 +100,19 @@ function NotificationItem({ event }: { event: NDKEvent }) {
   )
 }
 
-export function NotificationsView() {
-  const { events, loading } = useNotifications()
-
+// events/loading are lifted to App.tsx (which owns useNotifications()
+// directly) rather than called here, so the nav rail's unread badge can
+// read the exact same live list without opening a second, duplicate
+// subscription to the same filter — the same "call the hook once, pass
+// down as props" discipline this codebase already applies elsewhere
+// (see MessagesView's own conversations/loading/decrypting props).
+export function NotificationsView({
+  events,
+  loading,
+}: {
+  events: NDKEvent[]
+  loading: boolean
+}) {
   if (loading && events.length === 0) {
     return <FeedSkeleton />
   }
