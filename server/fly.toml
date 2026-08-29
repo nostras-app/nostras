@@ -129,7 +129,22 @@ primary_region = "fra"
 # required 2048 MiB" -- Fly's performance tier has a higher memory
 # floor than shared-cpu-1x did. Not wasted: the extra memory is no
 # downside given this machine was already comfortably using its 1GB.
+#
+# Bumped again, 2gb -> 4gb (2026-08-29): a real OOM kill
+# (exit_code=137, oom_killed=true) confirmed via the machine's own event
+# log, root-caused by direct SSH investigation, not guessed -- /data
+# (badger + bluge combined) had genuinely grown to ~2.3GB, larger than
+# the machine's entire RAM, so mmap'd store pages alone (RssFile in
+# /proc/<pid>/status) accounted for the majority of a ~1.5GB steady-
+# state RSS even before the Go runtime's own heap and connection
+# buffers. The actual trigger was two back-to-back deploys reopening
+# and heavily compacting badger's tables right after boot (several
+# 6-25s compactions observed directly in the boot log), needing real
+# transient memory on top of an already-tight baseline. Same "the store
+# has organically outgrown the machine" pattern as every prior capacity
+# bump here, not a code regression -- confirmed with the user first,
+# same as every previous recurring-cost change to this app.
 [[vm]]
   size      = "performance-1x"
-  memory    = "2gb"
+  memory    = "4gb"
   processes = ["web"]
