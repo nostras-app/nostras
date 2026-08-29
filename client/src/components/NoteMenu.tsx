@@ -15,8 +15,11 @@ const isAllowedRelay = makeRelayConnectionFilter(localRelayUrl)
 
 const KIND_JOB_REQUEST_MODERATE = 5501
 const KIND_JOB_RESULT_MODERATE = 6501
+const KIND_JOB_REQUEST_SUMMARIZE = 5001
+const KIND_JOB_RESULT_SUMMARIZE = 6001
 
 type CheckState = 'idle' | 'requesting' | 'payment-required' | 'done' | 'error'
+type SummarizeState = 'idle' | 'requesting' | 'payment-required' | 'done' | 'error'
 
 // The DVM's moderateSystemPrompt (server/cmd/dvm/main.go) asks for a
 // lightweight, prompted convention rather than a real structured-output
@@ -50,7 +53,7 @@ const REPORT_TYPES: { value: string; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-type Panel = 'menu' | 'raw' | 'report' | 'delete-confirm' | 'rebroadcast' | 'check'
+type Panel = 'menu' | 'raw' | 'report' | 'delete-confirm' | 'rebroadcast' | 'check' | 'summarize'
 
 export function NoteMenu({ event }: { event: NDKEventType }) {
   const activeUser = useActiveUser()
@@ -109,6 +112,21 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   const [checkAmountSats, setCheckAmountSats] = useState(0)
   const [checkPaying, setCheckPaying] = useState(false)
   const checkCancelRef = useRef<(() => void) | null>(null)
+  // "Summarize" — the client-side consumer piece of the DVM's very first
+  // job kind (server/cmd/dvm/main.go, kind 5001->6001), which shipped
+  // long before Translate/Ask Claude/spam-check but never got a client
+  // UI of its own until now (2026-08-29, user-reported gap: it was
+  // mentioned as a real DVM capability with no way to actually trigger it
+  // from the app). Same structurally-simple, no-picker shape as "check"
+  // above — no parameter to choose, so the menu item fires the job
+  // directly on first open.
+  const [summarizeState, setSummarizeState] = useState<SummarizeState>('idle')
+  const [summarizeResult, setSummarizeResult] = useState('')
+  const [summarizeErrorMsg, setSummarizeErrorMsg] = useState('')
+  const [summarizeInvoice, setSummarizeInvoice] = useState('')
+  const [summarizeAmountSats, setSummarizeAmountSats] = useState(0)
+  const [summarizePaying, setSummarizePaying] = useState(false)
+  const summarizeCancelRef = useRef<(() => void) | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   // Every panel (menu/raw/report/delete-confirm) defaults to opening
@@ -136,6 +154,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   // and unmounts mid-request — requestDvmJob's cancel function tears down
   // its NDK subscription, same cleanup TranslateButton already does.
   useEffect(() => () => checkCancelRef.current?.(), [])
+  useEffect(() => () => summarizeCancelRef.current?.(), [])
 
   useLayoutEffect(() => {
     if (!panel || !panelRef.current) return
@@ -336,6 +355,58 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     }
   }
 
+  function runSummarize() {
+    setSummarizeState('requesting')
+    setSummarizeErrorMsg('')
+    summarizeCancelRef.current = requestDvmJob({
+      requestKind: KIND_JOB_REQUEST_SUMMARIZE,
+      resultKind: KIND_JOB_RESULT_SUMMARIZE,
+      inputText: event.content,
+      onUpdate: (update: DvmJobUpdate) => {
+        if (update.status === 'processing') {
+          setSummarizeState('requesting')
+        } else if (update.status === 'payment-required') {
+          setSummarizeInvoice(update.invoice)
+          setSummarizeAmountSats(Math.round(update.amountMsat / 1000))
+          setSummarizeState('payment-required')
+        } else if (update.status === 'done') {
+          setSummarizeResult(update.result)
+          setSummarizeState('done')
+        } else if (update.status === 'error') {
+          setSummarizeErrorMsg(update.message)
+          setSummarizeState('error')
+        }
+      },
+    })
+  }
+
+  function handleSummarize() {
+    setPanel('summarize')
+    // Only auto-fire on first open, same idempotent-guard as "check" —
+    // reopening an already-run summary just shows the existing result
+    // instead of silently starting a second paid job. "Summarize again"
+    // inside the done/error view is the only explicit re-trigger.
+    if (summarizeState === 'idle') runSummarize()
+  }
+
+  async function handleSummarizePayWithWallet() {
+    const nwcUri = getSavedNwcUri()
+    if (!nwcUri) return
+    setSummarizePaying(true)
+    try {
+      await payInvoiceWithNwc(nwcUri, summarizeInvoice)
+      // The DVM publishes "processing" once it observes settlement, then
+      // the result — the onUpdate handler in runSummarize moves us out
+      // of this state from there.
+      setSummarizeState('requesting')
+    } catch (e) {
+      setSummarizeErrorMsg(e instanceof Error ? e.message : 'Payment failed')
+      setSummarizeState('error')
+    } finally {
+      setSummarizePaying(false)
+    }
+  }
+
   async function handleDelete() {
     if (busy || deleted) return
     setBusy(true)
@@ -414,6 +485,13 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
           >
             {checkState === 'done' ? 'Checked ✓' : 'Check for spam/scam…'}
           </button>
+          <button
+            type="button"
+            onClick={handleSummarize}
+            title="Runs a real NIP-90 DVM job (kind 5001) asking Claude to summarize this note in 2-3 sentences — you only pay if the job completes."
+          >
+            {summarizeState === 'done' ? 'Summarized ✓' : 'Summarize…'}
+          </button>
           <button type="button" onClick={() => setPanel('report')} disabled={reported}>
             {reported ? 'Reported' : 'Report'}
           </button>
@@ -437,7 +515,8 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
         panel === 'report' ||
         panel === 'delete-confirm' ||
         panel === 'rebroadcast' ||
-        panel === 'check') && <div className="note-menu-backdrop" onClick={() => setPanel(null)} />}
+        panel === 'check' ||
+        panel === 'summarize') && <div className="note-menu-backdrop" onClick={() => setPanel(null)} />}
 
       {panel === 'raw' && (
         <div ref={panelRef} className="note-menu-panel">
@@ -604,6 +683,64 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
             {(checkState === 'done' || checkState === 'error') && (
               <button type="button" className="btn btn-secondary btn-sm" onClick={runCheck}>
                 Check again
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPanel(null)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {panel === 'summarize' && (
+        <div ref={panelRef} className="note-menu-panel">
+          <span className="translate-panel-label">Summary</span>
+
+          {(summarizeState === 'idle' || summarizeState === 'requesting') && (
+            <p className="field-hint">Summarizing…</p>
+          )}
+
+          {summarizeState === 'payment-required' && (
+            <div className="stack">
+              <p className="field-hint">
+                Payment required to run this job — you are paying{' '}
+                <strong>{summarizeAmountSats} sats</strong>.
+              </p>
+              <textarea className="textarea" readOnly value={summarizeInvoice} rows={3} />
+              <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => navigator.clipboard.writeText(summarizeInvoice)}
+                >
+                  Copy invoice
+                </button>
+                {getSavedNwcUri() && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleSummarizePayWithWallet}
+                    disabled={summarizePaying}
+                  >
+                    {summarizePaying ? 'Paying…' : 'Pay with connected wallet'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {summarizeState === 'done' && <p className="feed-item-content">{summarizeResult}</p>}
+
+          {summarizeState === 'error' && <p className="alert-error">{summarizeErrorMsg}</p>}
+
+          <div className="btn-row">
+            {(summarizeState === 'done' || summarizeState === 'error') && (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={runSummarize}>
+                Summarize again
               </button>
             )}
             <button
