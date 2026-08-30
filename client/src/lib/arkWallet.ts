@@ -123,6 +123,33 @@ export async function createArkWallet(): Promise<string> {
   return mnemonic
 }
 
+// Discards the current wallet entirely — local storage only, no relay/
+// server-side action, since this is nothing but an IndexedDB-persisted
+// key pair the SDK itself owns. Safe by design (Signet, zero real
+// value) precisely for the case this exists to cover: a mnemonic that
+// was never actually saved has nothing worth recovering, so "start a
+// fresh one" is a real, reasonable action, not just a last resort.
+export async function forgetArkWallet(): Promise<void> {
+  // free() releases the WASM object's own IndexedDB connection — without
+  // this, deleteDatabase() below can hang in the "blocked" state waiting
+  // for a connection that's never going to close on its own.
+  try {
+    walletInstance?.free()
+  } catch {
+    // best-effort cleanup of a WASM handle; nothing meaningful to do if
+    // it's already been freed or the call itself fails
+  }
+  walletInstance = null
+  localStorage.removeItem(ARK_MNEMONIC_KEY)
+  await new Promise<void>((resolve) => {
+    const req = indexedDB.deleteDatabase(ARK_INDEXED_DB_NAME)
+    req.onsuccess = () => resolve()
+    req.onerror = () => resolve()
+    req.onblocked = () => resolve()
+  })
+  setState({ status: 'none', address: null, balanceSats: null, syncing: false, error: null })
+}
+
 export async function syncArkWallet(): Promise<void> {
   if (!walletInstance) return
   setState({ syncing: true })

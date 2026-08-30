@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { createArkWallet, loadArkMnemonic, syncArkWallet, useArkWallet } from '../lib/arkWallet'
+import { createArkWallet, forgetArkWallet, loadArkMnemonic, syncArkWallet, useArkWallet } from '../lib/arkWallet'
 
 // Experimental — Ark protocol (https://ark-protocol.org), Signet test
 // network only, zero real money involved anywhere in this component.
@@ -11,6 +11,8 @@ export function ArkWalletSettings() {
   const [revealedMnemonic, setRevealedMnemonic] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [confirmingForget, setConfirmingForget] = useState(false)
+  const [forgetting, setForgetting] = useState(false)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -45,6 +47,16 @@ export function ArkWalletSettings() {
     if (!address) return
     navigator.clipboard.writeText(address)
     setCopied(true)
+  }
+
+  async function handleForget() {
+    setForgetting(true)
+    try {
+      await forgetArkWallet()
+    } finally {
+      setForgetting(false)
+      setConfirmingForget(false)
+    }
   }
 
   return (
@@ -99,6 +111,40 @@ export function ArkWalletSettings() {
             </button>
           </div>
           {error && <p className="alert-error">{error}</p>}
+          {confirmingForget ? (
+            <div className="stack">
+              <p className="alert-error">
+                No way back once this is gone — this only makes sense if
+                you never saved the seed phrase. Confirm?
+              </p>
+              <div className="btn-row">
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  onClick={handleForget}
+                  disabled={forgetting}
+                >
+                  {forgetting ? 'Forgetting…' : 'Yes, forget it'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setConfirmingForget(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setConfirmingForget(true)}
+              title="Wipes this wallet from this browser and lets you create a fresh one — only makes sense if you never saved its seed phrase"
+            >
+              Forget this wallet
+            </button>
+          )}
         </div>
       ) : status === 'opening' || (hasStoredWallet && status === 'none') ? (
         <p className="field-hint">Opening wallet…</p>
