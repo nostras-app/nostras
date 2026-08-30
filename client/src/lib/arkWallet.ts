@@ -268,6 +268,25 @@ export async function syncArkWallet(): Promise<void> {
   }
 }
 
+// Ark-native send only, deliberately — the SDK's own `sendOnchain()` and
+// the separate on-chain `OnchainWallet.send()` both need a real
+// bitcoind/esplora-backed onchain handle this project never constructs
+// (Wallet.open() is called with `onchain: undefined`), and Lightning
+// send/receive (payLightningInvoice, bolt11Invoice, etc.) is real,
+// separate scope of its own — see the "what's still missing" recap in
+// nostr-client-node-strategy.md. This is the smallest useful next slice:
+// an Ark address can now both receive (already built) and send.
+// Left to throw its own real error rather than pre-validating the
+// address/amount here — the SDK already rejects a malformed Ark address
+// or an amount exceeding the spendable balance with a real, specific
+// message, matching this project's own "surface the SDK's own
+// validation" convention (e.g. NDKPrivateKeySigner in identities.ts).
+export async function sendArkPayment(address: string, amountSats: number): Promise<void> {
+  if (!walletInstance) throw new Error('No wallet open')
+  await walletInstance.sendArkoorPayment(address, amountSats)
+  await syncArkWallet()
+}
+
 export function useArkWallet(): ArkWalletState {
   return useSyncExternalStore(subscribe, () => state)
 }

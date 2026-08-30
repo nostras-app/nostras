@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import { createArkWallet, forgetArkWallet, loadArkMnemonic, syncArkWallet, useArkWallet } from '../lib/arkWallet'
+import {
+  createArkWallet,
+  forgetArkWallet,
+  loadArkMnemonic,
+  sendArkPayment,
+  syncArkWallet,
+  useArkWallet,
+} from '../lib/arkWallet'
 
 // Experimental — Ark protocol (https://ark-protocol.org), Signet test
 // network only, zero real money involved anywhere in this component.
@@ -13,6 +20,11 @@ export function ArkWalletSettings() {
   const [copied, setCopied] = useState(false)
   const [confirmingForget, setConfirmingForget] = useState(false)
   const [forgetting, setForgetting] = useState(false)
+  const [sendAddress, setSendAddress] = useState('')
+  const [sendAmount, setSendAmount] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [sendSuccess, setSendSuccess] = useState(false)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -26,6 +38,12 @@ export function ArkWalletSettings() {
     const t = setTimeout(() => setCopied(false), 1500)
     return () => clearTimeout(t)
   }, [copied])
+
+  useEffect(() => {
+    if (!sendSuccess) return
+    const t = setTimeout(() => setSendSuccess(false), 3000)
+    return () => clearTimeout(t)
+  }, [sendSuccess])
 
   async function handleCreate() {
     setCreating(true)
@@ -47,6 +65,24 @@ export function ArkWalletSettings() {
     if (!address) return
     navigator.clipboard.writeText(address)
     setCopied(true)
+  }
+
+  async function handleSend() {
+    const amount = Number.parseInt(sendAmount, 10)
+    if (!sendAddress.trim() || !Number.isFinite(amount) || amount <= 0) return
+    setSending(true)
+    setSendError(null)
+    setSendSuccess(false)
+    try {
+      await sendArkPayment(sendAddress.trim(), amount)
+      setSendAddress('')
+      setSendAmount('')
+      setSendSuccess(true)
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : 'Send failed')
+    } finally {
+      setSending(false)
+    }
   }
 
   async function handleForget() {
@@ -128,6 +164,38 @@ export function ArkWalletSettings() {
             </button>
           </div>
           {error && <p className="alert-error">{error}</p>}
+          <div className="stack">
+            <p className="field-hint">
+              Send to another Ark (Signet) address — instant, off-chain.
+            </p>
+            <input
+              className="input"
+              value={sendAddress}
+              onChange={(e) => setSendAddress(e.target.value)}
+              placeholder="tark1..."
+              disabled={sending}
+            />
+            <div className="field-row">
+              <input
+                className="input"
+                value={sendAmount}
+                onChange={(e) => setSendAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="Amount (test sats)"
+                inputMode="numeric"
+                disabled={sending}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleSend}
+                disabled={sending || !sendAddress.trim() || !sendAmount}
+              >
+                {sending ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+            {sendSuccess && <p className="field-hint">Sent ✓</p>}
+            {sendError && <p className="alert-error">{sendError}</p>}
+          </div>
           {confirmingForget ? (
             <div className="stack">
               <p className="alert-error">
