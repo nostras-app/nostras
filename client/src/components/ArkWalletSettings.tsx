@@ -371,13 +371,23 @@ export function ArkWalletSettings() {
             <p className="field-hint">
               <strong>Fund this wallet (boarding)</strong> — send Signet
               test bitcoin to this on-chain address, then board it into
-              Ark. Get free Signet coins from a{' '}
-              <a href="https://mempool.space/signet/faucet" target="_blank" rel="noreferrer">
-                public Signet faucet
+              Ark. Get free Signet coins from{' '}
+              <a href="https://bitcoinsignetfaucet.com" target="_blank" rel="noreferrer">
+                bitcoinsignetfaucet.com
               </a>{' '}
-              (same chain this wallet talks to — independently confirmed,
-              not assumed). Boarded funds need 6 real on-chain
-              confirmations before they're spendable in Ark.
+              or{' '}
+              <a href="https://alt.signetfaucet.com" target="_blank" rel="noreferrer">
+                alt.signetfaucet.com
+              </a>{' '}
+              (both live and independently confirmed as of 2026-08-30 —
+              the faucet previously linked here, mempool.space/signet/
+              faucet, no longer exists; it now just redirects to
+              mempool's plain homepage). Boarded funds need 6 real
+              on-chain confirmations before they're spendable in Ark.
+              <strong> Only ever use real Signet coins here, never real
+              mainnet bitcoin</strong> — the two networks don't connect,
+              and nothing sent to the wrong one comes back through this
+              wallet.
             </p>
             {onchainAddress && (
               <div className="field-row" style={{ alignItems: 'center' }}>
