@@ -64,6 +64,18 @@ export function ArkWalletSettings() {
       <p className="ark-wallet-experimental-banner">
         EXPERIMENTAL — Signet test network only. Not real money, ever.
       </p>
+      <p className="field-hint">
+        A real, working{' '}
+        <a href="https://ark-protocol.org" target="_blank" rel="noreferrer">
+          Ark protocol
+        </a>{' '}
+        wallet — instant off-chain Bitcoin payments with no Lightning-style
+        channel liquidity to manage. Ark is a separate Bitcoin-layer
+        protocol, not a Nostr NIP — nothing about it runs over Nostr
+        relays, unlike the NWC wallet above. Running against a real public
+        Signet test server, not a simulation, but Signet bitcoin has zero
+        real-world value. This is here to try, not to rely on.
+      </p>
 
       {/* Still revealing the just-created mnemonic — this state wins
           over "ready" even though the wallet is already open, since the
@@ -150,17 +162,6 @@ export function ArkWalletSettings() {
         <p className="field-hint">Opening wallet…</p>
       ) : (
         <div className="stack">
-          <p className="field-hint">
-            A real, working{' '}
-            <a href="https://ark-protocol.org" target="_blank" rel="noreferrer">
-              Ark protocol
-            </a>{' '}
-            wallet — instant off-chain Bitcoin payments with no Lightning-
-            style channel liquidity to manage. Running against a real
-            public Signet test server, not a simulation, but Signet
-            bitcoin has zero real-world value. This is here to try, not
-            to rely on.
-          </p>
           {error && <p className="alert-error">{error}</p>}
           <button
             type="button"

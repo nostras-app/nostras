@@ -407,7 +407,7 @@ function App() {
                 <SignerConnect />
               </div>
               <div className="settings-section">
-                <span className="settings-section-title">Wallet</span>
+                <span className="settings-section-title">NWC Wallet</span>
                 <NwcConnect />
               </div>
               <div className="settings-section">
