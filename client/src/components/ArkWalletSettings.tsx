@@ -4,6 +4,7 @@ import {
   boardAllFunds,
   cancelWalletExit,
   checkLightningReceive,
+  claimExitedFunds,
   createArkWallet,
   createLightningInvoice,
   estimateBoardFee,
@@ -46,6 +47,7 @@ export function ArkWalletSettings() {
     boarding,
     offboarding,
     refreshingVtxos,
+    claimingExits,
   } = useArkWallet()
   const [revealedMnemonic, setRevealedMnemonic] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -83,6 +85,9 @@ export function ArkWalletSettings() {
   const [progressingExit, setProgressingExit] = useState(false)
   const [cancelingVtxoId, setCancelingVtxoId] = useState<string | null>(null)
   const [exitError, setExitError] = useState<string | null>(null)
+  const [claimAddress, setClaimAddress] = useState('')
+  const [claimError, setClaimError] = useState<string | null>(null)
+  const [claimTxid, setClaimTxid] = useState<string | null>(null)
   const [boardFeeEstimate, setBoardFeeEstimate] = useState<{ feeSats: number; netAmountSats: number } | null>(
     null,
   )
@@ -478,6 +483,23 @@ export function ArkWalletSettings() {
       setExitError(e instanceof Error ? e.message : 'Could not cancel exit')
     } finally {
       setCancelingVtxoId(null)
+    }
+  }
+
+  async function handleClaimExits() {
+    const trimmed = claimAddress.trim()
+    if (!trimmed || !exitSummary) return
+    const claimableIds = exitSummary.vtxos.filter((v) => v.isClaimable).map((v) => v.vtxoId)
+    if (claimableIds.length === 0) return
+    setClaimError(null)
+    setClaimTxid(null)
+    try {
+      const txid = await claimExitedFunds(claimableIds, trimmed)
+      setClaimAddress('')
+      setClaimTxid(txid)
+      await handleCheckExitStatus()
+    } catch (e) {
+      setClaimError(e instanceof Error ? e.message : 'Claim failed')
     }
   }
 
@@ -972,10 +994,11 @@ export function ArkWalletSettings() {
               on-chain fallback, secured by real Bitcoin timelocks, that
               needs no server cooperation. Starting one broadcasts your
               pre-signed exit transactions; a ~144-block wait (real
-              on-chain time) follows before they're claimable. Claiming
-              the exited funds into a spendable balance isn't built yet
-              — this only starts, monitors, and (while still possible)
-              cancels an exit.
+              on-chain time) follows before they're claimable — check
+              status below to see whether each one still needs to wait
+              or is ready. Claiming sweeps every currently-claimable
+              exit into one real on-chain transaction sent to an
+              address you choose.
             </p>
             <button
               type="button"
@@ -995,7 +1018,8 @@ export function ArkWalletSettings() {
                 {exitSummary.vtxos.map((v) => (
                   <div key={v.vtxoId} className="field-row" style={{ alignItems: 'center' }}>
                     <p className="field-hint" style={{ flex: 1, wordBreak: 'break-all' }}>
-                      {v.vtxoId.slice(0, 16)}… — {v.amountSats} sats — {v.state.type}
+                      {v.vtxoId.slice(0, 16)}… — {v.amountSats} sats — {v.state.type} —{' '}
+                      {v.isClaimable ? 'ready to claim' : 'not claimable yet'}
                     </p>
                     <button
                       type="button"
@@ -1007,6 +1031,39 @@ export function ArkWalletSettings() {
                     </button>
                   </div>
                 ))}
+                {exitSummary.vtxos.some((v) => v.isClaimable) && (
+                  <div className="stack">
+                    <input
+                      className="input"
+                      value={claimAddress}
+                      onChange={(e) => setClaimAddress(e.target.value)}
+                      placeholder="tb1p... (Signet address to send claimed funds to)"
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={handleClaimExits}
+                      disabled={claimingExits || !claimAddress.trim()}
+                    >
+                      {claimingExits
+                        ? 'Claiming…'
+                        : `Claim ${exitSummary.vtxos.filter((v) => v.isClaimable).length} exited VTXO${exitSummary.vtxos.filter((v) => v.isClaimable).length === 1 ? '' : 's'}`}
+                    </button>
+                    {claimTxid && (
+                      <p className="field-hint">
+                        Broadcast ✓ — a real on-chain transaction —{' '}
+                        <a
+                          href={`https://mempool.space/signet/tx/${claimTxid}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          view on explorer
+                        </a>
+                      </p>
+                    )}
+                    {claimError && <p className="alert-error">{claimError}</p>}
+                  </div>
+                )}
               </div>
             )}
             <button

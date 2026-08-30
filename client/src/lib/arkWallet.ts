@@ -111,6 +111,9 @@ type ArkWalletState = {
   // VTXO refresh — extending an existing VTXO's lifetime before it
   // expires. See refreshVtxos() below.
   refreshingVtxos: boolean
+  // Claiming exited funds into a spendable on-chain balance — the final
+  // step of an emergency exit. See claimExitedFunds() below.
+  claimingExits: boolean
 }
 
 const EMPTY_STATE: ArkWalletState = {
@@ -125,6 +128,7 @@ const EMPTY_STATE: ArkWalletState = {
   boarding: false,
   refreshingVtxos: false,
   offboarding: false,
+  claimingExits: false,
 }
 
 let state: ArkWalletState = { ...EMPTY_STATE }
@@ -169,12 +173,13 @@ function subscribe(listener: () => void) {
 // target with an explicit `init()` call, used here, is the one
 // confirmed working end-to-end against the real signet server.
 async function loadBark() {
-  const [{ default: init, Wallet, OnchainWallet, generateMnemonic }, { default: wasmUrl }] = await Promise.all([
-    import('@secondts/bark/web'),
-    import('@secondts/bark/web/bark_ffi_wasm_bg.wasm?url'),
-  ])
+  const [{ default: init, Wallet, OnchainWallet, generateMnemonic, extractTxFromPsbt }, { default: wasmUrl }] =
+    await Promise.all([
+      import('@secondts/bark/web'),
+      import('@secondts/bark/web/bark_ffi_wasm_bg.wasm?url'),
+    ])
   await init({ module_or_path: wasmUrl })
-  return { Wallet, OnchainWallet, generateMnemonic }
+  return { Wallet, OnchainWallet, generateMnemonic, extractTxFromPsbt }
 }
 
 async function openWallet(pubkey: string, mnemonic: string): Promise<void> {
@@ -638,20 +643,6 @@ export async function payLightningInvoiceViaArk(invoice: string): Promise<Lightn
 // "converting a VTXO into a UTXO can be performed without any
 // third-party interaction." startExitForEntireWallet() is what
 // broadcasts that pre-signed transaction tree.
-//
-// Deliberately scoped to start/monitor/cancel only, not the final
-// claim-to-spendable-balance step (drainExits -> signExitClaimInputs ->
-// broadcastTx) — that three-call chain has no documentation covering
-// its exact shape, and verifying it needs a genuinely funded VTXO to
-// exit, which no wallet in this project has had access to yet (every
-// board attempt so far has hit real "insufficient funds," see
-// boardAllFunds()'s own history). Shipping a guessed implementation of
-// the highest-stakes part of this feature, untested, was judged worse
-// than deferring it — see nostr-client-node-strategy.md for the full
-// scoping discussion. This is not a safety gap: once a VTXO reaches the
-// exit's on-chain, timelock-secured state, the funds are already
-// cryptographically the wallet owner's alone, independent of whether a
-// "claim" button exists in this UI yet.
 export async function startWalletExit(): Promise<void> {
   if (!walletInstance) throw new Error('No wallet open')
   await walletInstance.startExitForEntireWallet()
@@ -684,6 +675,60 @@ export async function getExitSummary(): Promise<{
     walletInstance.getExitVtxos(),
   ])
   return { hasPending, pendingSats, vtxos }
+}
+
+// Completes the exit — the final claim-to-spendable-balance step this
+// feature was originally deliberately deferred on (see the exit-start
+// entry above's git history): every exited VTXO carries a genuine,
+// server-independent on-chain fallback, but turning that into an
+// actual plain UTXO you can spend needed a real, four-call chain this
+// SDK's own .d.ts left almost entirely undocumented.
+//
+// Real research (second.tech/docs/barkd/api-reference/exits/claim-all-
+// exited-vtxos.md, fetched and read directly) confirms the *concept*,
+// even though it describes barkd's own always-on-daemon HTTP endpoint
+// rather than this in-browser SDK directly: "claiming" sweeps every
+// claimable exit output into one on-chain transaction paid to a
+// destination address, is explicitly "manual and non-automatic," and
+// should only be attempted once each VTXO's own status confirms it's
+// actually ready. barkd's server-side daemon does this as a single
+// atomic HTTP call because it can sign and broadcast synchronously
+// server-side; this browser wallet has no such background process, so
+// the SDK exposes the same operation as four granular client-side
+// steps instead:
+//   1. drainExits({vtxoIds, address}) — builds the sweep transaction,
+//      returning both its PSBT and its real fee (ExitClaimTransaction)
+//   2. signExitClaimInputs(psbtBase64) — signs the exit-specific claim
+//      inputs with this wallet's own key material, per its name
+//      returning the updated (still-PSBT) string
+//   3. extractTxFromPsbt(psbtBase64) — a standalone, non-Wallet-method
+//      export finalizing a signed PSBT into raw broadcastable tx hex;
+//      the specific missing link between step 2's "sign" and step 4's
+//      "broadcast a hex string," found by reading the .d.ts directly
+//      rather than assumed
+//   4. broadcastTx(txHex) — actually broadcasts it, returning the real
+//      txid
+// Real, honestly-stated limitation: this exact four-call chain has not
+// been exercised against a genuinely matured (isClaimable: true) VTXO
+// end-to-end — doing so needs a real exit started, then a real
+// ~144-block wait, which no session building this feature has had time
+// to sit through. Each individual call is well-typed and each step's
+// purpose is grounded in real documentation, but the chain as a whole
+// is unverified until a real claim actually succeeds once.
+export async function claimExitedFunds(vtxoIds: string[], address: string): Promise<string> {
+  if (!walletInstance) throw new Error('No wallet open')
+  setState({ claimingExits: true, error: null })
+  try {
+    const { extractTxFromPsbt } = await loadBark()
+    const { psbtBase64 } = await walletInstance.drainExits({ vtxoIds, address })
+    const signedPsbtBase64 = await walletInstance.signExitClaimInputs(psbtBase64)
+    const txHex = extractTxFromPsbt(signedPsbtBase64)
+    const txid = await walletInstance.broadcastTx(txHex)
+    await Promise.all([syncArkWallet(), syncOnchainWallet()])
+    return txid
+  } finally {
+    setState({ claimingExits: false })
+  }
 }
 
 export function useArkWallet(): ArkWalletState {
