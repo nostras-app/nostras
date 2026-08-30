@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ExitVtxo, LightningSendStatus, PendingBoard } from '@secondts/bark/web'
+import type { ExitVtxo, LightningSendStatus, PendingBoard, Vtxo } from '@secondts/bark/web'
 import {
   boardAllFunds,
   cancelWalletExit,
@@ -8,8 +8,10 @@ import {
   createLightningInvoice,
   estimateBoardFee,
   estimateOffboardFee,
+  estimateRefreshFee,
   getMinBoardAmountSats,
   getRequiredBoardConfirmations,
+  getVtxosNeedingRefresh,
   forgetArkWallet,
   getExitSummary,
   listPendingBoards,
@@ -17,6 +19,7 @@ import {
   offboardAllFunds,
   payLightningInvoiceViaArk,
   progressWalletExits,
+  refreshVtxos,
   rescanOnchainWallet,
   sendArkPayment,
   startWalletExit,
@@ -42,6 +45,7 @@ export function ArkWalletSettings() {
     onchainSyncing,
     boarding,
     offboarding,
+    refreshingVtxos,
   } = useArkWallet()
   const [revealedMnemonic, setRevealedMnemonic] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -95,6 +99,15 @@ export function ArkWalletSettings() {
   const [offboardFeeError, setOffboardFeeError] = useState<string | null>(null)
   const [offboardError, setOffboardError] = useState<string | null>(null)
   const [offboardTxid, setOffboardTxid] = useState<string | null>(null)
+  const [vtxosToRefresh, setVtxosToRefresh] = useState<Vtxo[] | null>(null)
+  const [checkingRefresh, setCheckingRefresh] = useState(false)
+  const [refreshCheckError, setRefreshCheckError] = useState<string | null>(null)
+  const [refreshFeeEstimate, setRefreshFeeEstimate] = useState<{ feeSats: number; netAmountSats: number } | null>(
+    null,
+  )
+  const [refreshFeeError, setRefreshFeeError] = useState<string | null>(null)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const [refreshSuccess, setRefreshSuccess] = useState(false)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -225,6 +238,33 @@ export function ArkWalletSettings() {
     }
   }, [balanceSats, offboardAddress])
 
+  useEffect(() => {
+    if (!refreshSuccess) return
+    const t = setTimeout(() => setRefreshSuccess(false), 5000)
+    return () => clearTimeout(t)
+  }, [refreshSuccess])
+
+  // Fetches a real fee estimate as soon as a refresh check finds VTXOs
+  // that need it, mirroring the board/offboard fee-estimate pattern —
+  // shown before the button is clicked, not just after a failed
+  // attempt.
+  useEffect(() => {
+    setRefreshFeeEstimate(null)
+    setRefreshFeeError(null)
+    if (!vtxosToRefresh || vtxosToRefresh.length === 0) return
+    let cancelled = false
+    estimateRefreshFee(vtxosToRefresh.map((v) => v.id))
+      .then((estimate) => {
+        if (!cancelled) setRefreshFeeEstimate(estimate)
+      })
+      .catch((e) => {
+        if (!cancelled) setRefreshFeeError(e instanceof Error ? e.message : 'Could not estimate fee')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [vtxosToRefresh])
+
   async function handleCreate() {
     setCreating(true)
     try {
@@ -289,6 +329,33 @@ export function ArkWalletSettings() {
       setOffboardTxid(txid)
     } catch (e) {
       setOffboardError(e instanceof Error ? e.message : 'Offboarding failed')
+    }
+  }
+
+  async function handleCheckRefresh() {
+    setCheckingRefresh(true)
+    setRefreshCheckError(null)
+    setRefreshSuccess(false)
+    try {
+      const vtxos = await getVtxosNeedingRefresh()
+      setVtxosToRefresh(vtxos)
+    } catch (e) {
+      setRefreshCheckError(e instanceof Error ? e.message : 'Could not check for VTXOs needing refresh')
+    } finally {
+      setCheckingRefresh(false)
+    }
+  }
+
+  async function handleRefreshAll() {
+    if (!vtxosToRefresh || vtxosToRefresh.length === 0) return
+    setRefreshError(null)
+    setRefreshSuccess(false)
+    try {
+      await refreshVtxos(vtxosToRefresh.map((v) => v.id))
+      setRefreshSuccess(true)
+      await handleCheckRefresh()
+    } catch (e) {
+      setRefreshError(e instanceof Error ? e.message : 'Refresh failed')
     }
   }
 
@@ -511,6 +578,71 @@ export function ArkWalletSettings() {
             </button>
           </div>
           {error && <p className="alert-error">{error}</p>}
+          <div className="stack">
+            <p className="field-hint">
+              <strong>Keep VTXOs fresh</strong> — every Ark VTXO has a
+              real lifetime and needs periodic refreshing before it
+              expires, or the funds can only be recovered via a real
+              unilateral exit rather than staying easily spendable in
+              Ark. Submitted as a delegated refresh — the Ark server
+              co-signs on this wallet's behalf so this tab doesn't need
+              to stay open through a live round.
+            </p>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleCheckRefresh}
+              disabled={checkingRefresh}
+            >
+              {checkingRefresh ? 'Checking…' : 'Check for VTXOs needing refresh'}
+            </button>
+            {vtxosToRefresh && vtxosToRefresh.length === 0 && (
+              <p className="field-hint">No VTXOs need refreshing right now.</p>
+            )}
+            {vtxosToRefresh && vtxosToRefresh.length > 0 && (
+              <div className="stack">
+                {vtxosToRefresh.map((v) => (
+                  <p key={v.id} className="field-hint">
+                    <strong>{v.amountSats} sats</strong> — expires at block {v.expiryHeight}
+                  </p>
+                ))}
+                {refreshFeeEstimate &&
+                  (refreshFeeEstimate.netAmountSats > 0 ? (
+                    <p className="field-hint">
+                      Estimated fee: <strong>{refreshFeeEstimate.feeSats} sats</strong> total
+                      across {vtxosToRefresh.length} VTXO{vtxosToRefresh.length === 1 ? '' : 's'}.
+                    </p>
+                  ) : (
+                    <p className="alert-error">
+                      Not enough to cover refresh fees for these VTXOs.
+                    </p>
+                  ))}
+                {refreshFeeError && <p className="alert-error">{refreshFeeError}</p>}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleRefreshAll}
+                  disabled={
+                    refreshingVtxos ||
+                    !!refreshFeeError ||
+                    (refreshFeeEstimate ? refreshFeeEstimate.netAmountSats <= 0 : false)
+                  }
+                >
+                  {refreshingVtxos
+                    ? 'Refreshing…'
+                    : `Refresh ${vtxosToRefresh.length} VTXO${vtxosToRefresh.length === 1 ? '' : 's'}`}
+                </button>
+              </div>
+            )}
+            {refreshSuccess && (
+              <p className="field-hint">
+                Refresh submitted ✓ — the Ark server batches these into an hourly round; check
+                back and Sync once it's gone through.
+              </p>
+            )}
+            {refreshError && <p className="alert-error">{refreshError}</p>}
+            {refreshCheckError && <p className="alert-error">{refreshCheckError}</p>}
+          </div>
           <div className="stack">
             <p className="field-hint">
               <strong>Fund this wallet (boarding)</strong> — send Signet

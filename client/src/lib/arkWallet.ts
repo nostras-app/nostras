@@ -5,6 +5,7 @@ import type {
   LightningSendStatus,
   OnchainWallet as OnchainWalletHandle,
   PendingBoard,
+  Vtxo,
   Wallet as ArkWalletHandle,
 } from '@secondts/bark/web'
 import { ndk } from './ndk'
@@ -107,6 +108,9 @@ type ArkWalletState = {
   // Offboarding — the reverse of boarding: moving Ark balance back out
   // to a plain on-chain address. See offboardAllFunds() below.
   offboarding: boolean
+  // VTXO refresh — extending an existing VTXO's lifetime before it
+  // expires. See refreshVtxos() below.
+  refreshingVtxos: boolean
 }
 
 const EMPTY_STATE: ArkWalletState = {
@@ -119,6 +123,7 @@ const EMPTY_STATE: ArkWalletState = {
   onchainBalanceSats: null,
   onchainSyncing: false,
   boarding: false,
+  refreshingVtxos: false,
   offboarding: false,
 }
 
@@ -517,6 +522,60 @@ export async function offboardAllFunds(address: string): Promise<string> {
     return result.txid
   } finally {
     setState({ offboarding: false })
+  }
+}
+
+// VTXO refresh — every Ark VTXO has a finite lifetime (ArkInfo.vtxoLifetime)
+// and needs periodic refreshing before it expires, or the funds can only
+// be recovered via a real unilateral exit rather than staying easily
+// spendable in Ark. Real Ark documentation
+// (second.tech/docs/learn/rounds.md, fetched and read directly, not
+// assumed) draws a hard, real distinction between two refresh
+// mechanisms: a standard *interactive* round, which "requires the
+// wallet app to participate interactively with other users and the Ark
+// server during the round, signing its own branches" — suitable for
+// "always-on devices like desktops, servers, and nodes" — and a
+// *delegated* round, built specifically for devices that can't stay
+// connected: "designated co-signers handle signing on the user's
+// behalf, and the user claims their new VTXO when next opening their
+// app." A browser tab is squarely the second case, not the first — it
+// can't guarantee staying open and connected through an entire round —
+// so this deliberately wraps only the delegated variant
+// (refreshVtxosDelegated), never the interactive one (refreshVtxos).
+//
+// getVtxosToRefresh() is the SDK's own curated answer to "which VTXOs
+// actually need this right now" — reused as-is rather than
+// hand-rolling an expiry-threshold check against vtxoLifetime, the same
+// "surface the SDK's own judgment" precedent as getMinBoardAmountSats().
+export async function getVtxosNeedingRefresh(): Promise<Vtxo[]> {
+  if (!walletInstance) throw new Error('No wallet open')
+  return walletInstance.getVtxosToRefresh()
+}
+
+export async function estimateRefreshFee(vtxoIds: string[]): Promise<{ feeSats: number; netAmountSats: number }> {
+  if (!walletInstance) throw new Error('No wallet open')
+  const estimate = await walletInstance.estimateRefreshFee(vtxoIds)
+  return { feeSats: estimate.feeSats, netAmountSats: estimate.netAmountSats }
+}
+
+// Submits a delegated refresh request — this does not complete
+// synchronously. Per the real docs, the Ark server batches these into a
+// round ("rounds occur every hour" per second.tech/docs/bark-wallet/
+// vtxos.md), and the refreshed VTXO only becomes visible on a *later*
+// sync() once that round has actually gone through — this call can
+// start it, not wait it out, the same "start, don't promise
+// completion" shape as boardAllFunds()/startWalletExit(). The
+// immediate syncArkWallet() call below is honest about this: it can't
+// pick up a refresh that hasn't happened yet, it just keeps balance
+// display consistent with every other mutating action here.
+export async function refreshVtxos(vtxoIds: string[]): Promise<void> {
+  if (!walletInstance) throw new Error('No wallet open')
+  setState({ refreshingVtxos: true, error: null })
+  try {
+    await walletInstance.refreshVtxosDelegated(vtxoIds)
+    await syncArkWallet()
+  } finally {
+    setState({ refreshingVtxos: false })
   }
 }
 
