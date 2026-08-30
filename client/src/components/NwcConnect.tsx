@@ -34,48 +34,65 @@ export function NwcConnect() {
     setSavedUri(null)
   }
 
-  if (savedUri) {
-    return (
-      <div className="field-row" style={{ alignItems: 'center' }}>
-        <p className="field-hint" style={{ flex: 1 }}>
-          {describeConnection(savedUri)}
-        </p>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={handleDisconnect}
-        >
-          Disconnect wallet
-        </button>
-      </div>
-    )
-  }
-
   return (
     <div className="stack">
-      <div className="field-row">
-        <input
-          className="input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="nostr+walletconnect://..."
-        />
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={handleConnect}
-          disabled={!input.trim()}
-        >
-          Connect wallet
-        </button>
-      </div>
       <p className="field-hint">
-        Don't have a wallet that speaks NWC yet? See{' '}
-        <a href="https://nostras.app/wallet" target="_blank" rel="noreferrer">
-          how to run your own self-custodial one
+        <strong>NWC</strong> (Nostr Wallet Connect —{' '}
+        <a href="https://github.com/nostr-protocol/nips/blob/master/47.md" target="_blank" rel="noreferrer">
+          NIP-47
         </a>
-        .
+        ) lets NOSTRAS ask a real Lightning wallet you control to create and
+        pay invoices, without NOSTRAS ever holding your keys or funds. The
+        wallet itself stays wherever you actually run it — Alby, Mutiny, your
+        own node — NOSTRAS only ever sends it a signed request over Nostr
+        relays and reads back the response. This is what powers zaps (
+        <a href="https://github.com/nostr-protocol/nips/blob/master/57.md" target="_blank" rel="noreferrer">
+          NIP-57
+        </a>
+        ) and every other paid feature in this app. Real Bitcoin over the
+        real Lightning Network — not a test network, unlike the Ark wallet
+        below.
       </p>
+      {savedUri ? (
+        <div className="field-row" style={{ alignItems: 'center' }}>
+          <p className="field-hint" style={{ flex: 1 }}>
+            {describeConnection(savedUri)}
+          </p>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleDisconnect}
+          >
+            Disconnect wallet
+          </button>
+        </div>
+      ) : (
+        <div className="stack">
+          <div className="field-row">
+            <input
+              className="input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="nostr+walletconnect://..."
+            />
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleConnect}
+              disabled={!input.trim()}
+            >
+              Connect wallet
+            </button>
+          </div>
+          <p className="field-hint">
+            Don't have a wallet that speaks NWC yet? See{' '}
+            <a href="https://nostras.app/wallet" target="_blank" rel="noreferrer">
+              how to run your own self-custodial one
+            </a>
+            .
+          </p>
+        </div>
+      )}
     </div>
   )
 }
