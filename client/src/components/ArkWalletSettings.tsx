@@ -7,12 +7,14 @@ import {
   createArkWallet,
   createLightningInvoice,
   estimateBoardFee,
+  estimateOffboardFee,
   getMinBoardAmountSats,
   getRequiredBoardConfirmations,
   forgetArkWallet,
   getExitSummary,
   listPendingBoards,
   loadArkMnemonic,
+  offboardAllFunds,
   payLightningInvoiceViaArk,
   progressWalletExits,
   rescanOnchainWallet,
@@ -39,6 +41,7 @@ export function ArkWalletSettings() {
     onchainBalanceSats,
     onchainSyncing,
     boarding,
+    offboarding,
   } = useArkWallet()
   const [revealedMnemonic, setRevealedMnemonic] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -85,6 +88,13 @@ export function ArkWalletSettings() {
   const [pendingBoardsError, setPendingBoardsError] = useState<string | null>(null)
   const [boardFeeError, setBoardFeeError] = useState<string | null>(null)
   const [requiredBoardConfirmations, setRequiredBoardConfirmations] = useState<number | null>(null)
+  const [offboardAddress, setOffboardAddress] = useState('')
+  const [offboardFeeEstimate, setOffboardFeeEstimate] = useState<{ feeSats: number; netAmountSats: number } | null>(
+    null,
+  )
+  const [offboardFeeError, setOffboardFeeError] = useState<string | null>(null)
+  const [offboardError, setOffboardError] = useState<string | null>(null)
+  const [offboardTxid, setOffboardTxid] = useState<string | null>(null)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -185,6 +195,36 @@ export function ArkWalletSettings() {
     }
   }, [status])
 
+  // Mirrors the board fee-estimate effect above, with one real
+  // difference: boarding's estimate only depends on balance (fetched
+  // automatically), but offboarding's depends on a user-typed
+  // destination address too — refetching on every keystroke would spam
+  // the SDK with calls against an incomplete address and show a
+  // confusing transient error while still typing, so this debounces by
+  // 500ms and only fires once an address is actually present.
+  useEffect(() => {
+    setOffboardFeeEstimate(null)
+    setOffboardFeeError(null)
+    const trimmed = offboardAddress.trim()
+    if (!balanceSats || !trimmed) return
+    let cancelled = false
+    const t = setTimeout(() => {
+      estimateOffboardFee(trimmed)
+        .then((estimate) => {
+          if (!cancelled) setOffboardFeeEstimate(estimate)
+        })
+        .catch((e) => {
+          if (!cancelled) {
+            setOffboardFeeError(e instanceof Error ? e.message : 'Could not estimate fee')
+          }
+        })
+    }, 500)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [balanceSats, offboardAddress])
+
   async function handleCreate() {
     setCreating(true)
     try {
@@ -235,6 +275,20 @@ export function ArkWalletSettings() {
       setPendingBoardsError(e instanceof Error ? e.message : 'Could not check pending boards')
     } finally {
       setCheckingPendingBoards(false)
+    }
+  }
+
+  async function handleOffboardAll() {
+    const trimmed = offboardAddress.trim()
+    if (!trimmed) return
+    setOffboardError(null)
+    setOffboardTxid(null)
+    try {
+      const txid = await offboardAllFunds(trimmed)
+      setOffboardAddress('')
+      setOffboardTxid(txid)
+    } catch (e) {
+      setOffboardError(e instanceof Error ? e.message : 'Offboarding failed')
     }
   }
 
@@ -596,6 +650,59 @@ export function ArkWalletSettings() {
               </div>
             )}
             {pendingBoardsError && <p className="alert-error">{pendingBoardsError}</p>}
+          </div>
+          <div className="stack">
+            <p className="field-hint">
+              <strong>Offboard to on-chain</strong> — the reverse of
+              boarding: send this wallet's whole Ark balance back out to
+              a plain Signet address, yours or anyone else's.
+            </p>
+            <input
+              className="input"
+              value={offboardAddress}
+              onChange={(e) => setOffboardAddress(e.target.value)}
+              placeholder="tb1p... (Signet address to send to)"
+            />
+            {offboardFeeEstimate &&
+              (offboardFeeEstimate.netAmountSats > 0 ? (
+                <p className="field-hint">
+                  Estimated fee: <strong>{offboardFeeEstimate.feeSats} sats</strong> — you'd
+                  receive <strong>{offboardFeeEstimate.netAmountSats} sats</strong> on-chain.
+                </p>
+              ) : (
+                <p className="alert-error">
+                  Not enough to cover offboarding fees — this Ark balance doesn't clear the
+                  fee floor.
+                </p>
+              ))}
+            {offboardFeeError && <p className="alert-error">{offboardFeeError}</p>}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleOffboardAll}
+              disabled={
+                offboarding ||
+                !balanceSats ||
+                !offboardAddress.trim() ||
+                (offboardFeeEstimate ? offboardFeeEstimate.netAmountSats <= 0 : false)
+              }
+            >
+              {offboarding ? 'Offboarding…' : 'Offboard all Ark funds on-chain'}
+            </button>
+            {offboardTxid && (
+              <p className="field-hint">
+                Broadcast ✓ — a real on-chain transaction, follows ordinary Bitcoin
+                confirmation rules from here —{' '}
+                <a
+                  href={`https://mempool.space/signet/tx/${offboardTxid}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  view on explorer
+                </a>
+              </p>
+            )}
+            {offboardError && <p className="alert-error">{offboardError}</p>}
           </div>
           <div className="stack">
             <p className="field-hint">

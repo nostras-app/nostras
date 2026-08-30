@@ -104,6 +104,9 @@ type ArkWalletState = {
   onchainBalanceSats: number | null
   onchainSyncing: boolean
   boarding: boolean
+  // Offboarding — the reverse of boarding: moving Ark balance back out
+  // to a plain on-chain address. See offboardAllFunds() below.
+  offboarding: boolean
 }
 
 const EMPTY_STATE: ArkWalletState = {
@@ -116,6 +119,7 @@ const EMPTY_STATE: ArkWalletState = {
   onchainBalanceSats: null,
   onchainSyncing: false,
   boarding: false,
+  offboarding: false,
 }
 
 let state: ArkWalletState = { ...EMPTY_STATE }
@@ -459,7 +463,8 @@ export async function getMinBoardAmountSats(): Promise<number> {
 // Ark-native send only, deliberately — the SDK's own `sendOnchain()` and
 // the separate on-chain `OnchainWallet.send()` (both real, both wired
 // up as of the boarding feature) send to a *plain on-chain* address,
-// not an Ark one — a different, not-yet-built UI action of its own.
+// not an Ark one — offboarding (below) is the actual not-yet-built
+// counterpart of *that*, not this.
 // Left to throw its own real error rather than pre-validating the
 // address/amount here — the SDK already rejects a malformed Ark address
 // or an amount exceeding the spendable balance with a real, specific
@@ -469,6 +474,50 @@ export async function sendArkPayment(address: string, amountSats: number): Promi
   if (!walletInstance) throw new Error('No wallet open')
   await walletInstance.sendArkoorPayment(address, amountSats)
   await syncArkWallet()
+}
+
+// Offboarding — the direct mirror of boarding: moving Ark balance back
+// out to a plain on-chain Signet address. Deliberately "offboard
+// everything" only for this first pass, matching boardAllFunds()'s own
+// "board everything" scope (the SDK's offboardVtxos()/
+// estimateOffboardFee(address, vtxoIds) variants exist for offboarding
+// a specific subset of VTXOs, left for later if ever needed — same
+// precedent as boardAmount() being left unbuilt next to boardAll()).
+// Unlike boarding, ArkInfo has no documented minimum-offboard-amount
+// field to check (confirmed by reading the shipped .d.ts directly), so
+// the fee-coverage check below is the only floor that needs surfacing
+// before the user clicks the button. There's also no Ark-side
+// confirmation-count claim to surface here the way boarding has
+// requiredBoardConfirmations: a `offboardRequiredConfirmations` field
+// does exist in the .d.ts, but it belongs to the server daemon's own
+// `Config` type, not the client-queryable `ArkInfo` — checked directly
+// before assuming it was reusable, precisely to avoid repeating the
+// guessed-number mistake just fixed for boarding. An offboard produces
+// an ordinary on-chain Bitcoin transaction, so it follows ordinary
+// Bitcoin confirmation semantics, not an Ark-specific rule.
+export async function estimateOffboardFee(address: string): Promise<{ feeSats: number; netAmountSats: number }> {
+  if (!walletInstance) throw new Error('No wallet open')
+  const estimate = await walletInstance.estimateOffboardAllFee(address)
+  return { feeSats: estimate.feeSats, netAmountSats: estimate.netAmountSats }
+}
+
+// Returns the real broadcast txid (OffboardResult.txid) rather than
+// void, so the UI can show real evidence — the same "give a real txid
+// to check independently, not just app copy" precedent already
+// established for listPendingBoards().
+// Left to throw its own real error rather than pre-validating the
+// destination address here — same "surface the SDK's own validation"
+// convention as sendArkPayment() above.
+export async function offboardAllFunds(address: string): Promise<string> {
+  if (!walletInstance) throw new Error('No wallet open')
+  setState({ offboarding: true, error: null })
+  try {
+    const result = await walletInstance.offboardAll(address)
+    await Promise.all([syncArkWallet(), syncOnchainWallet()])
+    return result.txid
+  } finally {
+    setState({ offboarding: false })
+  }
 }
 
 // Lightning receive — Ark's actual headline capability: an invoice
