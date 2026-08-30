@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { LightningSendStatus } from '@secondts/bark/web'
 import {
   boardAllFunds,
   checkLightningReceive,
@@ -6,6 +7,7 @@ import {
   createLightningInvoice,
   forgetArkWallet,
   loadArkMnemonic,
+  payLightningInvoiceViaArk,
   sendArkPayment,
   syncArkWallet,
   syncOnchainWallet,
@@ -50,6 +52,10 @@ export function ArkWalletSettings() {
   const [checkingReceive, setCheckingReceive] = useState(false)
   const [lnReceiveState, setLnReceiveState] = useState<string | null>(null)
   const [lnError, setLnError] = useState<string | null>(null)
+  const [lnPayInvoice, setLnPayInvoice] = useState('')
+  const [paying, setPaying] = useState(false)
+  const [payResult, setPayResult] = useState<LightningSendStatus | null>(null)
+  const [payError, setPayError] = useState<string | null>(null)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -167,6 +173,22 @@ export function ArkWalletSettings() {
       setLnError(e instanceof Error ? e.message : 'Could not check status')
     } finally {
       setCheckingReceive(false)
+    }
+  }
+
+  async function handlePayInvoice() {
+    if (!lnPayInvoice.trim()) return
+    setPaying(true)
+    setPayError(null)
+    setPayResult(null)
+    try {
+      const result = await payLightningInvoiceViaArk(lnPayInvoice)
+      setPayResult(result)
+      if (result.type === 'paid') setLnPayInvoice('')
+    } catch (e) {
+      setPayError(e instanceof Error ? e.message : 'Payment failed')
+    } finally {
+      setPaying(false)
     }
   }
 
@@ -379,6 +401,39 @@ export function ArkWalletSettings() {
               </div>
             )}
             {lnError && <p className="alert-error">{lnError}</p>}
+          </div>
+          <div className="stack">
+            <p className="field-hint">
+              <strong>Pay via Lightning</strong> — paste an invoice
+              (from a real Signet-capable wallet), pay it straight from
+              this Ark balance. No channel to open — the Ark server
+              handles the actual Lightning routing.
+            </p>
+            <input
+              className="input"
+              value={lnPayInvoice}
+              onChange={(e) => setLnPayInvoice(e.target.value)}
+              placeholder="lntbs1..."
+              disabled={paying}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handlePayInvoice}
+              disabled={paying || !lnPayInvoice.trim()}
+            >
+              {paying ? 'Paying…' : 'Pay invoice'}
+            </button>
+            {payResult && (
+              <p className="field-hint">
+                {payResult.type === 'paid'
+                  ? `Paid ✓ — preimage ${payResult.preimage.slice(0, 16)}…`
+                  : payResult.type === 'inProgress'
+                    ? `Still in progress — ${payResult.send.amountSats} sats, fee ${payResult.send.feeSats} sats`
+                    : 'Status unknown — check your balance to confirm'}
+              </p>
+            )}
+            {payError && <p className="alert-error">{payError}</p>}
           </div>
           <div className="stack">
             <p className="field-hint">

@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from 'react'
-import type { OnchainWallet as OnchainWalletHandle, Wallet as ArkWalletHandle } from '@secondts/bark/web'
+import type {
+  LightningSendStatus,
+  OnchainWallet as OnchainWalletHandle,
+  Wallet as ArkWalletHandle,
+} from '@secondts/bark/web'
 import { ndk } from './ndk'
 
 // Experimental Ark (https://ark-protocol.org) wallet support — built
@@ -407,6 +411,26 @@ export async function checkLightningReceive(paymentHash: string): Promise<string
   const state = await walletInstance.lightningReceiveState(paymentHash)
   await syncArkWallet()
   return state.state
+}
+
+// Lightning send — the counterpart to receiving. `wait: true` blocks
+// until the SDK itself resolves the payment (paid or failed) rather
+// than returning an immediate in-progress status to poll — deliberately
+// simpler than receive's fire-then-check shape, and consistent with
+// sendArkPayment/boardAllFunds, which are also single blocking calls:
+// the SDK's own LightningSend result (the "inProgress" case) carries no
+// payment hash to poll against later, only receive's does, so a
+// fire-then-check UI isn't actually reachable here the same way.
+// Deliberately a raw bolt11 invoice only (no amount override for
+// amount-less invoices, no LNURL/Lightning-address/BOLT12 offer
+// support — payLightningAddress/payLnurl/payLightningOffer are all
+// real, separate scope for a later pass) — the common case, matching
+// this feature's own established smallest-slice-first pattern.
+export async function payLightningInvoiceViaArk(invoice: string): Promise<LightningSendStatus> {
+  if (!walletInstance) throw new Error('No wallet open')
+  const status = await walletInstance.payLightningInvoice({ invoice: invoice.trim(), wait: true })
+  await syncArkWallet()
+  return status
 }
 
 export function useArkWallet(): ArkWalletState {
