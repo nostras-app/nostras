@@ -670,17 +670,11 @@ export function ArkWalletSettings() {
               <strong>Fund this wallet (boarding)</strong> — send Signet
               test bitcoin to this on-chain address, then board it into
               Ark. Get free Signet coins from{' '}
-              <a href="https://bitcoinsignetfaucet.com" target="_blank" rel="noreferrer">
-                bitcoinsignetfaucet.com
+              <a href="https://signet.2nd.dev/" target="_blank" rel="noreferrer">
+                signet.2nd.dev
               </a>{' '}
-              or{' '}
-              <a href="https://alt.signetfaucet.com" target="_blank" rel="noreferrer">
-                alt.signetfaucet.com
-              </a>{' '}
-              (both live and independently confirmed as of 2026-08-30 —
-              the faucet previously linked here, mempool.space/signet/
-              faucet, no longer exists; it now just redirects to
-              mempool's plain homepage). Boarded funds need{' '}
+              — Second's own official Signet faucet, for the same
+              Signet server this wallet talks to. Boarded funds need{' '}
               {requiredBoardConfirmations !== null
                 ? `${requiredBoardConfirmations} real on-chain confirmation${requiredBoardConfirmations === 1 ? '' : 's'}`
                 : 'a real on-chain confirmation'}{' '}
