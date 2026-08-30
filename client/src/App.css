@@ -244,6 +244,22 @@
   color: var(--accent);
 }
 
+/* Persistent warning banner on the experimental Ark (Signet) wallet
+   section — reuses the existing --zap/--zap-bg tokens rather than
+   inventing new ones, same "orange means caution/attention" language
+   this app already uses elsewhere, not a new color vocabulary. */
+.ark-wallet-experimental-banner {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--zap);
+  background: var(--zap-bg);
+  border: 1px solid var(--zap);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
 /* A smaller heading inside a single settings section that has several
    distinct sub-parts (e.g. Badges: create / award / manage) — same idea
    as .settings-section-title, one step down in visual weight so it

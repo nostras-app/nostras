@@ -3,6 +3,7 @@ import { ndk } from './lib/ndk'
 import { hasAnyLocalIdentity, getBootSignerState } from './lib/identities'
 import { restoreSignerSession } from './lib/remoteSigner'
 import { resolveDeepLinkFromUrl } from './lib/deeplink'
+import { openExistingArkWallet } from './lib/arkWallet'
 import { fetchAppPreferences, applyFetchedPreferences, publishCurrentPreferences } from './lib/appData'
 import {
   loadLastSeenNotifications,
@@ -37,6 +38,7 @@ import { BadgesSettings } from './components/BadgesSettings'
 import { MuteListSettings } from './components/MuteListSettings'
 import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
+import { ArkWalletSettings } from './components/ArkWalletSettings'
 import { RelaySettings } from './components/RelaySettings'
 import { Nip65RelayListEditor } from './components/Nip65RelayListEditor'
 import { DmRelayListEditor } from './components/DmRelayListEditor'
@@ -239,6 +241,18 @@ function App() {
     resolveDeepLinkFromUrl()
   }, [state, authState])
 
+  // Experimental Ark (Signet) wallet — silently reopens an existing local
+  // wallet if one was created in an earlier session (see arkWallet.ts).
+  // Independent of the Nostr signer/relay-pool state above: it's a
+  // separate identity with its own separate connection to the Ark
+  // server, not gated on anything else here. openExistingArkWallet()
+  // itself no-ops if there's no stored mnemonic or a wallet is already
+  // open, so this is safe to call on every mount (including React
+  // StrictMode's deliberate double-invoke) without a ref guard.
+  useEffect(() => {
+    openExistingArkWallet()
+  }, [])
+
   // NIP-78: pulls this identity's synced app preferences (feed mode,
   // custom relay list — see lib/appData.ts for why only those two) once
   // per boot, same gating as the deep-link effect above (signer/relay
@@ -395,6 +409,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Wallet</span>
                 <NwcConnect />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Ark Wallet</span>
+                <ArkWalletSettings />
               </div>
               <div className="settings-section">
                 <span className="settings-section-title">Profile</span>
