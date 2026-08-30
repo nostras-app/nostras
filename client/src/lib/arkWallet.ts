@@ -408,6 +408,20 @@ export async function estimateBoardFee(amountSats: number): Promise<{ feeSats: n
   return { feeSats: estimate.feeSats, netAmountSats: estimate.netAmountSats }
 }
 
+// A second, separate real floor discovered live — the fee check above
+// doesn't catch this: boarding an amount below the server's own
+// configured minimum fails with "board amount of X BTC does not meet
+// minimum value of Y BTC", independent of whether fees are covered.
+// Real, server-reported value via arkInfo(), not a number guessed from
+// one observed error message (which could drift if the server's own
+// config changes).
+export async function getMinBoardAmountSats(): Promise<number> {
+  if (!walletInstance) throw new Error('No wallet open')
+  const info = await walletInstance.arkInfo()
+  if (!info) throw new Error('Could not reach the Ark server for its minimum board amount')
+  return info.minBoardAmountSats
+}
+
 // Ark-native send only, deliberately — the SDK's own `sendOnchain()` and
 // the separate on-chain `OnchainWallet.send()` (both real, both wired
 // up as of the boarding feature) send to a *plain on-chain* address,

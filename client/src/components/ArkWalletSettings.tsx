@@ -7,6 +7,7 @@ import {
   createArkWallet,
   createLightningInvoice,
   estimateBoardFee,
+  getMinBoardAmountSats,
   forgetArkWallet,
   getExitSummary,
   loadArkMnemonic,
@@ -76,6 +77,7 @@ export function ArkWalletSettings() {
   const [boardFeeEstimate, setBoardFeeEstimate] = useState<{ feeSats: number; netAmountSats: number } | null>(
     null,
   )
+  const [belowMinBoardSats, setBelowMinBoardSats] = useState<number | null>(null)
   const [boardFeeError, setBoardFeeError] = useState<string | null>(null)
 
   // If a wallet already exists (created in an earlier session), it's
@@ -123,12 +125,25 @@ export function ArkWalletSettings() {
   // needed" (amount + real on-chain + Ark board fees, not a bug).
   useEffect(() => {
     setBoardFeeEstimate(null)
+    setBelowMinBoardSats(null)
     setBoardFeeError(null)
     if (!onchainBalanceSats) return
     let cancelled = false
-    estimateBoardFee(onchainBalanceSats)
-      .then((estimate) => {
-        if (!cancelled) setBoardFeeEstimate(estimate)
+    // Real minimum board amount checked first, via the Ark server's own
+    // reported value — a separate, harder floor from fee coverage (a
+    // balance can clear fees and still be below this). Only estimate
+    // the fee once the balance actually clears it, since the fee
+    // estimate call itself doesn't reflect this floor.
+    getMinBoardAmountSats()
+      .then((minSats) => {
+        if (cancelled) return
+        if (onchainBalanceSats < minSats) {
+          setBelowMinBoardSats(minSats)
+          return
+        }
+        return estimateBoardFee(onchainBalanceSats).then((estimate) => {
+          if (!cancelled) setBoardFeeEstimate(estimate)
+        })
       })
       .catch((e) => {
         if (!cancelled) setBoardFeeError(e instanceof Error ? e.message : 'Could not estimate fee')
@@ -459,6 +474,13 @@ export function ArkWalletSettings() {
             >
               {onchainSyncing ? 'Scanning…' : 'Rescan on-chain history'}
             </button>
+            {belowMinBoardSats !== null && (
+              <p className="alert-error">
+                The Ark server requires at least <strong>{belowMinBoardSats} sats</strong> to
+                board — this on-chain balance ({onchainBalanceSats} sats) is below that.
+                Request more from the faucet before trying to board.
+              </p>
+            )}
             {boardFeeEstimate &&
               (boardFeeEstimate.netAmountSats > 0 ? (
                 <p className="field-hint">
@@ -480,6 +502,7 @@ export function ArkWalletSettings() {
                 boarding ||
                 !onchainBalanceSats ||
                 !!boardFeeError ||
+                belowMinBoardSats !== null ||
                 (boardFeeEstimate ? boardFeeEstimate.netAmountSats <= 0 : false)
               }
             >
