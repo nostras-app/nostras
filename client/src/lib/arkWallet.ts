@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { Wallet as ArkWalletHandle } from '@secondts/bark/web'
+import { ndk } from './ndk'
 
 // Experimental Ark (https://ark-protocol.org) wallet support — built
 // against Second's "Bark" SDK (@secondts/bark), the only real browser-
@@ -20,17 +21,60 @@ import type { Wallet as ArkWalletHandle } from '@secondts/bark/web'
 // research already reached (see the "self-custodial Lightning wallet
 // infrastructure" section): a dedicated seed with its own real
 // backup/export UX, not a free ride off existing identity material.
-const ARK_MNEMONIC_KEY = 'nostras:ark-wallet-mnemonic'
+//
+// Scoped per Nostr identity (2026-08-30, real bug fix): originally one
+// global mnemonic/wallet regardless of which identity was active —
+// switching identities in Settings left the previous identity's wallet
+// showing, exactly like a signer that didn't actually swap. Every
+// storage key (mnemonic, IndexedDB name) now includes the active
+// identity's pubkey, and every public function here stays no-arg,
+// resolving `ndk.activeUser?.pubkey` internally — same "ndk.activeUser
+// is the single reactive source of truth" rule useActiveUser.ts already
+// established, not identities.ts's local-only getActiveIdentityNpub()
+// (which wouldn't know about a NIP-46/NIP-07 active user at all).
+const ARK_MNEMONIC_KEY_PREFIX = 'nostras:ark-wallet-mnemonic'
+const ARK_INDEXED_DB_NAME_PREFIX = 'nostras-ark-signet-wallet'
 const ARK_SERVER_ADDRESS = 'https://ark.signet.2nd.dev'
 const ARK_ESPLORA_ADDRESS = 'https://esplora.signet.2nd.dev'
-const ARK_INDEXED_DB_NAME = 'nostras-ark-signet-wallet'
 
-export function loadArkMnemonic(): string | null {
-  return localStorage.getItem(ARK_MNEMONIC_KEY)
+function scopedMnemonicKey(pubkey: string): string {
+  return `${ARK_MNEMONIC_KEY_PREFIX}:${pubkey}`
 }
 
-function saveArkMnemonic(mnemonic: string): void {
-  localStorage.setItem(ARK_MNEMONIC_KEY, mnemonic)
+function scopedIndexedDbName(pubkey: string): string {
+  return `${ARK_INDEXED_DB_NAME_PREFIX}-${pubkey}`
+}
+
+// Runs at most once per page load, the first time any identity's
+// mnemonic is looked up — migrates the old single global wallet forward
+// to whichever identity happens to be active at that moment (the same
+// best-effort, first-one-wins heuristic identities.ts's own
+// migrateLegacyIfNeeded() already uses for the pre-multi-identity nsec
+// key), rather than silently orphaning a real, already-created Signet
+// wallet. Deliberately leaves the legacy IndexedDB database (also
+// unscoped) untouched — the reopened wallet gets a fresh, correctly
+// -scoped one and resyncs its real state from the Ark server, and the
+// old local cache is harmless leftover data with zero real value.
+let arkMigrated = false
+function migrateLegacyArkMnemonicIfNeeded(pubkey: string) {
+  if (arkMigrated) return
+  arkMigrated = true
+  if (localStorage.getItem(scopedMnemonicKey(pubkey))) return
+  const legacy = localStorage.getItem(ARK_MNEMONIC_KEY_PREFIX)
+  if (!legacy) return
+  localStorage.setItem(scopedMnemonicKey(pubkey), legacy)
+  localStorage.removeItem(ARK_MNEMONIC_KEY_PREFIX)
+}
+
+export function loadArkMnemonic(): string | null {
+  const pubkey = ndk.activeUser?.pubkey
+  if (!pubkey) return null
+  migrateLegacyArkMnemonicIfNeeded(pubkey)
+  return localStorage.getItem(scopedMnemonicKey(pubkey))
+}
+
+function saveArkMnemonic(pubkey: string, mnemonic: string): void {
+  localStorage.setItem(scopedMnemonicKey(pubkey), mnemonic)
 }
 
 type ArkWalletState = {
@@ -54,6 +98,12 @@ let state: ArkWalletState = {
 // typed without eagerly importing the module outside loadBark()'s own
 // dynamic import — the whole point of loading it dynamically there.
 let walletInstance: ArkWalletHandle | null = null
+
+// Which identity's wallet walletInstance/state currently reflect — lets
+// switchToIdentity() tell "nothing to do, already on this identity"
+// apart from a real switch, and lets a stale async openWallet() call
+// notice it's no longer relevant (see the guard inside openWallet).
+let currentWalletPubkey: string | null = null
 
 const listeners = new Set<() => void>()
 
@@ -84,31 +134,82 @@ async function loadBark() {
   return { Wallet, generateMnemonic }
 }
 
-async function openWallet(mnemonic: string): Promise<void> {
+async function openWallet(pubkey: string, mnemonic: string): Promise<void> {
   setState({ status: 'opening', error: null })
   try {
     const { Wallet } = await loadBark()
-    walletInstance = await Wallet.open(
+    const wallet = await Wallet.open(
       'Signet',
       mnemonic,
       { serverAddress: ARK_SERVER_ADDRESS, esploraAddress: ARK_ESPLORA_ADDRESS },
       undefined,
-      { runDaemon: false, indexedDbName: ARK_INDEXED_DB_NAME },
+      { runDaemon: false, indexedDbName: scopedIndexedDbName(pubkey) },
     )
+    // The active identity may have changed again while this awaited —
+    // if so, this result is stale: free it immediately rather than
+    // clobbering whatever switchToIdentity() has since moved on to.
+    if (pubkey !== currentWalletPubkey) {
+      try {
+        wallet.free()
+      } catch {
+        // best-effort
+      }
+      return
+    }
+    walletInstance = wallet
     const address = await walletInstance.newAddress()
     setState({ status: 'ready', address })
     await syncArkWallet()
   } catch (e) {
-    setState({ status: 'error', error: e instanceof Error ? e.message : 'Could not open wallet' })
+    if (pubkey === currentWalletPubkey) {
+      setState({ status: 'error', error: e instanceof Error ? e.message : 'Could not open wallet' })
+    }
   }
 }
 
-// Called once at app boot (see App.tsx) — silently reopens an existing
-// wallet, no mnemonic reveal (that only ever happens once, at creation).
+// Tears down whatever's currently open (regardless of whose it was) and
+// opens whichever wallet belongs to `pubkey`, or resets to the empty
+// state if that identity has never created one. This is what makes
+// switching Nostr identity actually switch the Ark wallet shown too —
+// called once at boot (openExistingArkWallet) and again automatically
+// on every identity change via the ndk listener below.
+async function switchToIdentity(pubkey: string | undefined): Promise<void> {
+  if ((pubkey ?? null) === currentWalletPubkey) return
+  try {
+    walletInstance?.free()
+  } catch {
+    // best-effort cleanup of a WASM handle
+  }
+  walletInstance = null
+  currentWalletPubkey = pubkey ?? null
+  if (!pubkey) {
+    setState({ status: 'none', address: null, balanceSats: null, syncing: false, error: null })
+    return
+  }
+  migrateLegacyArkMnemonicIfNeeded(pubkey)
+  const mnemonic = localStorage.getItem(scopedMnemonicKey(pubkey))
+  if (!mnemonic) {
+    setState({ status: 'none', address: null, balanceSats: null, syncing: false, error: null })
+    return
+  }
+  await openWallet(pubkey, mnemonic)
+}
+
+// Reacts to every identity change — a local identity switch, a NIP-46/
+// NIP-07 connect or disconnect, logging off — the same real-time way
+// useActiveUser.ts's own consumers already do, so the Ark wallet shown
+// in Settings never lags behind which Nostr identity is actually active.
+ndk.on('activeUser:change', () => {
+  switchToIdentity(ndk.activeUser?.pubkey)
+})
+
+// Called once at app boot (see App.tsx). Also correctly reflects
+// whichever identity is already active if boot resolution finished
+// before this runs — switchToIdentity() itself is idempotent (no-ops
+// if already on the right identity), so this is safe to call
+// unconditionally rather than only when nothing's open yet.
 export async function openExistingArkWallet(): Promise<void> {
-  const mnemonic = loadArkMnemonic()
-  if (!mnemonic || state.status !== 'none') return
-  await openWallet(mnemonic)
+  await switchToIdentity(ndk.activeUser?.pubkey)
 }
 
 // Generates a fresh mnemonic, opens the wallet, and returns the
@@ -116,20 +217,25 @@ export async function openExistingArkWallet(): Promise<void> {
 // new account" flow exactly (generate, show once with a warning, never
 // show again).
 export async function createArkWallet(): Promise<string> {
+  const pubkey = ndk.activeUser?.pubkey
+  if (!pubkey) throw new Error('No active identity to create a wallet for')
   const { generateMnemonic } = await loadBark()
   const mnemonic = generateMnemonic()
-  saveArkMnemonic(mnemonic)
-  await openWallet(mnemonic)
+  saveArkMnemonic(pubkey, mnemonic)
+  currentWalletPubkey = pubkey
+  await openWallet(pubkey, mnemonic)
   return mnemonic
 }
 
-// Discards the current wallet entirely — local storage only, no relay/
-// server-side action, since this is nothing but an IndexedDB-persisted
-// key pair the SDK itself owns. Safe by design (Signet, zero real
-// value) precisely for the case this exists to cover: a mnemonic that
-// was never actually saved has nothing worth recovering, so "start a
-// fresh one" is a real, reasonable action, not just a last resort.
+// Discards the current identity's wallet entirely — local storage only,
+// no relay/server-side action, since this is nothing but an IndexedDB
+// -persisted key pair the SDK itself owns. Safe by design (Signet, zero
+// real value) precisely for the case this exists to cover: a mnemonic
+// that was never actually saved has nothing worth recovering, so "start
+// a fresh one" is a real, reasonable action, not just a last resort.
 export async function forgetArkWallet(): Promise<void> {
+  const pubkey = ndk.activeUser?.pubkey
+  if (!pubkey) return
   // free() releases the WASM object's own IndexedDB connection — without
   // this, deleteDatabase() below can hang in the "blocked" state waiting
   // for a connection that's never going to close on its own.
@@ -140,9 +246,9 @@ export async function forgetArkWallet(): Promise<void> {
     // it's already been freed or the call itself fails
   }
   walletInstance = null
-  localStorage.removeItem(ARK_MNEMONIC_KEY)
+  localStorage.removeItem(scopedMnemonicKey(pubkey))
   await new Promise<void>((resolve) => {
-    const req = indexedDB.deleteDatabase(ARK_INDEXED_DB_NAME)
+    const req = indexedDB.deleteDatabase(scopedIndexedDbName(pubkey))
     req.onsuccess = () => resolve()
     req.onerror = () => resolve()
     req.onblocked = () => resolve()

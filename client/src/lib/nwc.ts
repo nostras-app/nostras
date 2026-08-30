@@ -1,7 +1,37 @@
 import { NDKEvent, NDKPrivateKeySigner, NDKRelaySet } from '@nostr-dev-kit/ndk'
 import { ndk } from './ndk'
 
-const NWC_URI_KEY = 'nostras:nwc-uri'
+// Scoped per Nostr identity (2026-08-30, real bug fix): originally one
+// global connection string regardless of which identity was active —
+// switching identities in Settings left the previous identity's wallet
+// showing as connected. Every read/write below resolves the current
+// identity via ndk.activeUser?.pubkey internally (same rationale as
+// arkWallet.ts's identical fix, see its own comment) so every existing
+// caller elsewhere in the app (ZapButton, TranslateButton, NoteMenu,
+// etc.) keeps working unchanged — they were already implicitly scoped
+// to "whichever identity is currently paying," this just makes the
+// storage actually match that.
+const NWC_URI_KEY_PREFIX = 'nostras:nwc-uri'
+
+function scopedNwcUriKey(pubkey: string): string {
+  return `${NWC_URI_KEY_PREFIX}:${pubkey}`
+}
+
+// Runs at most once per page load, the first time any identity's saved
+// URI is looked up — migrates the old single global connection forward
+// to whichever identity happens to be active at that moment, the same
+// best-effort heuristic identities.ts's own legacy-nsec migration and
+// arkWallet.ts's own mnemonic migration both already use.
+let nwcMigrated = false
+function migrateLegacyNwcUriIfNeeded(pubkey: string) {
+  if (nwcMigrated) return
+  nwcMigrated = true
+  if (localStorage.getItem(scopedNwcUriKey(pubkey))) return
+  const legacy = localStorage.getItem(NWC_URI_KEY_PREFIX)
+  if (!legacy) return
+  localStorage.setItem(scopedNwcUriKey(pubkey), legacy)
+  localStorage.removeItem(NWC_URI_KEY_PREFIX)
+}
 
 export interface NwcConnection {
   walletPubkey: string
@@ -22,15 +52,22 @@ export function parseNwcUri(uri: string): NwcConnection {
 }
 
 export function saveNwcUri(uri: string) {
-  localStorage.setItem(NWC_URI_KEY, uri)
+  const pubkey = ndk.activeUser?.pubkey
+  if (!pubkey) return
+  localStorage.setItem(scopedNwcUriKey(pubkey), uri)
 }
 
 export function getSavedNwcUri(): string | null {
-  return localStorage.getItem(NWC_URI_KEY)
+  const pubkey = ndk.activeUser?.pubkey
+  if (!pubkey) return null
+  migrateLegacyNwcUriIfNeeded(pubkey)
+  return localStorage.getItem(scopedNwcUriKey(pubkey))
 }
 
 export function clearNwcUri() {
-  localStorage.removeItem(NWC_URI_KEY)
+  const pubkey = ndk.activeUser?.pubkey
+  if (!pubkey) return
+  localStorage.removeItem(scopedNwcUriKey(pubkey))
 }
 
 // Shared NIP-47 request/response transport — used for both the mutating

@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { nip19 } from '@nostr-dev-kit/ndk'
 import { clearNwcUri, getSavedNwcUri, saveNwcUri, parseNwcUri } from '../lib/nwc'
+import { useActiveUser } from '../hooks/useActiveUser'
 
 // Truncated npub + relay host, parsed straight from the saved connection
 // string — this is real, always-present identifying info (every valid
@@ -19,8 +20,18 @@ function describeConnection(uri: string): string {
 }
 
 export function NwcConnect() {
+  const activeUser = useActiveUser()
   const [savedUri, setSavedUri] = useState(getSavedNwcUri())
   const [input, setInput] = useState('')
+
+  // getSavedNwcUri() itself already resolves the *current* active
+  // identity — this just re-reads it whenever that identity actually
+  // changes, so switching identities in Settings shows that identity's
+  // own connection (or the empty state) instead of the previous one.
+  useEffect(() => {
+    setSavedUri(getSavedNwcUri())
+    setInput('')
+  }, [activeUser?.pubkey])
 
   function handleConnect() {
     if (!input.trim()) return
