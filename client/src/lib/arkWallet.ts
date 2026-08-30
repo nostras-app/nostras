@@ -343,6 +343,29 @@ export async function syncOnchainWallet(): Promise<void> {
   }
 }
 
+// Real recovery path for a real gap in plain sync(): the SDK's own doc
+// comment on initialScan() is explicit — "sync only covers addresses
+// this wallet instance has already revealed, so it never finds
+// transactions made by a previous incarnation." A page reload between
+// generating a boarding address and funding it is enough to trigger
+// this — the reopened wallet calls newAddress() again and moves on,
+// leaving the address that was actually funded outside what plain
+// sync() will ever look at again. initialScan() does a real
+// gap-limited scan across the whole address history instead of just
+// the latest one (birthdayHeight is ignored against esplora, per the
+// SDK's own doc comment — always a full scan here, not a partial one).
+export async function rescanOnchainWallet(): Promise<void> {
+  if (!onchainWalletInstance) return
+  setState({ onchainSyncing: true })
+  try {
+    const totalSats = await onchainWalletInstance.initialScan()
+    const balance = await onchainWalletInstance.balance()
+    setState({ onchainSyncing: false, onchainBalanceSats: balance.confirmedSats ?? totalSats })
+  } catch (e) {
+    setState({ onchainSyncing: false, error: e instanceof Error ? e.message : 'Rescan failed' })
+  }
+}
+
 // Boarding: moving on-chain Signet bitcoin into the Ark wallet. Real Ark
 // documentation (second.tech/docs/learn/board.md, fetched and read
 // directly, not assumed) confirms this genuinely requires managing

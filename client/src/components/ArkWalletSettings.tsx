@@ -11,6 +11,7 @@ import {
   loadArkMnemonic,
   payLightningInvoiceViaArk,
   progressWalletExits,
+  rescanOnchainWallet,
   sendArkPayment,
   startWalletExit,
   syncArkWallet,
@@ -416,6 +417,20 @@ export function ArkWalletSettings() {
                 {onchainSyncing ? 'Syncing…' : 'Sync on-chain'}
               </button>
             </div>
+            <p className="field-hint">
+              Funded an address but the balance stays 0 after syncing?
+              "Sync" only checks addresses this wallet already has in
+              memory — if the page reloaded between generating the
+              address and funding it, use this instead:
+            </p>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => rescanOnchainWallet()}
+              disabled={onchainSyncing}
+            >
+              {onchainSyncing ? 'Scanning…' : 'Rescan on-chain history'}
+            </button>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
