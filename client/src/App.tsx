@@ -23,6 +23,7 @@ import { ThreadView } from './components/ThreadView'
 import { PodcastEpisodeView } from './components/PodcastEpisodeView'
 import { ListingView } from './components/ListingView'
 import { MarketplaceView } from './components/MarketplaceView'
+import { WalletView } from './components/WalletView'
 import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
 import { ProfileView } from './components/ProfileView'
@@ -374,6 +375,10 @@ function App() {
 
             <section className={`card ${panelClass('marketplace')}`}>
               <MarketplaceView />
+            </section>
+
+            <section className={`card ${panelClass('wallet')}`}>
+              <WalletView />
             </section>
 
             <div className={panelClass('notifications')}>

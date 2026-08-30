@@ -14,6 +14,7 @@ import {
   InfoIcon,
   PencilIcon,
   StoreIcon,
+  WalletIcon,
 } from './icons'
 
 export type View =
@@ -29,6 +30,7 @@ export type View =
   | 'messages'
   | 'communities'
   | 'marketplace'
+  | 'wallet'
   | 'article'
   | 'note'
   | 'thread'
@@ -125,6 +127,14 @@ export function NavRail({
       >
         <MessageSquareIcon />
         {unreadMessages > 0 && <span className="nav-rail-badge">{badgeLabel(unreadMessages)}</span>}
+      </button>
+      <button
+        type="button"
+        className={`nav-rail-btn${activeClass('wallet')}`}
+        onClick={() => onSelect('wallet')}
+        title="Wallet"
+      >
+        <WalletIcon />
       </button>
       <button
         type="button"

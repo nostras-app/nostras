@@ -771,6 +771,36 @@
   margin-bottom: 8px;
 }
 
+/* ---------- Wallet view empty state ---------- */
+
+.wallet-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 56px 24px;
+}
+
+.wallet-empty-state h2 {
+  margin: 0;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wallet-empty-state p {
+  max-width: 42ch;
+}
+
+.wallet-empty-icon {
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
 /* ---------- Search ---------- */
 
 .search-view {
