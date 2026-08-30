@@ -65,16 +65,21 @@ export function ArkWalletSettings() {
         EXPERIMENTAL — Signet test network only. Not real money, ever.
       </p>
       <p className="field-hint">
-        A real, working{' '}
+        A working{' '}
         <a href="https://ark-protocol.org" target="_blank" rel="noreferrer">
           Ark protocol
         </a>{' '}
-        wallet — instant off-chain Bitcoin payments with no Lightning-style
+        wallet, built on{' '}
+        <a href="https://second.tech/docs/bark-wallet" target="_blank" rel="noreferrer">
+          Second's Bark Wallet SDK
+        </a>{' '}
+        — instant off-chain Bitcoin payments with no Lightning-style
         channel liquidity to manage. Ark is a separate Bitcoin-layer
         protocol, not a Nostr NIP — nothing about it runs over Nostr
-        relays, unlike the NWC wallet above. Running against a real public
-        Signet test server, not a simulation, but Signet bitcoin has zero
-        real-world value. This is here to try, not to rely on.
+        relays, unlike the NWC wallet above. It talks to Second's public{' '}
+        <strong>Signet</strong> server — a genuine Bitcoin test network,
+        not a local simulation, but one whose bitcoin has always had zero
+        real-world value and never will. Here to try, not to rely on.
       </p>
 
       {/* Still revealing the just-created mnemonic — this state wins
