@@ -6,6 +6,7 @@ import {
   checkLightningReceive,
   createArkWallet,
   createLightningInvoice,
+  estimateBoardFee,
   forgetArkWallet,
   getExitSummary,
   loadArkMnemonic,
@@ -72,6 +73,10 @@ export function ArkWalletSettings() {
   const [progressingExit, setProgressingExit] = useState(false)
   const [cancelingVtxoId, setCancelingVtxoId] = useState<string | null>(null)
   const [exitError, setExitError] = useState<string | null>(null)
+  const [boardFeeEstimate, setBoardFeeEstimate] = useState<{ feeSats: number; netAmountSats: number } | null>(
+    null,
+  )
+  const [boardFeeError, setBoardFeeError] = useState<string | null>(null)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -109,6 +114,29 @@ export function ArkWalletSettings() {
     const t = setTimeout(() => setLnInvoiceCopied(false), 1500)
     return () => clearTimeout(t)
   }, [lnInvoiceCopied])
+
+  // Fetches a real fee estimate whenever the on-chain balance changes,
+  // so "not enough to cover fees yet" shows up as a clear warning
+  // before Board is clicked, not just as a failed attempt after —
+  // real gap hit live: a 1000-sat balance failed boarding with
+  // "Insufficient funds: 0.00001000 BTC available of 0.00004098 BTC
+  // needed" (amount + real on-chain + Ark board fees, not a bug).
+  useEffect(() => {
+    setBoardFeeEstimate(null)
+    setBoardFeeError(null)
+    if (!onchainBalanceSats) return
+    let cancelled = false
+    estimateBoardFee(onchainBalanceSats)
+      .then((estimate) => {
+        if (!cancelled) setBoardFeeEstimate(estimate)
+      })
+      .catch((e) => {
+        if (!cancelled) setBoardFeeError(e instanceof Error ? e.message : 'Could not estimate fee')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [onchainBalanceSats])
 
   async function handleCreate() {
     setCreating(true)
@@ -431,11 +459,29 @@ export function ArkWalletSettings() {
             >
               {onchainSyncing ? 'Scanning…' : 'Rescan on-chain history'}
             </button>
+            {boardFeeEstimate &&
+              (boardFeeEstimate.netAmountSats > 0 ? (
+                <p className="field-hint">
+                  Estimated fee: <strong>{boardFeeEstimate.feeSats} sats</strong> — you'd board{' '}
+                  <strong>{boardFeeEstimate.netAmountSats} sats</strong> net.
+                </p>
+              ) : (
+                <p className="alert-error">
+                  Not enough to cover boarding fees yet — this balance doesn't clear the fee
+                  floor. Request more from the faucet before trying to board.
+                </p>
+              ))}
+            {boardFeeError && <p className="alert-error">{boardFeeError}</p>}
             <button
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={handleBoardAll}
-              disabled={boarding || !onchainBalanceSats}
+              disabled={
+                boarding ||
+                !onchainBalanceSats ||
+                !!boardFeeError ||
+                (boardFeeEstimate ? boardFeeEstimate.netAmountSats <= 0 : false)
+              }
             >
               {boarding ? 'Boarding…' : 'Board all on-chain funds into Ark'}
             </button>

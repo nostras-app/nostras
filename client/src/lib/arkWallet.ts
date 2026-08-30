@@ -393,6 +393,21 @@ export async function boardAllFunds(): Promise<void> {
   }
 }
 
+// Real, user-hit gap: boarding a small on-chain balance can genuinely
+// fail with "insufficient funds" even though the wallet correctly shows
+// that balance as available to board — the amount has to cover both
+// itself *and* real on-chain + Ark boarding fees, and a small enough
+// amount can't clear that combined floor. Lets the UI show this before
+// the user clicks "Board all", not just after it fails. Whatever the
+// SDK actually does (returns a real negative-margin estimate, or throws
+// its own "insufficient funds" the same way boardAll() itself does)
+// this surfaces either outcome as-is, not guessed at.
+export async function estimateBoardFee(amountSats: number): Promise<{ feeSats: number; netAmountSats: number }> {
+  if (!walletInstance) throw new Error('No wallet open')
+  const estimate = await walletInstance.estimateBoardFee(amountSats)
+  return { feeSats: estimate.feeSats, netAmountSats: estimate.netAmountSats }
+}
+
 // Ark-native send only, deliberately — the SDK's own `sendOnchain()` and
 // the separate on-chain `OnchainWallet.send()` (both real, both wired
 // up as of the boarding feature) send to a *plain on-chain* address,
