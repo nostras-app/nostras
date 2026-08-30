@@ -365,13 +365,9 @@ export async function boardAllFunds(): Promise<void> {
 }
 
 // Ark-native send only, deliberately — the SDK's own `sendOnchain()` and
-// the separate on-chain `OnchainWallet.send()` both need a real
-// bitcoind/esplora-backed onchain handle this project never constructs
-// (Wallet.open() is called with `onchain: undefined`), and Lightning
-// send/receive (payLightningInvoice, bolt11Invoice, etc.) is real,
-// separate scope of its own — see the "what's still missing" recap in
-// nostr-client-node-strategy.md. This is the smallest useful next slice:
-// an Ark address can now both receive (already built) and send.
+// the separate on-chain `OnchainWallet.send()` (both real, both wired
+// up as of the boarding feature) send to a *plain on-chain* address,
+// not an Ark one — a different, not-yet-built UI action of its own.
 // Left to throw its own real error rather than pre-validating the
 // address/amount here — the SDK already rejects a malformed Ark address
 // or an amount exceeding the spendable balance with a real, specific
@@ -381,6 +377,36 @@ export async function sendArkPayment(address: string, amountSats: number): Promi
   if (!walletInstance) throw new Error('No wallet open')
   await walletInstance.sendArkoorPayment(address, amountSats)
   await syncArkWallet()
+}
+
+// Lightning receive — Ark's actual headline capability: an invoice
+// whoever pays it can settle at any time, and the resulting VTXO lands
+// in this wallet the next time it's online, with no channel to manage.
+// Deliberately receive-only for this pass, matching this feature's own
+// established one-direction-per-slice pattern (send then board, each
+// its own commit) — paying a Lightning invoice out (payLightningInvoice
+// et al.) is real, separate scope for a later pass.
+export async function createLightningInvoice(
+  amountSats: number,
+  description?: string,
+): Promise<{ invoice: string; paymentHash: string }> {
+  if (!walletInstance) throw new Error('No wallet open')
+  const result = await walletInstance.bolt11Invoice({ amountSats, description })
+  return { invoice: result.invoice, paymentHash: result.paymentHash }
+}
+
+// Real progress states per the SDK's own type: "awaiting-payment" |
+// "htlcs-ready" | "preimage-revealed" | "delivering" | "settled" — a
+// one-shot check, not a poller (this feature deliberately runs with no
+// background daemon — see openWallet()'s `runDaemon: false` — matching
+// the same "explicit sync, not automatic" posture already established
+// for the Ark and on-chain balances). Re-syncs the Ark balance
+// afterward, in case the VTXO already landed.
+export async function checkLightningReceive(paymentHash: string): Promise<string> {
+  if (!walletInstance) throw new Error('No wallet open')
+  const state = await walletInstance.lightningReceiveState(paymentHash)
+  await syncArkWallet()
+  return state.state
 }
 
 export function useArkWallet(): ArkWalletState {

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
   boardAllFunds,
+  checkLightningReceive,
   createArkWallet,
+  createLightningInvoice,
   forgetArkWallet,
   loadArkMnemonic,
   sendArkPayment,
@@ -40,6 +42,14 @@ export function ArkWalletSettings() {
   const [sendSuccess, setSendSuccess] = useState(false)
   const [boardError, setBoardError] = useState<string | null>(null)
   const [boardSuccess, setBoardSuccess] = useState(false)
+  const [lnAmount, setLnAmount] = useState('')
+  const [lnDescription, setLnDescription] = useState('')
+  const [creatingInvoice, setCreatingInvoice] = useState(false)
+  const [lnInvoice, setLnInvoice] = useState<{ invoice: string; paymentHash: string } | null>(null)
+  const [lnInvoiceCopied, setLnInvoiceCopied] = useState(false)
+  const [checkingReceive, setCheckingReceive] = useState(false)
+  const [lnReceiveState, setLnReceiveState] = useState<string | null>(null)
+  const [lnError, setLnError] = useState<string | null>(null)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -71,6 +81,12 @@ export function ArkWalletSettings() {
     const t = setTimeout(() => setBoardSuccess(false), 5000)
     return () => clearTimeout(t)
   }, [boardSuccess])
+
+  useEffect(() => {
+    if (!lnInvoiceCopied) return
+    const t = setTimeout(() => setLnInvoiceCopied(false), 1500)
+    return () => clearTimeout(t)
+  }, [lnInvoiceCopied])
 
   async function handleCreate() {
     setCreating(true)
@@ -108,6 +124,49 @@ export function ArkWalletSettings() {
       setBoardSuccess(true)
     } catch (e) {
       setBoardError(e instanceof Error ? e.message : 'Boarding failed')
+    }
+  }
+
+  async function handleCreateInvoice() {
+    const amount = Number.parseInt(lnAmount, 10)
+    if (!Number.isFinite(amount) || amount <= 0) return
+    setCreatingInvoice(true)
+    setLnError(null)
+    setLnReceiveState(null)
+    try {
+      const result = await createLightningInvoice(amount, lnDescription.trim() || undefined)
+      setLnInvoice(result)
+    } catch (e) {
+      setLnError(e instanceof Error ? e.message : 'Could not create invoice')
+    } finally {
+      setCreatingInvoice(false)
+    }
+  }
+
+  function handleCopyInvoice() {
+    if (!lnInvoice) return
+    navigator.clipboard.writeText(lnInvoice.invoice)
+    setLnInvoiceCopied(true)
+  }
+
+  function handleNewInvoice() {
+    setLnInvoice(null)
+    setLnReceiveState(null)
+    setLnAmount('')
+    setLnDescription('')
+  }
+
+  async function handleCheckReceive() {
+    if (!lnInvoice) return
+    setCheckingReceive(true)
+    setLnError(null)
+    try {
+      const state = await checkLightningReceive(lnInvoice.paymentHash)
+      setLnReceiveState(state)
+    } catch (e) {
+      setLnError(e instanceof Error ? e.message : 'Could not check status')
+    } finally {
+      setCheckingReceive(false)
     }
   }
 
@@ -257,6 +316,69 @@ export function ArkWalletSettings() {
             </button>
             {boardSuccess && <p className="field-hint">Boarding started ✓ — will be spendable after 6 confirmations</p>}
             {boardError && <p className="alert-error">{boardError}</p>}
+          </div>
+          <div className="stack">
+            <p className="field-hint">
+              <strong>Receive via Lightning</strong> — Ark's own headline
+              feature: generate an invoice, and whoever pays it can settle
+              at any time. The funds land in this wallet next time it's
+              online — no channel to open or manage.
+            </p>
+            {lnInvoice ? (
+              <div className="stack">
+                <p className="field-hint" style={{ wordBreak: 'break-all' }}>
+                  {lnInvoice.invoice}
+                </p>
+                <div className="btn-row">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={handleCopyInvoice}>
+                    {lnInvoiceCopied ? 'Copied' : 'Copy invoice'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleCheckReceive}
+                    disabled={checkingReceive}
+                  >
+                    {checkingReceive ? 'Checking…' : 'Check payment status'}
+                  </button>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={handleNewInvoice}>
+                    New invoice
+                  </button>
+                </div>
+                {lnReceiveState && (
+                  <p className="field-hint">
+                    Status: <strong>{lnReceiveState}</strong>
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="stack">
+                <input
+                  className="input"
+                  value={lnAmount}
+                  onChange={(e) => setLnAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="Amount (test sats)"
+                  inputMode="numeric"
+                  disabled={creatingInvoice}
+                />
+                <input
+                  className="input"
+                  value={lnDescription}
+                  onChange={(e) => setLnDescription(e.target.value)}
+                  placeholder="Description (optional)"
+                  disabled={creatingInvoice}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleCreateInvoice}
+                  disabled={creatingInvoice || !lnAmount}
+                >
+                  {creatingInvoice ? 'Creating…' : 'Create Lightning invoice'}
+                </button>
+              </div>
+            )}
+            {lnError && <p className="alert-error">{lnError}</p>}
           </div>
           <div className="stack">
             <p className="field-hint">
