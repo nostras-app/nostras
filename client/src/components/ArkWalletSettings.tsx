@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
+  boardAllFunds,
   createArkWallet,
   forgetArkWallet,
   loadArkMnemonic,
   sendArkPayment,
   syncArkWallet,
+  syncOnchainWallet,
   useArkWallet,
 } from '../lib/arkWallet'
 
@@ -14,10 +16,21 @@ import {
 // and nostr-client-node-strategy.md's "Exploratory: growth strategy
 // options" section for the full research/decision record.
 export function ArkWalletSettings() {
-  const { status, address, balanceSats, syncing, error } = useArkWallet()
+  const {
+    status,
+    address,
+    balanceSats,
+    syncing,
+    error,
+    onchainAddress,
+    onchainBalanceSats,
+    onchainSyncing,
+    boarding,
+  } = useArkWallet()
   const [revealedMnemonic, setRevealedMnemonic] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [onchainCopied, setOnchainCopied] = useState(false)
   const [confirmingForget, setConfirmingForget] = useState(false)
   const [forgetting, setForgetting] = useState(false)
   const [sendAddress, setSendAddress] = useState('')
@@ -25,6 +38,8 @@ export function ArkWalletSettings() {
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [sendSuccess, setSendSuccess] = useState(false)
+  const [boardError, setBoardError] = useState<string | null>(null)
+  const [boardSuccess, setBoardSuccess] = useState(false)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -44,6 +59,18 @@ export function ArkWalletSettings() {
     const t = setTimeout(() => setSendSuccess(false), 3000)
     return () => clearTimeout(t)
   }, [sendSuccess])
+
+  useEffect(() => {
+    if (!onchainCopied) return
+    const t = setTimeout(() => setOnchainCopied(false), 1500)
+    return () => clearTimeout(t)
+  }, [onchainCopied])
+
+  useEffect(() => {
+    if (!boardSuccess) return
+    const t = setTimeout(() => setBoardSuccess(false), 5000)
+    return () => clearTimeout(t)
+  }, [boardSuccess])
 
   async function handleCreate() {
     setCreating(true)
@@ -65,6 +92,23 @@ export function ArkWalletSettings() {
     if (!address) return
     navigator.clipboard.writeText(address)
     setCopied(true)
+  }
+
+  function handleCopyOnchainAddress() {
+    if (!onchainAddress) return
+    navigator.clipboard.writeText(onchainAddress)
+    setOnchainCopied(true)
+  }
+
+  async function handleBoardAll() {
+    setBoardError(null)
+    setBoardSuccess(false)
+    try {
+      await boardAllFunds()
+      setBoardSuccess(true)
+    } catch (e) {
+      setBoardError(e instanceof Error ? e.message : 'Boarding failed')
+    }
   }
 
   async function handleSend() {
@@ -164,6 +208,56 @@ export function ArkWalletSettings() {
             </button>
           </div>
           {error && <p className="alert-error">{error}</p>}
+          <div className="stack">
+            <p className="field-hint">
+              <strong>Fund this wallet (boarding)</strong> — send Signet
+              test bitcoin to this on-chain address, then board it into
+              Ark. Get free Signet coins from a{' '}
+              <a href="https://mempool.space/signet/faucet" target="_blank" rel="noreferrer">
+                public Signet faucet
+              </a>{' '}
+              (same chain this wallet talks to — independently confirmed,
+              not assumed). Boarded funds need 6 real on-chain
+              confirmations before they're spendable in Ark.
+            </p>
+            {onchainAddress && (
+              <div className="field-row" style={{ alignItems: 'center' }}>
+                <p className="field-hint" style={{ flex: 1, wordBreak: 'break-all' }}>
+                  {onchainAddress}
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleCopyOnchainAddress}
+                >
+                  {onchainCopied ? 'Copied' : 'Copy address'}
+                </button>
+              </div>
+            )}
+            <div className="field-row" style={{ alignItems: 'center' }}>
+              <p className="field-hint" style={{ flex: 1 }}>
+                On-chain balance: <strong>{onchainBalanceSats ?? 0} test sats</strong>
+              </p>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => syncOnchainWallet()}
+                disabled={onchainSyncing}
+              >
+                {onchainSyncing ? 'Syncing…' : 'Sync on-chain'}
+              </button>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleBoardAll}
+              disabled={boarding || !onchainBalanceSats}
+            >
+              {boarding ? 'Boarding…' : 'Board all on-chain funds into Ark'}
+            </button>
+            {boardSuccess && <p className="field-hint">Boarding started ✓ — will be spendable after 6 confirmations</p>}
+            {boardError && <p className="alert-error">{boardError}</p>}
+          </div>
           <div className="stack">
             <p className="field-hint">
               Send to another Ark (Signet) address — instant, off-chain.

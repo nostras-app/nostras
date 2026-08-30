@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { Wallet as ArkWalletHandle } from '@secondts/bark/web'
+import type { OnchainWallet as OnchainWalletHandle, Wallet as ArkWalletHandle } from '@secondts/bark/web'
 import { ndk } from './ndk'
 
 // Experimental Ark (https://ark-protocol.org) wallet support — built
@@ -34,6 +34,7 @@ import { ndk } from './ndk'
 // (which wouldn't know about a NIP-46/NIP-07 active user at all).
 const ARK_MNEMONIC_KEY_PREFIX = 'nostras:ark-wallet-mnemonic'
 const ARK_INDEXED_DB_NAME_PREFIX = 'nostras-ark-signet-wallet'
+const ONCHAIN_INDEXED_DB_NAME_PREFIX = 'nostras-ark-signet-onchain'
 const ARK_SERVER_ADDRESS = 'https://ark.signet.2nd.dev'
 const ARK_ESPLORA_ADDRESS = 'https://esplora.signet.2nd.dev'
 
@@ -43,6 +44,10 @@ function scopedMnemonicKey(pubkey: string): string {
 
 function scopedIndexedDbName(pubkey: string): string {
   return `${ARK_INDEXED_DB_NAME_PREFIX}-${pubkey}`
+}
+
+function scopedOnchainDbName(pubkey: string): string {
+  return `${ONCHAIN_INDEXED_DB_NAME_PREFIX}-${pubkey}`
 }
 
 // Runs at most once per page load, the first time any identity's
@@ -83,21 +88,43 @@ type ArkWalletState = {
   balanceSats: number | null
   syncing: boolean
   error: string | null
+  // Boarding — moving on-chain Signet bitcoin into the Ark wallet. A
+  // genuinely separate on-chain wallet (same mnemonic, different
+  // derivation) backs this, since boarding requires managing real
+  // on-chain UTXOs (confirmed against the real docs, not assumed —
+  // see boardAllFunds()'s own comment).
+  onchainAddress: string | null
+  onchainBalanceSats: number | null
+  onchainSyncing: boolean
+  boarding: boolean
 }
 
-let state: ArkWalletState = {
+const EMPTY_STATE: ArkWalletState = {
   status: 'none',
   address: null,
   balanceSats: null,
   syncing: false,
   error: null,
+  onchainAddress: null,
+  onchainBalanceSats: null,
+  onchainSyncing: false,
+  boarding: false,
 }
+
+let state: ArkWalletState = { ...EMPTY_STATE }
 
 // Type-only import above (erased at build time, never triggers the
 // package's own runtime WASM-loading code) so this can be properly
 // typed without eagerly importing the module outside loadBark()'s own
 // dynamic import — the whole point of loading it dynamically there.
 let walletInstance: ArkWalletHandle | null = null
+
+// The on-chain half backing boarding — opened alongside walletInstance
+// via Wallet.openWithOnchain() (which *borrows* this handle, keeping it
+// independently usable, unlike plain Wallet.open()'s onchain param,
+// which consumes it — see openWallet()'s own comment for why this
+// matters). Same lifetime as walletInstance: freed and nulled together.
+let onchainWalletInstance: OnchainWalletHandle | null = null
 
 // Which identity's wallet walletInstance/state currently reflect — lets
 // switchToIdentity() tell "nothing to do, already on this identity"
@@ -126,23 +153,37 @@ function subscribe(listener: () => void) {
 // target with an explicit `init()` call, used here, is the one
 // confirmed working end-to-end against the real signet server.
 async function loadBark() {
-  const [{ default: init, Wallet, generateMnemonic }, { default: wasmUrl }] = await Promise.all([
+  const [{ default: init, Wallet, OnchainWallet, generateMnemonic }, { default: wasmUrl }] = await Promise.all([
     import('@secondts/bark/web'),
     import('@secondts/bark/web/bark_ffi_wasm_bg.wasm?url'),
   ])
   await init({ module_or_path: wasmUrl })
-  return { Wallet, generateMnemonic }
+  return { Wallet, OnchainWallet, generateMnemonic }
 }
 
 async function openWallet(pubkey: string, mnemonic: string): Promise<void> {
   setState({ status: 'opening', error: null })
   try {
-    const { Wallet } = await loadBark()
-    const wallet = await Wallet.open(
+    const { Wallet, OnchainWallet } = await loadBark()
+    const config = { serverAddress: ARK_SERVER_ADDRESS, esploraAddress: ARK_ESPLORA_ADDRESS }
+    // Same mnemonic, a genuinely separate on-chain wallet (different key
+    // derivation) — needed for boarding, which real Ark documentation
+    // confirms requires managing on-chain UTXOs directly (see
+    // boardAllFunds()'s own comment). openWithOnchain() *borrows* this
+    // handle rather than consuming it (unlike plain open()'s onchain
+    // param), so it stays independently usable afterward for its own
+    // address()/balance()/sync() calls below.
+    const onchain = await OnchainWallet.default({
+      network: 'Signet',
+      mnemonic,
+      config,
+      dbName: scopedOnchainDbName(pubkey),
+    })
+    const wallet = await Wallet.openWithOnchain(
       'Signet',
       mnemonic,
-      { serverAddress: ARK_SERVER_ADDRESS, esploraAddress: ARK_ESPLORA_ADDRESS },
-      undefined,
+      config,
+      onchain,
       { runDaemon: false, indexedDbName: scopedIndexedDbName(pubkey) },
     )
     // The active identity may have changed again while this awaited —
@@ -151,15 +192,17 @@ async function openWallet(pubkey: string, mnemonic: string): Promise<void> {
     if (pubkey !== currentWalletPubkey) {
       try {
         wallet.free()
+        onchain.free()
       } catch {
         // best-effort
       }
       return
     }
     walletInstance = wallet
-    const address = await walletInstance.newAddress()
-    setState({ status: 'ready', address })
-    await syncArkWallet()
+    onchainWalletInstance = onchain
+    const [address, onchainAddress] = await Promise.all([walletInstance.newAddress(), onchain.newAddress()])
+    setState({ status: 'ready', address, onchainAddress })
+    await Promise.all([syncArkWallet(), syncOnchainWallet()])
   } catch (e) {
     if (pubkey === currentWalletPubkey) {
       setState({ status: 'error', error: e instanceof Error ? e.message : 'Could not open wallet' })
@@ -177,19 +220,21 @@ async function switchToIdentity(pubkey: string | undefined): Promise<void> {
   if ((pubkey ?? null) === currentWalletPubkey) return
   try {
     walletInstance?.free()
+    onchainWalletInstance?.free()
   } catch {
     // best-effort cleanup of a WASM handle
   }
   walletInstance = null
+  onchainWalletInstance = null
   currentWalletPubkey = pubkey ?? null
   if (!pubkey) {
-    setState({ status: 'none', address: null, balanceSats: null, syncing: false, error: null })
+    setState(EMPTY_STATE)
     return
   }
   migrateLegacyArkMnemonicIfNeeded(pubkey)
   const mnemonic = localStorage.getItem(scopedMnemonicKey(pubkey))
   if (!mnemonic) {
-    setState({ status: 'none', address: null, balanceSats: null, syncing: false, error: null })
+    setState(EMPTY_STATE)
     return
   }
   await openWallet(pubkey, mnemonic)
@@ -241,19 +286,26 @@ export async function forgetArkWallet(): Promise<void> {
   // for a connection that's never going to close on its own.
   try {
     walletInstance?.free()
+    onchainWalletInstance?.free()
   } catch {
     // best-effort cleanup of a WASM handle; nothing meaningful to do if
     // it's already been freed or the call itself fails
   }
   walletInstance = null
+  onchainWalletInstance = null
   localStorage.removeItem(scopedMnemonicKey(pubkey))
-  await new Promise<void>((resolve) => {
-    const req = indexedDB.deleteDatabase(scopedIndexedDbName(pubkey))
-    req.onsuccess = () => resolve()
-    req.onerror = () => resolve()
-    req.onblocked = () => resolve()
-  })
-  setState({ status: 'none', address: null, balanceSats: null, syncing: false, error: null })
+  await Promise.all(
+    [scopedIndexedDbName(pubkey), scopedOnchainDbName(pubkey)].map(
+      (dbName) =>
+        new Promise<void>((resolve) => {
+          const req = indexedDB.deleteDatabase(dbName)
+          req.onsuccess = () => resolve()
+          req.onerror = () => resolve()
+          req.onblocked = () => resolve()
+        }),
+    ),
+  )
+  setState(EMPTY_STATE)
 }
 
 export async function syncArkWallet(): Promise<void> {
@@ -265,6 +317,50 @@ export async function syncArkWallet(): Promise<void> {
     setState({ syncing: false, balanceSats: balance.spendableSats })
   } catch (e) {
     setState({ syncing: false, error: e instanceof Error ? e.message : 'Sync failed' })
+  }
+}
+
+// Separate from syncArkWallet() — a different underlying wallet handle
+// (onchainWalletInstance, not walletInstance), needed to discover a
+// board-funding UTXO after it's sent from outside this app (a faucet,
+// another wallet). Real, independently confirmed error/success surface,
+// same as every other sync path here.
+export async function syncOnchainWallet(): Promise<void> {
+  if (!onchainWalletInstance) return
+  setState({ onchainSyncing: true })
+  try {
+    await onchainWalletInstance.sync()
+    const balance = await onchainWalletInstance.balance()
+    setState({ onchainSyncing: false, onchainBalanceSats: balance.confirmedSats })
+  } catch (e) {
+    setState({ onchainSyncing: false, error: e instanceof Error ? e.message : 'On-chain sync failed' })
+  }
+}
+
+// Boarding: moving on-chain Signet bitcoin into the Ark wallet. Real Ark
+// documentation (second.tech/docs/learn/board.md, fetched and read
+// directly, not assumed) confirms this genuinely requires managing
+// on-chain UTXOs — "Users must: manage their own on-chain UTXOs to fund
+// the boarding transaction" — which is exactly why openWallet() now
+// constructs a real OnchainWallet alongside the Ark one, rather than
+// this being reachable with only the Ark-side wallet. boardAll() takes
+// no address/amount — it finds and spends whatever the on-chain wallet
+// already knows about (hence the syncOnchainWallet() call first, so a
+// UTXO that just arrived is actually visible before boarding tries to
+// spend it) and boards the wallet's entire on-chain balance in one go —
+// the simplest useful action for this first pass, not "board a specific
+// amount" (also real, boardAmount(), left for later if ever needed).
+// The boarded VTXO needs 6 real confirmations before it's spendable in
+// Ark — a real wait, not something this call can shortcut.
+export async function boardAllFunds(): Promise<void> {
+  if (!walletInstance) throw new Error('No wallet open')
+  setState({ boarding: true, error: null })
+  try {
+    await syncOnchainWallet()
+    await walletInstance.boardAll()
+    await Promise.all([syncArkWallet(), syncOnchainWallet()])
+  } finally {
+    setState({ boarding: false })
   }
 }
 
