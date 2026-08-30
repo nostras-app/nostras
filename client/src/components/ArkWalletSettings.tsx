@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
-import type { LightningSendStatus } from '@secondts/bark/web'
+import type { ExitVtxo, LightningSendStatus } from '@secondts/bark/web'
 import {
   boardAllFunds,
+  cancelWalletExit,
   checkLightningReceive,
   createArkWallet,
   createLightningInvoice,
   forgetArkWallet,
+  getExitSummary,
   loadArkMnemonic,
   payLightningInvoiceViaArk,
+  progressWalletExits,
   sendArkPayment,
+  startWalletExit,
   syncArkWallet,
   syncOnchainWallet,
   useArkWallet,
@@ -56,6 +60,17 @@ export function ArkWalletSettings() {
   const [paying, setPaying] = useState(false)
   const [payResult, setPayResult] = useState<LightningSendStatus | null>(null)
   const [payError, setPayError] = useState<string | null>(null)
+  const [exitSummary, setExitSummary] = useState<{
+    hasPending: boolean
+    pendingSats: number
+    vtxos: ExitVtxo[]
+  } | null>(null)
+  const [checkingExit, setCheckingExit] = useState(false)
+  const [confirmingExit, setConfirmingExit] = useState(false)
+  const [startingExit, setStartingExit] = useState(false)
+  const [progressingExit, setProgressingExit] = useState(false)
+  const [cancelingVtxoId, setCancelingVtxoId] = useState<string | null>(null)
+  const [exitError, setExitError] = useState<string | null>(null)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -189,6 +204,69 @@ export function ArkWalletSettings() {
       setPayError(e instanceof Error ? e.message : 'Payment failed')
     } finally {
       setPaying(false)
+    }
+  }
+
+  async function handleCheckExitStatus() {
+    setCheckingExit(true)
+    setExitError(null)
+    try {
+      const summary = await getExitSummary()
+      setExitSummary(summary)
+    } catch (e) {
+      setExitError(e instanceof Error ? e.message : 'Could not check exit status')
+    } finally {
+      setCheckingExit(false)
+    }
+  }
+
+  async function handleStartExit() {
+    setStartingExit(true)
+    setExitError(null)
+    try {
+      await startWalletExit()
+      setConfirmingExit(false)
+      await handleCheckExitStatus()
+    } catch (e) {
+      setExitError(e instanceof Error ? e.message : 'Could not start exit')
+    } finally {
+      setStartingExit(false)
+    }
+  }
+
+  async function handleProgressExit() {
+    setProgressingExit(true)
+    setExitError(null)
+    try {
+      await progressWalletExits()
+      await handleCheckExitStatus()
+    } catch (e) {
+      setExitError(e instanceof Error ? e.message : 'Could not progress exit')
+    } finally {
+      setProgressingExit(false)
+    }
+  }
+
+  async function handleCancelExit(vtxoId: string) {
+    setCancelingVtxoId(vtxoId)
+    setExitError(null)
+    try {
+      const result = await cancelWalletExit(vtxoId)
+      if (!result.canceled) {
+        const reason = result.reason
+        setExitError(
+          reason?.type === 'too-late'
+            ? `Too late to cancel — already at state: ${reason.state}`
+            : reason?.type === 'already-broadcast'
+              ? `Too late to cancel — already broadcast (txid ${reason.txid.slice(0, 12)}…)`
+              : 'Could not cancel — this VTXO is not currently exiting',
+        )
+      }
+      await handleCheckExitStatus()
+    } catch (e) {
+      setExitError(e instanceof Error ? e.message : 'Could not cancel exit')
+    } finally {
+      setCancelingVtxoId(null)
     }
   }
 
@@ -466,6 +544,94 @@ export function ArkWalletSettings() {
             </div>
             {sendSuccess && <p className="field-hint">Sent ✓</p>}
             {sendError && <p className="alert-error">{sendError}</p>}
+          </div>
+          <div className="stack">
+            <p className="field-hint">
+              <strong>Emergency exit</strong> — the real safety mechanism
+              behind this whole wallet. Only for if the Ark server ever
+              disappears or misbehaves: every VTXO carries a genuine
+              on-chain fallback, secured by real Bitcoin timelocks, that
+              needs no server cooperation. Starting one broadcasts your
+              pre-signed exit transactions; a ~144-block wait (real
+              on-chain time) follows before they're claimable. Claiming
+              the exited funds into a spendable balance isn't built yet
+              — this only starts, monitors, and (while still possible)
+              cancels an exit.
+            </p>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleCheckExitStatus}
+              disabled={checkingExit}
+            >
+              {checkingExit ? 'Checking…' : 'Check exit status'}
+            </button>
+            {exitSummary && (
+              <div className="stack">
+                <p className="field-hint">
+                  {exitSummary.hasPending
+                    ? `Pending exit: ${exitSummary.pendingSats} test sats`
+                    : 'No exit in progress'}
+                </p>
+                {exitSummary.vtxos.map((v) => (
+                  <div key={v.vtxoId} className="field-row" style={{ alignItems: 'center' }}>
+                    <p className="field-hint" style={{ flex: 1, wordBreak: 'break-all' }}>
+                      {v.vtxoId.slice(0, 16)}… — {v.amountSats} sats — {v.state.type}
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleCancelExit(v.vtxoId)}
+                      disabled={cancelingVtxoId === v.vtxoId}
+                    >
+                      {cancelingVtxoId === v.vtxoId ? 'Canceling…' : 'Cancel'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleProgressExit}
+              disabled={progressingExit}
+            >
+              {progressingExit ? 'Progressing…' : 'Progress exit'}
+            </button>
+            {confirmingExit ? (
+              <div className="stack">
+                <p className="alert-error">
+                  This broadcasts real (Signet) transactions and starts
+                  exiting every VTXO in this wallet. Confirm?
+                </p>
+                <div className="btn-row">
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    onClick={handleStartExit}
+                    disabled={startingExit}
+                  >
+                    {startingExit ? 'Starting…' : 'Yes, start emergency exit'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setConfirmingExit(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setConfirmingExit(true)}
+              >
+                Start emergency exit (entire wallet)
+              </button>
+            )}
+            {exitError && <p className="alert-error">{exitError}</p>}
           </div>
           {confirmingForget ? (
             <div className="stack">

@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type {
+  ExitCancelResult,
+  ExitVtxo,
   LightningSendStatus,
   OnchainWallet as OnchainWalletHandle,
   Wallet as ArkWalletHandle,
@@ -431,6 +433,63 @@ export async function payLightningInvoiceViaArk(invoice: string): Promise<Lightn
   const status = await walletInstance.payLightningInvoice({ invoice: invoice.trim(), wait: true })
   await syncArkWallet()
   return status
+}
+
+// Emergency unilateral exit — the real safety guarantee this whole
+// feature rests on: real docs (second.tech/docs/learn/vtxo.md, fetched
+// and read directly) confirm every VTXO carries a genuine fallback
+// spending path with real Bitcoin timelocks (absolute CLTV on root/
+// branch transactions, a 144-block relative CSV on the leaf a user
+// actually exits from) that needs no server cooperation at all —
+// "converting a VTXO into a UTXO can be performed without any
+// third-party interaction." startExitForEntireWallet() is what
+// broadcasts that pre-signed transaction tree.
+//
+// Deliberately scoped to start/monitor/cancel only, not the final
+// claim-to-spendable-balance step (drainExits -> signExitClaimInputs ->
+// broadcastTx) — that three-call chain has no documentation covering
+// its exact shape, and verifying it needs a genuinely funded VTXO to
+// exit, which no wallet in this project has had access to yet (every
+// board attempt so far has hit real "insufficient funds," see
+// boardAllFunds()'s own history). Shipping a guessed implementation of
+// the highest-stakes part of this feature, untested, was judged worse
+// than deferring it — see nostr-client-node-strategy.md for the full
+// scoping discussion. This is not a safety gap: once a VTXO reaches the
+// exit's on-chain, timelock-secured state, the funds are already
+// cryptographically the wallet owner's alone, independent of whether a
+// "claim" button exists in this UI yet.
+export async function startWalletExit(): Promise<void> {
+  if (!walletInstance) throw new Error('No wallet open')
+  await walletInstance.startExitForEntireWallet()
+}
+
+// Actively drives a started exit forward (broadcasting/rebroadcasting
+// transactions as needed) — exits aren't a single fire-and-forget call,
+// they need to be progressed over real block time, the same "explicit
+// action, no background daemon" posture already established everywhere
+// else in this feature (runDaemon: false).
+export async function progressWalletExits(): Promise<void> {
+  if (!walletInstance) throw new Error('No wallet open')
+  await walletInstance.progressExits({})
+}
+
+export async function cancelWalletExit(vtxoId: string): Promise<ExitCancelResult> {
+  if (!walletInstance) throw new Error('No wallet open')
+  return walletInstance.cancelExit(vtxoId)
+}
+
+export async function getExitSummary(): Promise<{
+  hasPending: boolean
+  pendingSats: number
+  vtxos: ExitVtxo[]
+}> {
+  if (!walletInstance) throw new Error('No wallet open')
+  const [hasPending, pendingSats, vtxos] = await Promise.all([
+    walletInstance.hasPendingExits(),
+    walletInstance.pendingExitsTotalSats(),
+    walletInstance.getExitVtxos(),
+  ])
+  return { hasPending, pendingSats, vtxos }
 }
 
 export function useArkWallet(): ArkWalletState {
