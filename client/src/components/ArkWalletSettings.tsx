@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ExitVtxo, LightningSendStatus } from '@secondts/bark/web'
+import type { ExitVtxo, LightningSendStatus, PendingBoard } from '@secondts/bark/web'
 import {
   boardAllFunds,
   cancelWalletExit,
@@ -10,6 +10,7 @@ import {
   getMinBoardAmountSats,
   forgetArkWallet,
   getExitSummary,
+  listPendingBoards,
   loadArkMnemonic,
   payLightningInvoiceViaArk,
   progressWalletExits,
@@ -78,6 +79,9 @@ export function ArkWalletSettings() {
     null,
   )
   const [belowMinBoardSats, setBelowMinBoardSats] = useState<number | null>(null)
+  const [pendingBoards, setPendingBoards] = useState<PendingBoard[] | null>(null)
+  const [checkingPendingBoards, setCheckingPendingBoards] = useState(false)
+  const [pendingBoardsError, setPendingBoardsError] = useState<string | null>(null)
   const [boardFeeError, setBoardFeeError] = useState<string | null>(null)
 
   // If a wallet already exists (created in an earlier session), it's
@@ -187,8 +191,22 @@ export function ArkWalletSettings() {
     try {
       await boardAllFunds()
       setBoardSuccess(true)
+      await handleCheckPendingBoards()
     } catch (e) {
       setBoardError(e instanceof Error ? e.message : 'Boarding failed')
+    }
+  }
+
+  async function handleCheckPendingBoards() {
+    setCheckingPendingBoards(true)
+    setPendingBoardsError(null)
+    try {
+      const boards = await listPendingBoards()
+      setPendingBoards(boards)
+    } catch (e) {
+      setPendingBoardsError(e instanceof Error ? e.message : 'Could not check pending boards')
+    } finally {
+      setCheckingPendingBoards(false)
     }
   }
 
@@ -510,6 +528,35 @@ export function ArkWalletSettings() {
             </button>
             {boardSuccess && <p className="field-hint">Boarding started ✓ — will be spendable after 6 confirmations</p>}
             {boardError && <p className="alert-error">{boardError}</p>}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleCheckPendingBoards}
+              disabled={checkingPendingBoards}
+            >
+              {checkingPendingBoards ? 'Checking…' : 'Check pending boards'}
+            </button>
+            {pendingBoards && pendingBoards.length === 0 && (
+              <p className="field-hint">No boards currently pending.</p>
+            )}
+            {pendingBoards && pendingBoards.length > 0 && (
+              <div className="stack">
+                {pendingBoards.map((b) => (
+                  <p key={b.vtxoId} className="field-hint">
+                    Pending: <strong>{b.amountSats} sats</strong> — waiting on confirmations,
+                    not spendable in Ark yet —{' '}
+                    <a
+                      href={`https://mempool.space/signet/tx/${b.txid}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      view on explorer
+                    </a>
+                  </p>
+                ))}
+              </div>
+            )}
+            {pendingBoardsError && <p className="alert-error">{pendingBoardsError}</p>}
           </div>
           <div className="stack">
             <p className="field-hint">

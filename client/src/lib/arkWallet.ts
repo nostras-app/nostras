@@ -4,6 +4,7 @@ import type {
   ExitVtxo,
   LightningSendStatus,
   OnchainWallet as OnchainWalletHandle,
+  PendingBoard,
   Wallet as ArkWalletHandle,
 } from '@secondts/bark/web'
 import { ndk } from './ndk'
@@ -391,6 +392,18 @@ export async function boardAllFunds(): Promise<void> {
   } finally {
     setState({ boarding: false })
   }
+}
+
+// Real gap found live: a successful boardAll() broadcasts a real
+// transaction, but the Ark balance correctly stays 0 until it gets 6
+// real confirmations — with nothing in the UI showing that a board is
+// actually in flight, "balance still 0" reads as a failure rather than
+// the expected wait it actually is. Wraps the SDK's own
+// pendingBoards() so the UI can show real amount + a real txid to
+// check independently, instead of just asserting "give it time."
+export async function listPendingBoards(): Promise<PendingBoard[]> {
+  if (!walletInstance) throw new Error('No wallet open')
+  return walletInstance.pendingBoards()
 }
 
 // Real, user-hit gap: boarding a small on-chain balance can genuinely
