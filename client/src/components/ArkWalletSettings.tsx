@@ -8,6 +8,7 @@ import {
   createLightningInvoice,
   estimateBoardFee,
   getMinBoardAmountSats,
+  getRequiredBoardConfirmations,
   forgetArkWallet,
   getExitSummary,
   listPendingBoards,
@@ -83,6 +84,7 @@ export function ArkWalletSettings() {
   const [checkingPendingBoards, setCheckingPendingBoards] = useState(false)
   const [pendingBoardsError, setPendingBoardsError] = useState<string | null>(null)
   const [boardFeeError, setBoardFeeError] = useState<string | null>(null)
+  const [requiredBoardConfirmations, setRequiredBoardConfirmations] = useState<number | null>(null)
 
   // If a wallet already exists (created in an earlier session), it's
   // opened once at app boot (App.tsx) — this component itself never
@@ -156,6 +158,32 @@ export function ArkWalletSettings() {
       cancelled = true
     }
   }, [onchainBalanceSats])
+
+  // Real bug caught live (2026-08-30): this app's own copy claimed
+  // boarded funds "need 6 confirmations" — a number that was never
+  // actually read from the Ark server, just guessed when this feature
+  // was first built. A real board was confirmed fully credited to the
+  // Ark balance at exactly 1 confirmation on Second's live Signet
+  // server, proving the guessed "6" was wrong for this deployment.
+  // Fetched once per wallet (it's a static server property, not
+  // per-balance like the fee estimate above) via the same real,
+  // live-server-reported ArkInfo field getMinBoardAmountSats() already
+  // uses correctly.
+  useEffect(() => {
+    if (status !== 'ready') return
+    let cancelled = false
+    getRequiredBoardConfirmations()
+      .then((n) => {
+        if (!cancelled) setRequiredBoardConfirmations(n)
+      })
+      .catch(() => {
+        // Non-fatal — copy below falls back to not naming a specific
+        // number rather than showing a stale/guessed one.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [status])
 
   async function handleCreate() {
     setCreating(true)
@@ -444,8 +472,12 @@ export function ArkWalletSettings() {
               (both live and independently confirmed as of 2026-08-30 —
               the faucet previously linked here, mempool.space/signet/
               faucet, no longer exists; it now just redirects to
-              mempool's plain homepage). Boarded funds need 6 real
-              on-chain confirmations before they're spendable in Ark.
+              mempool's plain homepage). Boarded funds need{' '}
+              {requiredBoardConfirmations !== null
+                ? `${requiredBoardConfirmations} real on-chain confirmation${requiredBoardConfirmations === 1 ? '' : 's'}`
+                : 'a real on-chain confirmation'}{' '}
+              before they're spendable in Ark — this Ark server's actual
+              requirement, not a guessed number.
               <strong> Only ever use real Signet coins here, never real
               mainnet bitcoin</strong> — the two networks don't connect,
               and nothing sent to the wrong one comes back through this
@@ -526,7 +558,14 @@ export function ArkWalletSettings() {
             >
               {boarding ? 'Boarding…' : 'Board all on-chain funds into Ark'}
             </button>
-            {boardSuccess && <p className="field-hint">Boarding started ✓ — will be spendable after 6 confirmations</p>}
+            {boardSuccess && (
+              <p className="field-hint">
+                Boarding started ✓ — will be spendable after{' '}
+                {requiredBoardConfirmations !== null
+                  ? `${requiredBoardConfirmations} confirmation${requiredBoardConfirmations === 1 ? '' : 's'}`
+                  : 'the Ark server\'s required confirmations'}
+              </p>
+            )}
             {boardError && <p className="alert-error">{boardError}</p>}
             <button
               type="button"

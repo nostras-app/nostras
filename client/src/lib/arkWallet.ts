@@ -380,8 +380,9 @@ export async function rescanOnchainWallet(): Promise<void> {
 // spend it) and boards the wallet's entire on-chain balance in one go —
 // the simplest useful action for this first pass, not "board a specific
 // amount" (also real, boardAmount(), left for later if ever needed).
-// The boarded VTXO needs 6 real confirmations before it's spendable in
-// Ark — a real wait, not something this call can shortcut.
+// The boarded VTXO needs some real number of confirmations before it's
+// spendable in Ark — see getRequiredBoardConfirmations() below for why
+// that number is fetched live rather than hardcoded.
 export async function boardAllFunds(): Promise<void> {
   if (!walletInstance) throw new Error('No wallet open')
   setState({ boarding: true, error: null })
@@ -395,15 +396,35 @@ export async function boardAllFunds(): Promise<void> {
 }
 
 // Real gap found live: a successful boardAll() broadcasts a real
-// transaction, but the Ark balance correctly stays 0 until it gets 6
-// real confirmations — with nothing in the UI showing that a board is
-// actually in flight, "balance still 0" reads as a failure rather than
-// the expected wait it actually is. Wraps the SDK's own
+// transaction, but the Ark balance correctly stays 0 until it gets
+// enough real confirmations — with nothing in the UI showing that a
+// board is actually in flight, "balance still 0" reads as a failure
+// rather than the expected wait it actually is. Wraps the SDK's own
 // pendingBoards() so the UI can show real amount + a real txid to
 // check independently, instead of just asserting "give it time."
 export async function listPendingBoards(): Promise<PendingBoard[]> {
   if (!walletInstance) throw new Error('No wallet open')
   return walletInstance.pendingBoards()
+}
+
+// Real bug caught live (2026-08-30): the UI's own copy claimed boarded
+// funds "need 6 real on-chain confirmations" — a number that was never
+// actually read from anywhere, just assumed/guessed when this feature
+// was first built. A real board on Second's live Signet server was
+// confirmed to already be fully credited to the Ark balance at exactly
+// 1 confirmation (checked directly against the block explorer, not
+// assumed from the app's own UI) — proving the guessed "6" was simply
+// wrong for this deployment. ArkInfo carries a real, live
+// `requiredBoardConfirmations` field (sitting right next to
+// `minBoardAmountSats`, which this file already correctly fetches live
+// rather than guesses) — this is the actual, authoritative number the
+// server itself enforces, and the only one that should ever appear in
+// copy or logic here.
+export async function getRequiredBoardConfirmations(): Promise<number> {
+  if (!walletInstance) throw new Error('No wallet open')
+  const info = await walletInstance.arkInfo()
+  if (!info) throw new Error('Could not reach the Ark server for its required confirmation count')
+  return info.requiredBoardConfirmations
 }
 
 // Real, user-hit gap: boarding a small on-chain balance can genuinely
