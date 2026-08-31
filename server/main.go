@@ -123,14 +123,50 @@ func main() {
 	// production after two consecutive attempts each had real negative
 	// side effects -- if this baseline still isn't sufficient, the right
 	// next step is more machine memory, not a third guess at cache sizes.
+	//
+	// Third pass (2026-08-31), grounded in live evidence, not a guess: the
+	// `web` machine's own CPU was found pegged at 90%+ user time on its
+	// single vCPU, causing real connection timeouts (both the DVM's
+	// internal reconnect loop and public wss:// clients). Traced via
+	// badger's own periodic block-cache-metrics log line: a sustained
+	// ~9,000 cache gets/sec with only a 0.28 hit ratio -- confirmed via
+	// three consecutive 5-minute deltas (8,690/8,890/9,190 gets/sec), not
+	// a one-off spike. Root cause: the store had grown to a real 1.7GB
+	// (`du -sh /data/badger`) against a 32MB block cache -- ~53x
+	// undersized -- so ~72% of lookups required an actual disk
+	// read+decompress, real CPU work on a 1-core machine. That 32MB figure
+	// was sized for the 512MB-machine era (see the comment above); the
+	// machine has since grown to ~4GB total with ~2.7GB genuinely free at
+	// the time of this change (`MemAvailable`), headroom that was never
+	// revisited.
+	//
+	// This pass deliberately isolates the one variable actually implicated
+	// in the second incident's regression: it grows ONLY the two read
+	// caches (BlockCacheSize, IndexCacheSize), which sit on the read path
+	// and cannot plausibly affect compaction throughput or backlog.
+	// MemTableSize/NumMemtables are left completely untouched, and
+	// NumCompactors is left at badger's own default (never overridden here
+	// to begin with) -- the second incident's regression came from
+	// *simultaneously* growing memtables (bigger compaction backlog) while
+	// *halving* NumCompactors (less throughput to clear it), not from the
+	// block-cache size on its own. BlockCacheSize is set to badger's own
+	// documented default (256MB) rather than an invented number -- a
+	// well-tested value, not a fresh guess. IndexCacheSize goes to 128MB
+	// (smaller than the block cache since index entries are per-key
+	// metadata, not full blocks) and stays explicitly bounded, never 0
+	// (badger's docs: 0 means unbounded growth -- the root cause of the
+	// very first near-OOM incident this file already documents). Worst
+	// case footprint: 48MB memtables (unchanged) + 256MB block cache +
+	// 128MB index cache = 432MB, comfortably inside the ~2.7GB currently
+	// free, versus the previous ~112MB total.
 	db := badger.BadgerBackend{
 		Path: badgerPath,
 		BadgerOptionsModifier: func(opts dgraphBadger.Options) dgraphBadger.Options {
 			return opts.
 				WithMemTableSize(16 << 20).
 				WithNumMemtables(3).
-				WithBlockCacheSize(32 << 20).
-				WithIndexCacheSize(32 << 20)
+				WithBlockCacheSize(256 << 20).
+				WithIndexCacheSize(128 << 20)
 		},
 		IndexLongerTag: indexLongerTag,
 	}
