@@ -3,6 +3,7 @@ import { nip19 } from '@nostr-dev-kit/ndk'
 import { ndk } from '../lib/ndk'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useProfile } from '../hooks/useProfile'
+import { viewProfile } from '../lib/navigation'
 import type { Conversation } from '../hooks/useDirectMessages'
 import { sendDirectMessage } from '../lib/dm'
 import { formatRelativeTime } from '../lib/time'
@@ -114,10 +115,18 @@ function Thread({
   const profile = useProfile(peerPubkey)
   const label = peerLabel(peerPubkey, profile?.name || profile?.displayName)
   const messages = conversation?.messages ?? []
+  const npub = nip19.npubEncode(peerPubkey)
 
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(false)
+  const [npubCopied, setNpubCopied] = useState(false)
+
+  function handleCopyNpub() {
+    navigator.clipboard.writeText(npub)
+    setNpubCopied(true)
+    setTimeout(() => setNpubCopied(false), 1500)
+  }
 
   async function handleSend() {
     const trimmed = draft.trim()
@@ -141,12 +150,30 @@ function Thread({
         <button type="button" className="dm-back-btn" onClick={onBack} title="Back">
           <ArrowLeftIcon />
         </button>
-        {isSecureImageUrl(profile?.picture) ? (
-          <img className="avatar" src={profile.picture} alt="" />
-        ) : (
-          <span className="avatar-fallback">{label.charAt(0)}</span>
-        )}
-        <span className="feed-item-name">{label}</span>
+        <button
+          type="button"
+          className="dm-thread-avatar-btn"
+          onClick={() => viewProfile(peerPubkey)}
+          title="View profile"
+        >
+          {isSecureImageUrl(profile?.picture) ? (
+            <img className="avatar" src={profile.picture} alt="" />
+          ) : (
+            <span className="avatar-fallback">{label.charAt(0)}</span>
+          )}
+        </button>
+        <div className="dm-thread-identity">
+          <button
+            type="button"
+            className="dm-thread-name-btn"
+            onClick={() => viewProfile(peerPubkey)}
+          >
+            {label}
+          </button>
+          <button type="button" className="profile-npub" onClick={handleCopyNpub}>
+            {npubCopied ? 'Copied!' : `${npub.slice(0, 16)}…`}
+          </button>
+        </div>
       </div>
 
       <div className="dm-thread-messages">
