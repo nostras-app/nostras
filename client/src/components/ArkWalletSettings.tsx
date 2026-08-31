@@ -552,6 +552,9 @@ export function ArkWalletSettings() {
         <strong>Signet</strong> server — a genuine Bitcoin test network,
         not a local simulation, but one whose bitcoin has always had zero
         real-world value and never will. Here to try, not to rely on.
+        NOSTRAS will release a real mainnet Ark wallet once our own
+        testing protocols — including a real emergency exit and claim,
+        proven end to end — are actually finished, not before.
       </p>
 
       {/* Still revealing the just-created mnemonic — this state wins

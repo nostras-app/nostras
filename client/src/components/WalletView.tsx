@@ -87,11 +87,17 @@ export function WalletView() {
       {tab === 'ark' &&
         (arkConfigured ? (
           <div className="stack">
+            <p className="ark-wallet-experimental-banner">
+              EXPERIMENTAL — Signet test network only. Not real money, ever.
+            </p>
             <p className="field-hint">
               The Ark wallet's own full tools (balance, boarding,
               offboarding, Lightning, VTXO refresh, emergency exit) still
               live in Settings for now — this tab is a placeholder,
-              scoped for a later pass.
+              scoped for a later pass. NOSTRAS will release a real
+              mainnet Ark wallet once our own testing protocols —
+              including a real emergency exit and claim, proven end to
+              end — are actually finished, not before.
             </p>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveView('settings')}>
               Open in Settings
