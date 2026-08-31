@@ -626,6 +626,14 @@ func handleEnumerateRelaysStatus(e *relayEnumerator) http.HandlerFunc {
 	}
 }
 
+// maxEnumerateIdentitiesBodyBytes bounds the raw request body before JSON
+// decoding — this route is already dashboard-password-gated (lower risk
+// than the fully public/lightly-gated endpoints), but a size cap costs
+// nothing and closes the same class of gap found during a security review
+// (2026-09-01). 64KB comfortably covers even a genuinely large explicit
+// relay-list override.
+const maxEnumerateIdentitiesBodyBytes = 64 << 10
+
 // handleEnumerateIdentitiesStart defaults to scanning EVERY relay this
 // project has ever discovered (relayEnum's full accumulated set), not a
 // small fixed slice — the real fix for the original "1828 identities
@@ -634,6 +642,7 @@ func handleEnumerateRelaysStatus(e *relayEnumerator) http.HandlerFunc {
 // overrides this, for a future narrower/targeted scan.
 func handleEnumerateIdentitiesStart(identityE *identityEnumerator, relayE *relayEnumerator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxEnumerateIdentitiesBodyBytes)
 		var body struct {
 			Relays []string `json:"relays"`
 		}
