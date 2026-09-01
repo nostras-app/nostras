@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -16,7 +17,19 @@ import (
 // receiving wallet — used to mint invoices and check whether they've been
 // paid. This is a Go port of the same hand-rolled protocol implemented in
 // client/src/lib/nwc.ts (no NWC client exists in go-nostr's core packages).
+//
+// mu guards relay: unlike the DVM's own connection to its NOSTRAS relay
+// (which has a real reconnect-with-backoff loop, see main()'s "Reconnection
+// loop" comment), this connection to the *wallet's* relay was, until
+// 2026-09-01, established exactly once at startup with no reconnection
+// logic at all — confirmed as the real root cause of a real, same-day,
+// recurring "could not create invoice: not connected to wss://..." outage
+// (a restart only ever gave temporary relief, since it just re-ran this
+// same connect-once code path). call() now reconnects lazily on demand
+// instead, checked under this mutex since concurrent jobs
+// (`go handleJob(...)` per event) can call it at the same time.
 type nwcClient struct {
+	mu           sync.Mutex
 	relay        *nostr.Relay
 	sk           string
 	pubkey       string
@@ -53,9 +66,39 @@ func newNwcClient(ctx context.Context, uri string) (*nwcClient, error) {
 	return &nwcClient{relay: relay, sk: sk, pubkey: pubkey, walletPubkey: walletPubkey}, nil
 }
 
+// ensureConnected reconnects to the wallet relay if the existing connection
+// has died since it was established — see the type-level comment for why
+// this exists (a dropped connection here used to be permanent until the
+// whole DVM process restarted). A fresh connect attempt gets a bounded 10s
+// timeout of its own so a genuinely unreachable wallet relay fails this one
+// call rather than hanging it indefinitely.
+func (c *nwcClient) ensureConnected(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.relay.IsConnected() {
+		return nil
+	}
+	connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	relay, err := nostr.RelayConnect(connectCtx, c.relay.URL)
+	if err != nil {
+		return fmt.Errorf("reconnecting to wallet relay %s: %w", c.relay.URL, err)
+	}
+	c.relay = relay
+	return nil
+}
+
 // call sends an encrypted NIP-47 request (kind 23194) and waits for the
 // matching encrypted response (kind 23195).
 func (c *nwcClient) call(ctx context.Context, method string, params any, timeout time.Duration) (json.RawMessage, error) {
+	if err := c.ensureConnected(ctx); err != nil {
+		return nil, err
+	}
+
+	c.mu.Lock()
+	relay := c.relay
+	c.mu.Unlock()
+
 	body, err := json.Marshal(map[string]any{"method": method, "params": params})
 	if err != nil {
 		return nil, err
@@ -84,7 +127,7 @@ func (c *nwcClient) call(ctx context.Context, method string, params any, timeout
 	subCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	sub, err := c.relay.Subscribe(subCtx, nostr.Filters{{
+	sub, err := relay.Subscribe(subCtx, nostr.Filters{{
 		Kinds:   []int{23195},
 		Authors: []string{c.walletPubkey},
 		Tags:    nostr.TagMap{"e": []string{evt.ID}},
@@ -94,7 +137,7 @@ func (c *nwcClient) call(ctx context.Context, method string, params any, timeout
 	}
 	defer sub.Close()
 
-	if err := c.relay.Publish(ctx, evt); err != nil {
+	if err := relay.Publish(ctx, evt); err != nil {
 		return nil, err
 	}
 
