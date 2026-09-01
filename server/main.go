@@ -326,7 +326,7 @@ func main() {
 	} else {
 		fmt.Println("dashboard: ON")
 	}
-	relay.Router().HandleFunc("GET /dashboard", requireDashboardAuth(dashboardPassword, handleDashboard))
+	relay.Router().HandleFunc("GET /dashboard", requireDashboardAuth(dashboardPassword, withSecurityHeaders(handleDashboard)))
 	// Deliberately public, unlike every other /dashboard/* route — this
 	// is the exact same aggregate, no-PII connection-count/country data
 	// the public /stats page (see stats.go) fetches directly from a
@@ -394,24 +394,24 @@ func main() {
 	// routes WS upgrades and NIP-11 (Accept: application/nostr+json)
 	// requests to the relay itself before anything reaches this router,
 	// so a plain browser visit is the only thing that lands here.
-	relay.Router().HandleFunc("GET /{$}", wrapPageView(pageViews, geoip, "home", handleLanding))
+	relay.Router().HandleFunc("GET /{$}", withSecurityHeaders(wrapPageView(pageViews, geoip, "home", handleLanding)))
 
 	// "Why NOSTRAS" — see why.go/why.html. A normal (non-root) path, so
 	// no "/{$}" subtlety here: Go's ServeMux only treats a bare "/" as a
 	// catch-all subtree, an exact path like "/why" matches only itself.
-	relay.Router().HandleFunc("GET /why", wrapPageView(pageViews, geoip, "why", handleWhy))
+	relay.Router().HandleFunc("GET /why", withSecurityHeaders(wrapPageView(pageViews, geoip, "why", handleWhy)))
 
 	// NOSTRAS Node waitlist page — see node.go/node.html.
-	relay.Router().HandleFunc("GET /node", wrapPageView(pageViews, geoip, "node", handleNode))
+	relay.Router().HandleFunc("GET /node", withSecurityHeaders(wrapPageView(pageViews, geoip, "node", handleNode)))
 
 	// "Own Your Money" — self-hosted Alby Hub onboarding guide, see
 	// wallet.go/wallet.html.
-	relay.Router().HandleFunc("GET /wallet", wrapPageView(pageViews, geoip, "wallet", handleWallet))
+	relay.Router().HandleFunc("GET /wallet", withSecurityHeaders(wrapPageView(pageViews, geoip, "wallet", handleWallet)))
 
 	// Public live usage stats — see stats.go/stats.html. The public half
 	// of the dashboard split: real connection/geography data, no
 	// password, backed by the now-public GET /dashboard/data above.
-	relay.Router().HandleFunc("GET /stats", handleStats)
+	relay.Router().HandleFunc("GET /stats", withSecurityHeaders(handleStats))
 
 	relay.StoreEvent = append(relay.StoreEvent, db.SaveEvent, newGroupChatSearchIndexHook(&searchIndex),
 		newPushNotifyHook(pushSubs, vapidPublicKey, vapidPrivateKey, vapidSubscriber))
