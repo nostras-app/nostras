@@ -47,7 +47,21 @@ var (
 // ones are refused with a clean 429 (via khatru's RejectConnection hook,
 // which runs before the WebSocket upgrade) rather than accepted and left
 // to starve the machine an existing client's publish/query depends on.
-const maxLiveConnections = 200
+//
+// Raised 200 -> 1000 on 2026-09-01: `web` is now a 4GB machine (up from
+// the 512MB this cap was originally sized against), and real production
+// traffic had already grown past the old cap — a live health check found
+// ~333 real connections in the table, well over 200, causing genuine
+// publish failures/502s until a restart cleared it. At the same
+// ~1MB/connection rate, 1000 connections is ~1GB, leaving several GB of
+// real headroom on this machine for badger/bluge/the Go runtime (whose
+// own tuned worst-case footprint is ~110-150MB, see the badger
+// BadgerOptionsModifier comment in main.go) — a deliberately moderate
+// jump (5x, ~3x above the observed real peak) rather than removing the
+// cap outright, consistent with this project's own preference for
+// incremental, verified changes over speculative large ones (see the
+// NumCompactors regression in this same file's project history).
+const maxLiveConnections = 1000
 
 func tooManyConnections() bool {
 	return atomic.LoadInt64(&liveConnections) >= maxLiveConnections
