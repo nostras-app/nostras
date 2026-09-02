@@ -96,6 +96,14 @@ primary_region = "fra"
   # [http_service] block at all in this file.
   NOSTRAS_DVM_HEALTH_PORT = "7778"
   NOSTRAS_DVM_HEALTH_URL  = "http://dvm.process.nostras.internal:7778/health"
+  # 2026-09-02: real heap-profile diagnostics for "web" (see pprofserver.go)
+  # — added directly after a third real OOM kill on this same machine in
+  # about 24 hours, with every prior instance leaving zero evidence behind
+  # once Fly's OOM killer wiped the process. Same private-network-only
+  # safety property as NOSTRAS_DVM_HEALTH_PORT above: this port is never
+  # declared in [http_service] below, so Fly's proxy never routes public
+  # traffic to it, regardless of what it listens on.
+  NOSTRAS_PPROF_PORT = "6061"
 
 # Split by process group (2026-08-07): "web" (the relay, running badger +
 # bluge) repeatedly hit real memory/connection-cap pressure under genuine

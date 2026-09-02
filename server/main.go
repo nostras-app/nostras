@@ -498,6 +498,10 @@ func main() {
 		fmt.Println("NIP-66 relay self-discovery: ON, publishing every 6h, advertised as", nip66PublicURL)
 	}
 
+	pprofPort := envOr("NOSTRAS_PPROF_PORT", "6061")
+	startPprofServer(pprofPort)
+	fmt.Println("pprof diagnostics: private network only, :" + pprofPort + "/debug/pprof/")
+
 	fmt.Println("NOSTRAS relay running on :" + port)
 	http.ListenAndServe(":"+port, relay)
 }
