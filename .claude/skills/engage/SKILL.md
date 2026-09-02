@@ -51,6 +51,18 @@ own existing "a reply, a follow, a zap in return" language in step 8 —
 a like or zap back is a real, lighter-weight signal worth logging even
 when it doesn't warrant a drafted follow-up.
 
+**Extraction caveat, real not hypothetical (2026-09-02)**: don't rely on
+a single fixed phrase (e.g. grepping for the word "reply" near a hex
+id) to pull ids out of past sessions' write-ups — wording has genuinely
+varied (`reply: `id``, `Question → `id``, and likely others not yet
+hit), and a grep keyed to one phrasing silently misses ids logged under
+another. Scan for every 64-char hex id under a session's own "posted
+and verified" heading regardless of the surrounding words, or — more
+reliable than parsing prose at all — just do the pre-draft check added
+to step 3 below for every fresh candidate, which catches an already-
+replied-to note directly from the relay rather than depending on this
+doc's own text staying perfectly parseable.
+
 Apply the same substance filter as step 3 below — **including the
 known-spam-account check**, not just "is this low-effort": the very
 first real run of this step (2026-08-16, same day it was added) turned
@@ -159,6 +171,21 @@ racist content with an unrelated stock-volume stat — purely to farm
 follower growth. That's the failure mode this whole skill exists to
 avoid: volume over judgment. A handful of genuinely substantive replies
 a day is the point, not a limitation to work around.
+
+**Before drafting, check whether we've already replied to this exact
+note** — a real, distinct check from step 1's own past-reply-reaction
+check, which only covers reactions *to* replies already logged there.
+Real gap found live (2026-09-02): a fresh candidate found in step 2
+(a Bark/Ark zap question) turned out to already have a real MMO reply
+from an earlier session — logged, but under a differently-worded line
+("Bark/Ark zap question → `id`") that step 1's own id-extraction grep
+(keyed to the literal word "reply" appearing near the id) didn't match,
+so it went undetected and a second, largely redundant reply got sent.
+Query `{"kinds":[1], "#e":["<candidate-note-id>"], "authors":
+["<operator-pubkey>"]}` against the same three relays step 1 already
+uses, for every candidate, right before drafting — cheap (one query per
+candidate, not per historical id) and catches this regardless of how
+any earlier session happened to phrase its own write-up.
 
 ## 4. Draft honest, specific replies — never generic
 
