@@ -152,7 +152,26 @@ primary_region = "fra"
 # has organically outgrown the machine" pattern as every prior capacity
 # bump here, not a code regression -- confirmed with the user first,
 # same as every previous recurring-cost change to this app.
+#
+# CPU bumped 1x -> 2x (2026-09-02): the 2026-08-31 badger block/index
+# cache fix (see server/main.go) genuinely helped -- hit ratio rose from
+# 0.28 to 0.41 right after deploy -- but it bought headroom against a
+# growing store, not a permanent ceiling. A routine health check ~2
+# days later found CPU pegged at 90%+ again (confirmed via `top`, twice,
+# 5s apart) with real DVM job-pipeline failures (3/3 `nak` publish
+# attempts against wss://nostras.app timed out), while the badger query
+# rate was unchanged from the original incident (~8,600 gets/sec) --
+# meaning real sustained production volume alone is enough to saturate
+# one core regardless of cache tuning, once the store (badger 1.7GB ->
+# 2.0GB, bluge 1.0GB -> 1.5GB in that same 2 days) keeps growing past
+# whatever a fixed cache size covers. Memory left unchanged at 4gb
+# deliberately -- RSS was tight (3.67GB/4GB) but not yet OOMing, and a
+# second core may relieve some of that pressure indirectly (less data
+# queued in flight); a real RAM bump is the honest next step only if
+# memory stays tight after this change, not bundled in now on a guess.
+# Confirmed with the user first, same as every other recurring-cost
+# change to this app.
 [[vm]]
-  size      = "performance-1x"
+  size      = "performance-2x"
   memory    = "4gb"
   processes = ["web"]
