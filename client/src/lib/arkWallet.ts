@@ -221,15 +221,6 @@ async function openWallet(pubkey: string, mnemonic: string): Promise<void> {
     }
     walletInstance = wallet
     onchainWalletInstance = onchain
-    // Temporary debug hook (2026-09-02), matching this project's own
-    // established pattern for these — Second's own support engineer
-    // (Erik, via the forum bug report on the stuck emergency-exit
-    // transaction) asked for the real output of
-    // wallet.getExitStatus({vtxoId, includeHistory: true,
-    // includeTransaction: true}) for the specific stuck VTXO, which only
-    // exists in the browser where the real wallet/mnemonic actually
-    // lives — remove once that output has been captured and shared.
-    ;(window as unknown as Record<string, unknown>).__arkWallet = walletInstance
     const [address, onchainAddress] = await Promise.all([walletInstance.newAddress(), onchain.newAddress()])
     setState({ status: 'ready', address, onchainAddress })
     await Promise.all([syncArkWallet(), syncOnchainWallet()])
