@@ -171,7 +171,29 @@ primary_region = "fra"
 # memory stays tight after this change, not bundled in now on a guess.
 # Confirmed with the user first, same as every other recurring-cost
 # change to this app.
+#
+# Memory bumped 4gb -> 8gb (2026-09-04), the "honest next step" the
+# entry above explicitly predicted: memory did stay tight after the CPU
+# bump. Root-caused precisely this time, not just inferred from
+# MemAvailable -- the new private pprof endpoint (server/pprofserver.go,
+# added the same day after a third unexplained OOM) let a real heap
+# profile be captured live in production for the first time. Verified
+# via direct SSH: /data (badger + bluge combined) had grown to 4.2GB --
+# larger than this machine's entire prior 4GB allocation -- with
+# RssFile (mmap'd store pages) at 2.07GB and RssAnon (the actual Go
+# heap, matching the pprof profile) at 1.64GB, summing exactly to the
+# observed 3.71GB VmRSS. The cache config itself (256MB block cache +
+# 128MB index cache, see main.go) is not the problem; the on-disk store
+# has simply outgrown the box, same pattern as the 2gb->4gb bump above,
+# now recurring at a larger scale. Confirmed with the user first, same
+# as every other recurring-cost change to this app -- and flagged
+# honestly at the same time that repeated reactive memory bumps aren't
+# a sustainable strategy on their own if the store keeps growing
+# unbounded; worth a real look at what's actually accumulating
+# (search-index scope, outbox-aggregation cache growth, data retention)
+# as a parallel, non-urgent investigation, not assumed solved by RAM
+# alone going forward.
 [[vm]]
   size      = "performance-2x"
-  memory    = "4gb"
+  memory    = "8gb"
   processes = ["web"]
