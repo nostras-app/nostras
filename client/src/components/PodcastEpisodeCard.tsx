@@ -6,6 +6,7 @@ import { viewEpisode } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { LockIcon, MicIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
+import { EngagementBar } from './EngagementBar'
 
 export function PodcastEpisodeCard({ event }: { event: NDKEvent }) {
   const show = useShowMeta(event.pubkey)
@@ -41,6 +42,9 @@ export function PodcastEpisodeCard({ event }: { event: NDKEvent }) {
           {meta.description && <p className="article-card-summary">{meta.description}</p>}
         </div>
       </button>
+      <div className="feed-item-footer">
+        <EngagementBar event={event} showReply={false} showNoteMenu={false} />
+      </div>
     </li>
   )
 }

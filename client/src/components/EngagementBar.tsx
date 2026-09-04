@@ -18,7 +18,36 @@ import {
   ServerIcon,
 } from './icons'
 
-export function EngagementBar({ event }: { event: NDKEventType }) {
+export function EngagementBar({
+  event,
+  // Both default true, preserving the exact existing behavior for every
+  // current caller (Feed.tsx/SingleNoteView.tsx, kind:1 notes).
+  //
+  // showReply=false: podcast episodes (and, structurally, articles —
+  // not touched in this pass) already have their own NIP-22
+  // CommentSection thread on the detail view. EngagementBar's reply
+  // button instead posts a kind:1/NIP-10 reply — a second, disconnected
+  // discussion mechanism that would never show up in that same
+  // CommentSection. Real gap found live (2026-09-04): a user comparing
+  // NOSTRAS's own podcast episode against the same episode's Ditto
+  // rendering found NOSTRAS showing no engagement actions AT ALL on
+  // episodes (not just missing reply) — this prop exists so the fix
+  // (adding like/repost/zap/bookmark) doesn't also introduce a second,
+  // incompatible reply surface alongside the one that already exists.
+  //
+  // showNoteMenu=false: podcast episode surfaces already render their
+  // own NoteMenu separately, positioned in the card's top-right corner
+  // (outside the card's own big clickable button — a button can't nest
+  // inside a button) rather than inline at the end of the engagement
+  // row. Without this, dropping in EngagementBar wholesale would render
+  // a second, redundant "..." menu.
+  showReply = true,
+  showNoteMenu = true,
+}: {
+  event: NDKEventType
+  showReply?: boolean
+  showNoteMenu?: boolean
+}) {
   const replyCount = useEventCount(event.id, 1)
   const { count: likeCount, pubkeys: likePubkeys } = useReactionList(event.id, 7)
   const { count: repostCount, pubkeys: repostPubkeys } = useReactionList(event.id, 6)
@@ -110,26 +139,28 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
   return (
     <div className="engagement-bar">
       <div className="engagement-row">
-        <span className="engage-btn engage-btn-reply">
-          <button
-            type="button"
-            className="engage-btn-icon"
-            onClick={openReply}
-            aria-label="Reply"
-          >
-            <ReplyIcon />
-          </button>
-          {replyCount > 0 && (
+        {showReply && (
+          <span className="engage-btn engage-btn-reply">
             <button
               type="button"
-              className="engage-count"
-              onClick={() => viewNote(event)}
-              title="See who replied"
+              className="engage-btn-icon"
+              onClick={openReply}
+              aria-label="Reply"
             >
-              {replyCount}
+              <ReplyIcon />
             </button>
-          )}
-        </span>
+            {replyCount > 0 && (
+              <button
+                type="button"
+                className="engage-count"
+                onClick={() => viewNote(event)}
+                title="See who replied"
+              >
+                {replyCount}
+              </button>
+            )}
+          </span>
+        )}
         <span className={`engage-btn engage-btn-repost${reposted ? ' engage-btn-active' : ''}`}>
           <button
             type="button"
@@ -187,11 +218,11 @@ export function EngagementBar({ event }: { event: NDKEventType }) {
           {event.onRelays.length}
         </span>
         <TranslateButton event={event} />
-        <NoteMenu event={event} />
+        {showNoteMenu && <NoteMenu event={event} />}
         {bookmarkError && <span className="alert-error engage-error">{bookmarkError}</span>}
       </div>
 
-      {replying && (
+      {showReply && replying && (
         <div className="reply-composer">
           <input
             type="text"

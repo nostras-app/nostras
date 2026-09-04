@@ -15,6 +15,7 @@ import {
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
 import { ArrowLeftIcon, LockIcon, MicIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
+import { EngagementBar } from './EngagementBar'
 import { CommentSection } from './CommentSection'
 
 // Same insecure-image guard as ArticleView's own markdown renderer —
@@ -238,6 +239,10 @@ export function PodcastEpisodeView({ event }: { event: NDKEvent }) {
               .
             </audio>
           )}
+
+          <div className="feed-item-footer">
+            <EngagementBar event={event} showReply={false} showNoteMenu={false} />
+          </div>
 
           {!meta.encrypted && event.content && (
             <div className="article-view-content">
