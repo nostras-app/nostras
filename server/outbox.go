@@ -69,9 +69,15 @@ var outboxSem = make(chan struct{}, maxConcurrentOutboxFetches)
 // — skipping aggregation whenever Tags is present is the only generally
 // safe fix, not a badges-specific patch, since FetchFeedPage structurally
 // cannot honor a tag constraint regardless of which caller sent it.
+// cacheStore is optional (nil disables tracking, not the aggregation
+// itself) — see outboxcache.go for what it's for and why the exact
+// events tracked here (only those that pass the !seen check below, i.e.
+// confirmed new-to-local-store by this same function's own local
+// pre-query) are the correct, safe set to ever consider evicting later.
 func newAggregatedQuery(
 	db *badger.BadgerBackend,
 	sys *sdk.System,
+	cacheStore *outboxCacheStore,
 ) func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
 	return func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
 		if len(filter.Authors) == 0 || len(filter.Tags) > 0 {
@@ -125,11 +131,15 @@ func newAggregatedQuery(
 				// blocking the whole request indefinitely.
 				return
 			}
+			now := int64(nostr.Now())
 			for _, evt := range fetched {
 				if seen[evt.ID] {
 					continue
 				}
 				seen[evt.ID] = true
+				if cacheStore != nil {
+					cacheStore.track(evt.ID, now)
+				}
 				select {
 				case out <- evt:
 				case <-ctx.Done():

@@ -435,8 +435,34 @@ func main() {
 			"wss://purplepag.es",
 		}),
 	)
-	aggregatedQuery := newAggregatedQuery(&db, sys)
+	// Real production incident (2026-09-04, see NOSTRAS-CSV.md's
+	// PQ-067/PQ-069): a live heap-profile investigation confirmed the
+	// outbox aggregation above — a deliberate, undocumented-until-now
+	// write-through cache with no eviction — is the dominant driver of
+	// this relay's recurring "the store outgrew the machine" capacity
+	// incidents, not this project's own real user base. outboxcache.go
+	// tracks exactly which stored events arrived ONLY via this path
+	// (never a real client's own direct publish) and ages them out after
+	// NOSTRAS_OUTBOX_CACHE_RETENTION_DAYS (default 30) — bounding growth
+	// instead of another reactive memory-tier bump.
+	outboxCachePath := envOr("NOSTRAS_OUTBOX_CACHE_PATH", "./outbox-cache.json")
+	outboxCache, err := newOutboxCacheStore(outboxCachePath)
+	if err != nil {
+		panic(err)
+	}
+	outboxCacheRetentionDays, err := strconv.Atoi(envOr("NOSTRAS_OUTBOX_CACHE_RETENTION_DAYS", "30"))
+	if err != nil || outboxCacheRetentionDays <= 0 {
+		outboxCacheRetentionDays = 30
+	}
+	aggregatedQuery := newAggregatedQuery(&db, sys, outboxCache)
 	relay.QueryEvents = append(relay.QueryEvents, newSearchAwareQuery(&searchIndex, aggregatedQuery))
+	// Untracks an id the instant a real client directly publishes that
+	// exact event — see outboxCacheStore's own doc comment for why this
+	// is what makes eviction safe even in the "outbox-cached first,
+	// genuinely published here later" edge case.
+	relay.StoreEvent = append(relay.StoreEvent, newOutboxCacheUntrackHook(outboxCache))
+	startOutboxCacheSweeper(relay, &db, outboxCache, outboxCacheRetentionDays)
+	fmt.Printf("outbox cache: tracking %d cached events, %d-day retention\n", outboxCache.size(), outboxCacheRetentionDays)
 
 	// NIP-43 Relay Access Metadata and Requests — see nip43.go. Does NOT
 	// gate this relay (it stays exactly as open as before); it's real
