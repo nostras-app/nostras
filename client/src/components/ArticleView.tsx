@@ -14,6 +14,7 @@ import {
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
 import { ArrowLeftIcon, LockIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
+import { EngagementBar } from './EngagementBar'
 import { CommentSection } from './CommentSection'
 import type { Components } from 'react-markdown'
 
@@ -227,6 +228,9 @@ export function ArticleView({ event }: { event: NDKEvent }) {
         <ArticleUnlockPanel event={event} priceSats={meta.priceSats} onUnlocked={setUnlockedContent} />
       ) : (
         <>
+          <div className="feed-item-footer">
+            <EngagementBar event={event} showReply={false} showNoteMenu={false} />
+          </div>
           <div className="article-view-content">
             <ReactMarkdown components={markdownComponents}>
               {meta.encrypted ? (unlockedContent ?? '') : event.content}

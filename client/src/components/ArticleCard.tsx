@@ -6,6 +6,7 @@ import { viewArticle } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { FileTextIcon, LockIcon } from './icons'
 import { NoteMenu } from './NoteMenu'
+import { EngagementBar } from './EngagementBar'
 
 export function ArticleCard({ event }: { event: NDKEvent }) {
   const profile = useProfile(event.pubkey)
@@ -44,6 +45,9 @@ export function ArticleCard({ event }: { event: NDKEvent }) {
           {meta.summary && <p className="article-card-summary">{meta.summary}</p>}
         </div>
       </button>
+      <div className="feed-item-footer">
+        <EngagementBar event={event} showReply={false} showNoteMenu={false} />
+      </div>
     </li>
   )
 }
