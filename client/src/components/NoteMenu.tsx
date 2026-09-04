@@ -9,6 +9,11 @@ import { useMuteList } from '../hooks/useMuteList'
 import { requestDvmJob, type DvmJobUpdate } from '../lib/dvm'
 import { findExistingModerationLabel } from '../lib/moderationLabel'
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
+import {
+  KIND_PODCAST_EPISODE,
+  parseEpisodeMeta,
+  publishDittoCompatEpisodeFor,
+} from '../lib/podcast'
 import { MoreIcon } from './icons'
 
 const isAllowedRelay = makeRelayConnectionFilter(localRelayUrl)
@@ -83,6 +88,20 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
   )
   const [rebroadcastError, setRebroadcastError] = useState('')
   const [rebroadcastCount, setRebroadcastCount] = useState(0)
+  // Real gap reported live the same day dual-kind podcast publishing
+  // shipped (2026-09-04): rebroadcasting an episode published BEFORE
+  // that fix can never make it show up in Ditto, since event.publish()
+  // on an already-signed event just re-sends the identical bytes — a
+  // genuinely new, separately-signed kind:30054 event is structurally
+  // required, which is exactly what this backfills. Own episodes only,
+  // free episodes only (see publishDittoCompatEpisodeFor's own doc
+  // comment).
+  const isOwnFreeEpisode =
+    isOwn && event.kind === KIND_PODCAST_EPISODE && !parseEpisodeMeta(event.tags).encrypted
+  const [dittoBackfillState, setDittoBackfillState] = useState<'idle' | 'busy' | 'done' | 'error'>(
+    'idle',
+  )
+  const [dittoBackfillError, setDittoBackfillError] = useState('')
   const [selectedRelays, setSelectedRelays] = useState<Set<string>>(() => new Set(CURATED_RELAYS))
   // User follow-up (2026-08-07): "I understand 15 selected 7 successful" —
   // wanted to see *which* relays actually took it, not just the count.
@@ -272,6 +291,19 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     } finally {
       event.off('relay:published', onPublished)
       event.off('relay:publish:failed', onFailed)
+    }
+  }
+
+  async function handleDittoBackfill() {
+    if (dittoBackfillState === 'busy') return
+    setDittoBackfillState('busy')
+    setDittoBackfillError('')
+    try {
+      await publishDittoCompatEpisodeFor(event)
+      setDittoBackfillState('done')
+    } catch (e) {
+      setDittoBackfillError(e instanceof Error ? e.message : 'Publish failed')
+      setDittoBackfillState('error')
     }
   }
 
@@ -478,6 +510,22 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
               ? `Rebroadcast ✓ (${rebroadcastCount})`
               : 'Rebroadcast to relays…'}
           </button>
+          {isOwnFreeEpisode && (
+            <button
+              type="button"
+              onClick={handleDittoBackfill}
+              disabled={dittoBackfillState === 'busy'}
+              title="Publishes a second, separate kind:30054 event for this episode so it shows up in Ditto and other clients that use that convention — only needed for episodes published before this app added dual-kind support."
+            >
+              {dittoBackfillState === 'busy'
+                ? 'Publishing…'
+                : dittoBackfillState === 'done'
+                  ? 'Published to Ditto ✓'
+                  : dittoBackfillState === 'error'
+                    ? `Failed: ${dittoBackfillError}`
+                    : 'Publish Ditto-compatible copy'}
+            </button>
+          )}
           <button
             type="button"
             onClick={handleCheck}

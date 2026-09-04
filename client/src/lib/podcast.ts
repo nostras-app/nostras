@@ -218,6 +218,7 @@ export async function publishEpisode(input: {
         description: input.description,
         audioUrl: input.audioUrl,
         audioType: input.audioType,
+        sourceEventId: event.id,
       })
     } catch (err) {
       console.warn(
@@ -228,18 +229,52 @@ export async function publishEpisode(input: {
   }
 }
 
+// publishDittoCompatEpisodeFor backfills the kind:30054 companion for an
+// EXISTING, already-published kind:54 episode — for anything published
+// before this dual-kind support shipped (2026-09-04), or for a retry
+// after the best-effort publish above genuinely failed. Real gap found
+// live the same day this shipped: rebroadcasting an old episode (NDK's
+// event.publish() on an already-signed event just re-sends the same
+// id/sig bytes) can never create a companion event of a different kind
+// — a new, separately-signed event is structurally required, which is
+// exactly what this does, without touching or duplicating the original
+// kind:54 event at all.
+export async function publishDittoCompatEpisodeFor(event: {
+  id: string
+  tags: string[][]
+}): Promise<void> {
+  const meta = parseEpisodeMeta(event.tags)
+  if (meta.encrypted) {
+    throw new Error('Paid episodes have no plaintext audio URL to publish — Ditto has no way to unlock them.')
+  }
+  await publishDittoCompatEpisode({
+    title: meta.title,
+    image: meta.image,
+    description: meta.description,
+    audioUrl: meta.audioUrl,
+    audioType: meta.audioType,
+    sourceEventId: event.id,
+  })
+}
+
 async function publishDittoCompatEpisode(input: {
   title: string
   image: string
   description: string
   audioUrl: string
   audioType: string
+  // The `d` tag is derived from this, not a fresh crypto.randomUUID(),
+  // so the companion is idempotent: re-running this for the same source
+  // kind:54 episode (a retry, or a deliberate backfill re-run) replaces
+  // the same addressable kind:30054 event instead of creating a
+  // duplicate entry in Ditto's own feed.
+  sourceEventId: string
 }): Promise<void> {
   const title = input.title.trim()
   const description = input.description.trim()
 
   const tags: string[][] = [
-    ['d', crypto.randomUUID()],
+    ['d', input.sourceEventId],
     ['title', title],
     input.audioType ? ['audio', input.audioUrl, input.audioType] : ['audio', input.audioUrl],
     // RFC2822, matching new Date().toUTCString()'s exact format — the
