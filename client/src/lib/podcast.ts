@@ -38,6 +38,49 @@ import { fetchLatestReplaceableEvent } from './fetchLatestReplaceable'
 export const KIND_PODCAST_METADATA = 10154 as NDKKind
 export const KIND_PODCAST_EPISODE = 54 as NDKKind
 
+// Ditto (and other podstr-convention clients) render podcast episodes
+// via kind:30054 — an addressable event (30000-39999 range), a
+// completely different, incompatible convention from NIP-F4's kind:54
+// above. Confirmed directly against Ditto's own real, live source, not
+// assumed from docs alone: PodcastsFeedPage.tsx queries
+// `kind={[30054, 30055]}`, never kind 54, which is why a real published
+// NOSTRAS episode (2026-09-04) never appeared in Ditto's Podcasts tab
+// at all. Tag shape below follows derekross/podstr's NIP.md draft
+// (the spec Ditto's own kindLabels.ts/podcastHelpers.ts trace back to),
+// cross-checked against Ditto's actual parsePodcastEpisode() parser to
+// confirm the two agree rather than trusting the doc alone — that
+// parser is deliberately lenient (falls back through several tag names
+// for most fields), but still requires a real, plaintext, resolvable
+// audio URL to return non-null at all.
+//
+// Publishing this second, separate event is purely additive — it
+// doesn't touch or replace the kind:54/10154 publish above, which stays
+// this app's own primary, load-bearing format. Deliberately best-effort
+// (see publishDittoCompatEpisode's own caller): a failure here is
+// caught and logged, never thrown, so a Ditto-compatibility hiccup can
+// never break the publish flow the composer already depends on.
+//
+// Scoped to free (non-paid) episodes only. A DVM-gated paid episode's
+// real audio URL only ever exists as ciphertext this app's own paid-
+// unlock flow can decrypt — Ditto has no way to pay/unlock that, so a
+// kind:30054 copy with no resolvable audio would just silently fail
+// Ditto's own parser (which requires a real URL to return non-null) —
+// not harmful, but pointless, so skipped outright rather than
+// publishing a dead event.
+//
+// `duration` is deliberately left out even though the spec allows it:
+// NOSTRAS's own compose flow has no field to capture episode duration
+// today, and computing it client-side (decoding the uploaded audio)
+// is new, separate scope beyond "publish both kinds" — a real, known
+// gap, not silently pretended away. Same for the optional `t` topic
+// tags (no topic-tagging UI exists in this composer) and for kind:30055
+// trailers / kind:30078 podcast-metadata (NOSTRAS has no "trailer"
+// concept, and Ditto's own PodcastsFeedPage renders individual episodes
+// standalone with no dependency on show-level 30078 metadata — that
+// kind only matters for RSS-bridge-style aggregators, not for showing
+// up in Ditto's feed, which is the actual goal here).
+export const KIND_PODCAST_EPISODE_DITTO = 30054 as NDKKind
+
 const PUBLISH_TIMEOUT_MS = 8000
 const FETCH_TIMEOUT_MS = 8000
 
@@ -162,6 +205,60 @@ export async function publishEpisode(input: {
   }
 
   const event = new NDKEvent(ndk, { kind: KIND_PODCAST_EPISODE, content, tags })
+  await event.publish(devPublishRelaySet, PUBLISH_TIMEOUT_MS)
+
+  // See KIND_PODCAST_EPISODE_DITTO's own doc comment for why this is
+  // scoped to free episodes only, best-effort, and never allowed to
+  // affect the primary publish above (already succeeded by this point).
+  if (!input.paid) {
+    try {
+      await publishDittoCompatEpisode({
+        title: input.title,
+        image: input.image,
+        description: input.description,
+        audioUrl: input.audioUrl,
+        audioType: input.audioType,
+      })
+    } catch (err) {
+      console.warn(
+        'Ditto-compatible (kind 30054) episode publish failed — the primary episode still published fine:',
+        err,
+      )
+    }
+  }
+}
+
+async function publishDittoCompatEpisode(input: {
+  title: string
+  image: string
+  description: string
+  audioUrl: string
+  audioType: string
+}): Promise<void> {
+  const title = input.title.trim()
+  const description = input.description.trim()
+
+  const tags: string[][] = [
+    ['d', crypto.randomUUID()],
+    ['title', title],
+    input.audioType ? ['audio', input.audioUrl, input.audioType] : ['audio', input.audioUrl],
+    // RFC2822, matching new Date().toUTCString()'s exact format — the
+    // spec's own required shape, and one of the two forms Ditto's own
+    // parser (parsePodcastEpisode) explicitly accepts for `pubdate`.
+    ['pubdate', new Date().toUTCString()],
+    // NIP-31 alt tag, required per the podstr spec this kind traces to —
+    // a plain human-readable fallback for any client that doesn't know
+    // what a kind:30054 event is.
+    ['alt', `Podcast episode: ${title}`],
+  ]
+  if (description) tags.push(['description', description])
+  if (input.image.trim()) tags.push(['image', input.image.trim()])
+
+  const event = new NDKEvent(ndk, {
+    kind: KIND_PODCAST_EPISODE_DITTO,
+    content: description,
+    tags,
+  })
   await event.publish(devPublishRelaySet, PUBLISH_TIMEOUT_MS)
 }
 
