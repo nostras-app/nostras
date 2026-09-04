@@ -653,8 +653,22 @@ export async function startWalletExit(): Promise<void> {
 // they need to be progressed over real block time, the same "explicit
 // action, no background daemon" posture already established everywhere
 // else in this feature (runDaemon: false).
+//
+// Real bug found via Second's own engineering team (2026-09-04, on the
+// stuck-exit report): progressExits() does NOT sync the on-chain wallet
+// itself — it needs a fresh BDK view to find a spendable UTXO for the
+// CPFP broadcast's fee, and this function never called syncOnchainWallet()
+// before it. Since exits progress "over real block time" (see this
+// function's own comment above), the on-chain view synced once at
+// wallet-open could easily be stale by the time a user actually clicks
+// "progress exit" — exactly the shape of the real stuck-exit incident
+// this project hit. syncOnchainWallet() already handles its own errors
+// (sets onchainSyncing/error state, never throws), so a sync failure
+// here degrades to "proceed with whatever on-chain view already exists"
+// rather than blocking exit progression outright.
 export async function progressWalletExits(): Promise<void> {
   if (!walletInstance) throw new Error('No wallet open')
+  await syncOnchainWallet()
   await walletInstance.progressExits({})
 }
 
