@@ -151,6 +151,19 @@
     padding: 10px 0;
     border-bottom: 1px solid var(--border);
     color: var(--text);
+    /* Waitlist entries are real free-text from anonymous public
+       visitors — a long unbroken string (deliberate or not) has no
+       natural break point and would otherwise force this cell, the
+       table, and the whole page wider than the viewport. Same overflow
+       bug class this project has independently hit (and fixed) three
+       times before in the client app; applied here proactively since
+       this is the first server-rendered page with genuinely untrusted-
+       length free text in it. */
+    overflow-wrap: anywhere;
+  }
+  #waitlist-wrap {
+    width: 100%;
+    overflow-x: auto;
   }
   tr:last-child td { border-bottom: none; }
   .country-cell {

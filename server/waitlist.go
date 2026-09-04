@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/mail"
 	"os"
 	"strings"
@@ -28,6 +29,14 @@ type waitlistEntry struct {
 // field — a public, unauthenticated endpoint with an unbounded text
 // field is a cheap abuse vector otherwise.
 const maxWaitlistNoteLen = 1000
+
+// maxWaitlistEmailLen bounds the email field too — found missing during
+// a dashboard-hardening pass (2026-09-04): unlike note, nothing capped
+// email's length at all, so a validly-RFC-822-shaped but absurdly long
+// address (still possible within the outer request-body size limit) had
+// no defense of its own beyond that outer cap. A real email address is
+// never anywhere close to this long.
+const maxWaitlistEmailLen = 254
 
 type waitlistStore struct {
 	mu      sync.RWMutex
@@ -64,6 +73,9 @@ func (s *waitlistStore) saveLocked() error {
 // visitor update their note rather than piling up duplicate rows.
 func (s *waitlistStore) add(email, note string) error {
 	email = strings.ToLower(strings.TrimSpace(email))
+	if len(email) > maxWaitlistEmailLen {
+		return fmt.Errorf("email address too long")
+	}
 	if _, err := mail.ParseAddress(email); err != nil {
 		return err
 	}
