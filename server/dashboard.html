@@ -205,6 +205,24 @@
     line-height: 1.6;
     margin-top: 10px;
   }
+  .chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: center;
+    margin-bottom: 14px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+  .legend-swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+    flex: none;
+  }
+  .legend-swatch.conn { background: linear-gradient(135deg, var(--accent), var(--data)); }
+  .legend-swatch.hb { background: var(--warm); border-radius: 50%; }
   .panel-title {
     display: flex;
     align-items: center;
@@ -283,7 +301,12 @@
 
 <section class="panel">
   <h2>Connections per day — last 30 days</h2>
+  <div class="chart-legend">
+    <span class="legend-item"><span class="legend-swatch conn"></span>Raw connections (left axis)</span>
+    <span class="legend-item"><span class="legend-swatch hb"></span>Real client loads (independent scale — see note below)</span>
+  </div>
   <div id="chart-wrap"><canvas id="chart" height="180"></canvas></div>
+  <p class="hint" id="chart-scale-note"></p>
 </section>
 
 <section class="panel">
@@ -355,24 +378,38 @@ function fmtDay(iso) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-function drawChart(byDay) {
+// Renders two series on one chart: raw connections (bars, left axis) and
+// real client heartbeats (a line, independently scaled — see the note
+// below the chart). They're on different scales on purpose: heartbeats
+// only started being counted the day this feature shipped and are
+// currently orders of magnitude smaller than raw connections (which
+// include every other Nostr client, outbox-lookup traffic, and
+// crawlers) — sharing one linear axis would render the heartbeat line
+// as an invisible flat line at the bottom for weeks. An independent
+// scale keeps the *shape* of the heartbeat trend visible; the actual
+// numbers are the "Real client loads" panel/table below, not this chart.
+function drawChart(byDay, heartbeatByDay) {
+  heartbeatByDay = heartbeatByDay || {};
   const days = [];
   const today = new Date();
   for (let i = 29; i >= 0; i--) {
     const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i));
     days.push(d.toISOString().slice(0, 10));
   }
-  const totals = days.map(d => {
+  const connTotals = days.map(d => {
     const countries = byDay[d] || {};
     return Object.values(countries).reduce((a, b) => a + b, 0);
   });
-  const max = Math.max(1, ...totals);
+  const hbTotals = days.map(d => heartbeatByDay[d] || 0);
+  const maxConn = Math.max(1, ...connTotals);
+  const maxHb = Math.max(1, ...hbTotals);
 
   const canvas = document.getElementById("chart");
   const wrap = document.getElementById("chart-wrap");
   const dpr = window.devicePixelRatio || 1;
   const barSlot = 26;
-  const cssWidth = Math.max(wrap.clientWidth, days.length * barSlot);
+  const yAxisW = 44;
+  const cssWidth = Math.max(wrap.clientWidth, days.length * barSlot + yAxisW);
   const cssHeight = 180;
   canvas.width = cssWidth * dpr;
   canvas.height = cssHeight * dpr;
@@ -384,21 +421,35 @@ function drawChart(byDay) {
   const styles = getComputedStyle(document.documentElement);
   const accent = styles.getPropertyValue("--accent").trim();
   const data = styles.getPropertyValue("--data").trim();
+  const warm = styles.getPropertyValue("--warm").trim();
   const dim = styles.getPropertyValue("--text-dim").trim();
   const border = styles.getPropertyValue("--border").trim();
+  const sans = styles.getPropertyValue("--sans");
 
   const chartTop = 8, chartBottom = 148, labelY = 168;
-  ctx.strokeStyle = border;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, chartBottom + 0.5);
-  ctx.lineTo(cssWidth, chartBottom + 0.5);
-  ctx.stroke();
+  const plotLeft = yAxisW;
+
+  // Y-axis: gridlines + value labels for the connections (left) scale.
+  ctx.font = "10px " + sans;
+  ctx.fillStyle = dim;
+  [0, 0.5, 1].forEach((frac) => {
+    const y = chartBottom - frac * (chartBottom - chartTop);
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, y + 0.5);
+    ctx.lineTo(cssWidth, y + 0.5);
+    ctx.stroke();
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(Math.round(maxConn * frac).toLocaleString(), plotLeft - 8, y);
+  });
+  ctx.textBaseline = "alphabetic";
 
   days.forEach((day, i) => {
-    const x = i * barSlot;
-    const val = totals[i];
-    const h = val === 0 ? 0 : Math.max(2, (val / max) * (chartBottom - chartTop));
+    const x = plotLeft + i * barSlot;
+    const val = connTotals[i];
+    const h = val === 0 ? 0 : Math.max(2, (val / maxConn) * (chartBottom - chartTop));
     const grad = ctx.createLinearGradient(0, chartBottom - h, 0, chartBottom);
     grad.addColorStop(0, accent);
     grad.addColorStop(1, data);
@@ -419,11 +470,45 @@ function drawChart(byDay) {
 
     if (i % 3 === 0 || i === days.length - 1) {
       ctx.fillStyle = dim;
-      ctx.font = "10px " + styles.getPropertyValue("--sans");
+      ctx.font = "10px " + sans;
       ctx.textAlign = "center";
       ctx.fillText(fmtDay(day), x + barSlot / 2, labelY);
     }
   });
+
+  // Heartbeat line, on its own independent scale (see the function's
+  // own comment above).
+  const hbPoints = days.map((day, i) => {
+    const hb = hbTotals[i];
+    const x = plotLeft + i * barSlot + barSlot / 2;
+    const y = chartBottom - (hb / maxHb) * (chartBottom - chartTop);
+    return [x, y];
+  });
+  ctx.strokeStyle = warm;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  hbPoints.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+  ctx.stroke();
+  ctx.fillStyle = warm;
+  hbPoints.forEach(([x, y]) => {
+    ctx.beginPath();
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  document.getElementById("chart-scale-note").textContent =
+    `Real client loads line uses its own scale (0–${maxHb.toLocaleString()} over this period) since it's far smaller than raw connections — see the exact daily/weekly/total numbers in the "Real client loads" panel below.`;
+}
+
+// Cached copies of the two datasets so either one arriving (they load
+// independently, not necessarily in order) can trigger a redraw with
+// whatever the other one last had, rather than only drawing once both
+// happen to be loaded already.
+let lastConnByDay = null;
+let lastHeartbeatByDay = {};
+function redrawChart() {
+  if (!lastConnByDay) return;
+  drawChart(lastConnByDay, lastHeartbeatByDay);
 }
 
 function renderCountries(byDay) {
@@ -563,7 +648,8 @@ async function load() {
   document.getElementById("refresh-note").textContent =
     "updated " + new Date().toLocaleTimeString();
 
-  drawChart(byDay);
+  lastConnByDay = byDay;
+  redrawChart();
   renderCountries(byDay);
 }
 
@@ -614,6 +700,8 @@ async function loadHeartbeats() {
   if (!res.ok) return;
   const data = await res.json();
   renderHeartbeats(data.by_day || {});
+  lastHeartbeatByDay = data.by_day || {};
+  redrawChart();
 }
 
 function fmtUptime(seconds) {
@@ -701,8 +789,9 @@ loadWaitlist();
 loadPageViews();
 loadHeartbeats();
 setInterval(load, 60000);
+setInterval(loadHeartbeats, 60000);
 setInterval(loadHealth, 3000);
-window.addEventListener("resize", load);
+window.addEventListener("resize", redrawChart);
 </script>
 
 </body>
