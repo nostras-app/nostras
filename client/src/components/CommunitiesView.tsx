@@ -164,6 +164,14 @@ export function CommunitiesView({ groupTarget }: { groupTarget?: string | null }
         the payment check. Reading a group's chat is always free; only
         posting can ever be gated.
       </p>
+      <p className="communities-lede communities-cross-link">
+        Looking for moderated post communities instead — the kind other
+        clients like Amethyst call "Communities" (NIP-72)? That's{' '}
+        <button type="button" className="link-btn" onClick={() => setActiveView('boards')}>
+          Boards
+        </button>
+        , a separate feature.
+      </p>
 
       <CreateGroupForm onCreated={(id) => viewGroup(id)} />
 

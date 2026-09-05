@@ -1377,6 +1377,25 @@ a.profile-external-identity:hover {
   text-decoration: underline;
 }
 
+/* A <button> styled to read as inline text-link, for cross-linking
+   between views from inside a prose paragraph (e.g. Communities <->
+   Boards) — same color/underline treatment as .note-link, reset to
+   remove default button chrome so it sits inline with surrounding text. */
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  color: var(--accent-2, var(--accent));
+}
+
 .mention-link {
   display: inline;
   font: inherit;

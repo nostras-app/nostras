@@ -128,6 +128,13 @@ export function BoardsView({ boardTarget }: { boardTarget?: NDKEvent | null } = 
         own "Communities" feature uses. Anyone can post; a board's
         moderators decide what's approved into visibility.
       </p>
+      <p className="communities-lede communities-cross-link">
+        Looking for real-time group chat instead? That's{' '}
+        <button type="button" className="link-btn" onClick={() => setActiveView('communities')}>
+          Communities
+        </button>
+        , NOSTRAS's own relay-hosted NIP-29 feature.
+      </p>
 
       <CreateBoardForm onCreated={(board) => viewBoard(board)} />
 
