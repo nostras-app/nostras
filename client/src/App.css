@@ -2369,6 +2369,14 @@ a.profile-external-identity:hover {
 
 .article-card {
   position: relative;
+  /* .feed-item (the shared <li> base) is a flex *row*, which fits a
+     regular note (avatar left, body right) but not this card's own
+     button-plus-footer shape -- without this override the engagement
+     row ends up as a second flex item beside the button instead of
+     below it, squeezed into a narrow column on the right. Column
+     direction here makes .article-card-btn (already width: 100%) and
+     .feed-item-footer stack vertically instead, full width. */
+  flex-direction: column;
 }
 
 .article-card-menu {
