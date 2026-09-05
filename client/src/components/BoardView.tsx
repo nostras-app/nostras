@@ -4,7 +4,7 @@ import { useProfile } from '../hooks/useProfile'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useCommunityFeed } from '../hooks/useCommunityFeed'
 import { publishComment } from '../lib/comments'
-import { parseCommunityMeta, publishPostApproval } from '../lib/community'
+import { boardsRelaySet, parseCommunityMeta, publishPostApproval } from '../lib/community'
 import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
@@ -88,8 +88,19 @@ export function BoardView({ board, onBack }: { board: NDKEvent; onBack: () => vo
     setPosting(true)
     setError('')
     try {
-      await publishComment(board, content.trim())
+      const post = await publishComment(board, content.trim(), boardsRelaySet)
       setContent('')
+      // A moderator posting to their own board shouldn't have to also
+      // click Approve on themselves every time — real NIP-72 clients
+      // (Amethyst included) auto-approve a moderator's own posts. This
+      // is deliberately best-effort and separate from the post itself:
+      // the post has already genuinely succeeded above regardless of
+      // whether this second publish does; a failure here just leaves it
+      // sitting in Pending approval, where the existing manual Approve
+      // button still works as a fallback.
+      if (amModerator) {
+        publishPostApproval(post, board).catch(() => {})
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post')
     } finally {

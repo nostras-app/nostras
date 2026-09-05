@@ -1,4 +1,4 @@
-import { NDKEvent, type NDKKind } from '@nostr-dev-kit/ndk'
+import { NDKEvent, type NDKKind, type NDKRelaySet } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet } from './ndk'
 
 // Same explicit-timeout convention as every other publish path in this
@@ -35,7 +35,16 @@ export function isAddressableKind(kind: number | undefined): boolean {
 // arbitrarily nested reply hierarchies"). A reply-to-a-comment UI would
 // need real parent-vs-root tag divergence and a threaded renderer — a
 // genuinely separate, bigger feature, not built here.
-export async function publishComment(rootEvent: NDKEvent, content: string): Promise<void> {
+// relaySet defaults to devPublishRelaySet (this app's standing default
+// for notes/articles/threads) — Boards (lib/community.ts) passes its own
+// boardsRelaySet instead, since a board post needs the same broad
+// cross-client reach as the board definition itself, not just this app's
+// usual local+bootstrap targets.
+export async function publishComment(
+  rootEvent: NDKEvent,
+  content: string,
+  relaySet: NDKRelaySet = devPublishRelaySet,
+): Promise<NDKEvent> {
   const kind = String(rootEvent.kind)
   const tags: string[][] = isAddressableKind(rootEvent.kind)
     ? [
@@ -56,5 +65,6 @@ export async function publishComment(rootEvent: NDKEvent, content: string): Prom
       ]
 
   const event = new NDKEvent(ndk, { kind: KIND_COMMENT, content, tags })
-  await event.publish(devPublishRelaySet, PUBLISH_TIMEOUT_MS)
+  await event.publish(relaySet, PUBLISH_TIMEOUT_MS)
+  return event
 }
