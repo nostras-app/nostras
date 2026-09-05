@@ -130,6 +130,11 @@
   }
 
   .cta-row { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
+  /* The other two .cta-row uses sit right after a .lede, which already
+     carries its own bottom margin. This one follows the card .grid
+     instead, which has none — without this it sits flush against the
+     cards with no breathing room. */
+  #ai-tools .cta-row { margin-top: 32px; }
 
   .btn {
     display: inline-flex;
@@ -530,6 +535,13 @@
         <h3>Buy Now</h3>
         <p>Pay a NIP-99 listing's seller directly over Lightning, get back a public, independently-verifiable receipt — not locked inside our own UI.</p>
       </div>
+    </div>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="/tools">
+        See the DVM as its own product
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+      </a>
     </div>
   </div>
 </section>
