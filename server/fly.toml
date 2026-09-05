@@ -79,6 +79,10 @@ primary_region = "fra"
   # results instead of resetting to a fresh snapshot each run.
   NOSTRAS_ENUMERATE_RELAYS_PATH      = "/data/enumerated-relays.json"
   NOSTRAS_ENUMERATE_IDENTITIES_PATH  = "/data/enumerated-identities.json"
+  # Same lesson a fifth time (2026-09-06): the client-heartbeat counter
+  # (heartbeat.go) set on the persistent volume from the start, not
+  # discovered as ephemeral-storage data loss after the fact.
+  NOSTRAS_HEARTBEAT_PATH             = "/data/client-heartbeats.json"
   # NIP-66 relay self-discovery (nip66.go): the address advertised *in*
   # the discovery event's own d tag, not what the self-probe dials (that
   # always stays localhost, same host as the listener). Not a secret —

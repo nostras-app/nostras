@@ -199,6 +199,12 @@
     padding-top: 16px;
     margin-top: 8px;
   }
+  .hint {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin-top: 10px;
+  }
   .panel-title {
     display: flex;
     align-items: center;
@@ -288,6 +294,11 @@
 <section class="panel">
   <h2>Page views — landing pages</h2>
   <div id="pageviews-wrap"></div>
+</section>
+
+<section class="panel">
+  <h2>Real client loads — vs. raw connections above</h2>
+  <div id="heartbeat-wrap"></div>
 </section>
 
 <section class="panel">
@@ -571,6 +582,40 @@ async function loadPageViews() {
   renderPageViews(data.by_page || {});
 }
 
+// See heartbeat.go for the full reasoning — this counts real NOSTRAS
+// client loads specifically, unlike the "Total connections" figure
+// above, which includes every other Nostr client, every relay doing
+// NIP-65 outbox lookups against this one, and monitoring/crawler traffic.
+function renderHeartbeats(byDay) {
+  const wrap = document.getElementById("heartbeat-wrap");
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const weekKeys = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    weekKeys.push(d.toISOString().slice(0, 10));
+  }
+  const today = byDay[todayKey] || 0;
+  const week = weekKeys.reduce((sum, k) => sum + (byDay[k] || 0), 0);
+  const total = Object.values(byDay).reduce((a, b) => a + b, 0);
+  wrap.innerHTML = `<table><thead><tr><th>Total</th><th class="num">Today</th><th class="num">Last 7 days</th></tr></thead><tbody>
+    <tr><td>${total.toLocaleString()}</td><td class="num">${today.toLocaleString()}</td><td class="num">${week.toLocaleString()}</td></tr>
+  </tbody></table>
+  <p class="hint">One count per real client page load — no per-device or per-session identifier of any kind, so the same browser reloading twice counts as two, indistinguishable from two different browsers. See heartbeat.go for the full reasoning.</p>`;
+}
+
+async function loadHeartbeats() {
+  let res;
+  try {
+    res = await fetch("/dashboard/heartbeat");
+  } catch {
+    return;
+  }
+  if (!res.ok) return;
+  const data = await res.json();
+  renderHeartbeats(data.by_day || {});
+}
+
 function fmtUptime(seconds) {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
@@ -654,6 +699,7 @@ load();
 loadHealth();
 loadWaitlist();
 loadPageViews();
+loadHeartbeats();
 setInterval(load, 60000);
 setInterval(loadHealth, 3000);
 window.addEventListener("resize", load);

@@ -7,8 +7,10 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { installServiceWorkerReload } from './lib/swUpdate'
+import { sendClientHeartbeat } from './lib/clientHeartbeat'
 
 installServiceWorkerReload()
+sendClientHeartbeat()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -32,6 +32,25 @@ export const ndk = new NDK({
   // discovered ws://127.0.0.1:.../ relay made Chrome flag the whole page
   // "Not Secure" via its Local Network Access protection).
   relayConnectionFilter: makeRelayConnectionFilter(localRelayUrl),
+  // A `["client", "Nostras"]` tag on every published event — the same
+  // convention virtually every other Nostr client already uses (Amethyst,
+  // Primal, zap.stream, Yakihonne, ...). NDK applies this automatically to
+  // everything signed through this instance; no per-call-site change
+  // needed. Prompted directly (2026-09-06) by a real operator question —
+  // "how many real NOSTRAS clients are connecting?" — the raw relay
+  // connection count on the dashboard mixes in every other client, every
+  // relay doing NIP-65 outbox lookups, and relay-monitoring/crawler
+  // traffic, so it was never a usable proxy for that. This tag lets a
+  // future dashboard metric count distinct pubkeys that have published via
+  // the real client — attached only to content the user already chose to
+  // make public, so it adds no new privacy exposure. Deliberately not also
+  // setting `clientNip89` here: that field wants a real NIP-89 address
+  // (`31990:<pubkey>:<d-tag>`) for the *client itself*, which would need
+  // wiring to the DVM's own `nostras-client` handler-announcement identity
+  // (server/cmd/dvm/main.go) across two otherwise-independent codebases —
+  // real, but a separate, smaller follow-up, not required for the
+  // counting goal this was actually asked to solve.
+  clientName: 'Nostras',
 })
 
 // NIP-42: some relays (real example found 2026-08-12 — a DM recipient's

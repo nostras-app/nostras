@@ -307,6 +307,15 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	// Real NOSTRAS client loads — see heartbeat.go for the full reasoning
+	// (why this exists, why it deliberately carries no per-caller
+	// identifier at all, not even a discarded one).
+	heartbeatPath := envOr("NOSTRAS_HEARTBEAT_PATH", "./client-heartbeats.json")
+	heartbeats, err := newHeartbeatStore(heartbeatPath)
+	if err != nil {
+		panic(err)
+	}
 	relay.OnConnect = append(relay.OnConnect, newAnalyticsConnectHook(analytics, geoip), newHealthConnectHook())
 	relay.OnDisconnect = append(relay.OnDisconnect, newHealthDisconnectHook())
 	relay.OnEventSaved = append(relay.OnEventSaved, newHealthEventSavedHook(), newNip29CacheUpdateHook(nip29Cache),
@@ -343,6 +352,11 @@ func main() {
 	// worth keeping operator-only. See handleDashboardPageViews's own
 	// comment in dashboard.go.
 	relay.Router().HandleFunc("GET /dashboard/pageviews", requireDashboardAuth(dashboardPassword, handleDashboardPageViews(pageViews)))
+	// Unauthenticated on purpose (see heartbeat.go) — a real client should
+	// be able to call this the instant it loads, with no identity or
+	// signer resolved yet.
+	relay.Router().HandleFunc("POST /client-heartbeat", handleClientHeartbeat(heartbeats))
+	relay.Router().HandleFunc("GET /dashboard/heartbeat", requireDashboardAuth(dashboardPassword, handleDashboardHeartbeat(heartbeats)))
 
 	// Relay/identity enumeration — see enumerate.go/enumerate.html. Admin-
 	// only, same password gate as the rest of /dashboard/*. Each scan is
