@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>NOSTRAS AI Tools — pay-per-job AI over Nostr, from any client</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Ask, translate, summarize, or check a note for spam — a real NIP-90 service, priced per job in sats, no account and no app install required. Works from NOSTRAS or any other Nostr client." />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 46'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='48' y2='46' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23863bff'/%3E%3Cstop offset='1' stop-color='%2347bfff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #fdfcff;
+    --bg-card: #f7f5fb;
+    --bg-raised: #ffffff;
+    --text: #5c5566;
+    --text-h: #0d0a14;
+    --text-dim: #8b839a;
+    --border: #e6e2ee;
+    --accent: #7e14ff;
+    --accent-soft: rgba(126, 20, 255, 0.1);
+    --data: #0891b2;
+    --data-soft: rgba(8, 145, 178, 0.1);
+    --warm: #d6336c;
+    --ok: #1a8754;
+    --ok-soft: rgba(26, 135, 84, 0.1);
+    --err: #d6336c;
+    --err-soft: rgba(214, 51, 108, 0.1);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e0e13; --bg-card: #17161f; --bg-raised: #1c1b26;
+      --text: #a39cb0; --text-h: #f5f2fa; --text-dim: #6b6478; --border: #2a2833;
+      --accent: #a970ff; --accent-soft: rgba(169, 112, 255, 0.14);
+      --data: #47bfff; --data-soft: rgba(71, 191, 255, 0.12);
+      --warm: #ff6fb0; --ok: #4ade80; --ok-soft: rgba(74, 222, 128, 0.12);
+      --err: #ff6fb0; --err-soft: rgba(255, 111, 176, 0.12);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  body { font-size: 17px; line-height: 1.6; }
+  a { color: inherit; }
+  code { font-family: var(--mono); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+
+  /* ---------- Site nav ---------- */
+
+  .site-nav { border-bottom: 1px solid var(--border); }
+  .site-nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; }
+  .site-nav-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15.5px; color: var(--text-h); text-decoration: none; letter-spacing: -0.01em; }
+  .site-nav-brand svg { width: 20px; height: auto; }
+
+  .hero { position: relative; padding: 56px 0 76px; overflow: hidden; border-bottom: 1px solid var(--border); text-align: center; }
+  .hero-mesh { position: absolute; inset: 0; z-index: 0; opacity: 0.55; }
+  .hero-inner { position: relative; z-index: 1; }
+  .mark { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; margin-bottom: 24px; }
+  .mark svg { width: 36px; height: auto; }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--data); background: var(--data-soft);
+    border: 1px solid color-mix(in srgb, var(--data) 35%, transparent);
+    border-radius: 999px; padding: 6px 14px 6px 10px; margin-bottom: 24px;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--data); }
+
+  h1.headline { font-size: clamp(32px, 5vw, 54px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; margin: 0 0 20px; color: var(--text-h); text-wrap: balance; }
+  h1.headline .own { color: var(--accent); }
+  .sub { max-width: 620px; margin: 0 auto 32px; font-size: 18px; line-height: 1.65; color: var(--text-dim); text-wrap: balance; }
+
+  .cta-row { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; font: inherit; font-weight: 650; font-size: 15.5px;
+    text-decoration: none; padding: 13px 24px; border-radius: 12px; border: 1px solid transparent; cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--accent) 70%, transparent); }
+  .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-h); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+
+  section.block { padding: 80px 0; border-bottom: 1px solid var(--border); }
+  .kicker { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--data); margin: 0 0 14px; }
+  h2.title { font-size: clamp(24px, 2.8vw, 32px); font-weight: 800; letter-spacing: -0.022em; color: var(--text-h); margin: 0 0 16px; text-wrap: balance; max-width: 680px; }
+  .lede { font-size: 17px; color: var(--text-dim); max-width: 640px; margin: 0 0 44px; line-height: 1.65; }
+
+  /* ---------- How it works (numbered steps) ---------- */
+
+  .arch-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  .arch-item { background: var(--bg-card); padding: 22px 26px; display: flex; gap: 18px; align-items: flex-start; }
+  .arch-item .num { font-family: var(--mono); font-size: 13px; color: var(--data); flex: none; padding-top: 2px; min-width: 20px; }
+  .arch-item h3 { margin: 0 0 4px; font-size: 16.5px; color: var(--text-h); font-weight: 700; }
+  .arch-item p { margin: 0; font-size: 14.5px; color: var(--text-dim); line-height: 1.6; }
+
+  /* ---------- Card grid (the four jobs) ---------- */
+
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  @media (max-width: 860px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+
+  .card { background: var(--bg-card); padding: 26px 24px; display: flex; flex-direction: column; gap: 10px; min-height: 190px; }
+  .nip-badge {
+    display: inline-flex; align-items: center; align-self: flex-start;
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.02em; color: var(--data);
+    background: var(--data-soft); border: 1px solid color-mix(in srgb, var(--data) 30%, transparent);
+    border-radius: 6px; padding: 3px 8px;
+  }
+  .card h3 { font-size: 17px; font-weight: 700; color: var(--text-h); margin: 0; letter-spacing: -0.008em; }
+  .card p { margin: 0; font-size: 14.5px; color: var(--text-dim); line-height: 1.6; flex-grow: 1; }
+
+  .also-note { margin-top: 24px; font-size: 14px; color: var(--text-dim); }
+  .also-note a { color: var(--accent); text-decoration: none; }
+  .also-note a:hover { text-decoration: underline; }
+
+  /* ---------- Pricing callout ---------- */
+
+  .price-note {
+    display: flex; gap: 16px; align-items: flex-start;
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 14px; padding: 20px 24px; margin-top: 8px;
+  }
+  .price-note svg { flex: none; width: 22px; height: 22px; color: var(--accent); margin-top: 2px; }
+  .price-note p { margin: 0; font-size: 14.5px; color: var(--text-dim); line-height: 1.6; }
+  .price-note strong { color: var(--text-h); }
+
+  .price-examples { display: flex; gap: 20px; margin-top: 28px; flex-wrap: wrap; }
+  .price-example {
+    flex: 1; min-width: 220px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 22px;
+  }
+  .price-example .amount { font-family: var(--mono); font-size: 26px; font-weight: 700; color: var(--text-h); }
+  .price-example .amount span { font-size: 14px; font-weight: 500; color: var(--text-dim); }
+  .price-example p { margin: 8px 0 0; font-size: 13.5px; color: var(--text-dim); line-height: 1.55; }
+
+  /* ---------- Developer / protocol section ---------- */
+
+  .split { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: start; }
+  @media (max-width: 860px) { .split { grid-template-columns: 1fr; gap: 36px; } }
+  .split-copy p { font-size: 16px; color: var(--text-dim); line-height: 1.75; margin: 0 0 16px; }
+  .split-copy strong { color: var(--text-h); font-weight: 650; }
+
+  .event-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .event-panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+  }
+  .event-panel pre { margin: 0; padding: 18px; font-family: var(--mono); font-size: 12.5px; line-height: 1.7; overflow-x: auto; color: var(--text); }
+  .event-panel .k { color: var(--data); }
+  .event-panel .s { color: var(--warm); }
+  .event-panel .n { color: var(--accent); }
+  .event-panel .c { color: var(--text-dim); }
+
+  /* ---------- Footer ---------- */
+
+  footer.final { padding: 76px 0 60px; text-align: center; }
+  .foot-links {
+    margin-top: 48px; padding-top: 26px; border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    font-size: 14px; color: var(--text-dim);
+  }
+  .foot-links a { text-decoration: none; color: var(--text-dim); }
+  .foot-links a:hover { color: var(--accent); }
+  .foot-links .brand { font-weight: 700; color: var(--text-h); letter-spacing: -0.01em; }
+  .foot-nav { display: flex; gap: 22px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header class="site-nav">
+  <div class="wrap site-nav-inner">
+    <a class="site-nav-brand" href="https://nostras.app">
+      <svg viewBox="0 0 48 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill="url(#navg)" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
+        <defs>
+          <linearGradient id="navg" x1="0" y1="0" x2="48" y2="46" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#863bff"/>
+            <stop offset="1" stop-color="#47bfff"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      NOSTRAS
+    </a>
+  </div>
+</header>
+
+<section class="hero">
+  <canvas class="hero-mesh" id="mesh" aria-hidden="true"></canvas>
+  <div class="wrap hero-inner">
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 48 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill="url(#g)" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="48" y2="46" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#863bff"/>
+            <stop offset="1" stop-color="#47bfff"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    </span>
+
+    <div class="eyebrow"><span class="dot"></span> Live now &middot; pay only if the job completes</div>
+
+    <h1 class="headline">AI tools for Nostr.<br><span class="own">No app to install.</span></h1>
+
+    <p class="sub">
+      Ask a question, translate a note, get a summary, or check something
+      for spam — a real, running NIP-90 service. Priced per job in sats,
+      not a subscription. No account, no API key. Works from NOSTRAS, or
+      any other Nostr client that speaks the same protocol.
+    </p>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://app.nostras.app">
+        Try it now
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+      </a>
+      <a class="btn btn-ghost" href="#how">How it works</a>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="how">
+  <div class="wrap">
+    <p class="kicker">No signup, no API key</p>
+    <h2 class="title">Three steps. That's the whole product.</h2>
+    <p class="lede">
+      No dashboard to configure, nothing to install, nothing tied to a
+      NOSTRAS account — the entire interaction happens as ordinary Nostr
+      events.
+    </p>
+
+    <div class="arch-list">
+      <div class="arch-item">
+        <span class="num">1</span>
+        <div><h3>Ask</h3><p>Publish a NIP-90 job request — a question, a note to translate or summarize, or something to check for spam. In NOSTRAS this is just typing into a box; any other NIP-90-aware client or script can do the same thing directly.</p></div>
+      </div>
+      <div class="arch-item">
+        <span class="num">2</span>
+        <div><h3>Pay</h3><p>The DVM replies with a real Lightning invoice, priced for that specific job from its actual token cost — not a flat rate, not a subscription. Pay it with whatever wallet you already use.</p></div>
+      </div>
+      <div class="arch-item">
+        <span class="num">3</span>
+        <div><h3>Get your answer</h3><p>The moment payment is confirmed, the result comes back as an ordinary Nostr event. If the job never completes, you were never charged.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="jobs">
+  <div class="wrap">
+    <p class="kicker">Real, running today</p>
+    <h2 class="title">Four jobs, one DVM.</h2>
+    <p class="lede">
+      Each of these is a standard NIP-90 job kind, not a proprietary
+      format. The DVM behind them announces itself over NIP-89, so any
+      compatible client, bot, or marketplace can discover and pay it
+      directly — see below.
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <span class="nip-badge">5001 &rarr; 6001</span>
+        <h3>Summarize</h3>
+        <p>Paste a long note or article, get the gist back — priced per job, not a monthly plan.</p>
+      </div>
+      <div class="card">
+        <span class="nip-badge">5002 &rarr; 6002</span>
+        <h3>Translate</h3>
+        <p>Pick a target language, get a real translation of the original text.</p>
+      </div>
+      <div class="card">
+        <span class="nip-badge">5050 &rarr; 6050</span>
+        <h3>Ask anything</h3>
+        <p>A free-form question in, a real Claude-generated answer out. No account, pay only if it completes.</p>
+      </div>
+      <div class="card">
+        <span class="nip-badge">5501 &rarr; 6501</span>
+        <h3>Spam / scam check</h3>
+        <p>Get a verdict on a suspicious note, published as a real public NIP-32 label any client can query.</p>
+      </div>
+    </div>
+
+    <p class="also-note">
+      The same DVM also handles paid-content mechanics specific to
+      NOSTRAS — unlocking a paid article or podcast episode, and joining
+      a paid community — each still a real NIP-90 job (kinds 5904, 5906,
+      5907) with its own small flat NOSTRAS fee on top of the amount the
+      creator sets. Read more on <a href="/why">Why NOSTRAS</a>.
+    </p>
+  </div>
+</section>
+
+<section class="block" id="pricing">
+  <div class="wrap">
+    <p class="kicker">Priced like a utility, not a subscription</p>
+    <h2 class="title">You pay for the job, not a plan.</h2>
+    <p class="lede">
+      No tiers, no monthly minimum. Every price is computed from the
+      actual token cost of that specific request, converted from a live
+      BTC/USD rate at request time.
+    </p>
+
+    <div class="price-note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      <p><strong>You only pay if the job completes.</strong> A payment-required invoice is issued up front; if it's never paid, or the job fails, nothing is ever charged.</p>
+    </div>
+
+    <div class="price-examples">
+      <div class="price-example">
+        <div class="amount">21 <span>sats</span></div>
+        <p>A short, few-word question — real pricing observed during testing, not a fixed rate.</p>
+      </div>
+      <div class="price-example">
+        <div class="amount">39 <span>sats</span></div>
+        <p>A much longer request (roughly 1,400 words of input) in the same test run.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="developers" style="border-bottom: none;">
+  <div class="wrap split">
+    <div class="split-copy">
+      <p class="kicker">An open protocol service, not a walled garden</p>
+      <h2 class="title">Built for any client to call, not just ours.</h2>
+      <p>
+        This DVM publishes a standard <strong>NIP-89 handler
+        announcement</strong> (kind 31990) listing every job kind it
+        supports. Any NIP-90-aware client, bot, or marketplace can
+        discover it and send jobs directly — no partnership, no API key
+        request, no special access.
+      </p>
+      <p>
+        What's actually exclusive to NOSTRAS the app is that it's
+        already wired into the feed with one click. The service
+        underneath is open to everyone, on purpose.
+      </p>
+      <div class="cta-row" style="justify-content: flex-start; margin-top: 8px;">
+        <a class="btn btn-ghost" href="https://app.nostras.app">
+          Try it in NOSTRAS
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+    <div class="event-panel">
+      <div class="event-panel-head">
+        <span>kind:31990 &middot; how any client finds this DVM</span>
+      </div>
+      <pre>{
+  <span class="k">"kind"</span>: <span class="n">31990</span>,
+  <span class="k">"tags"</span>: [
+    [<span class="s">"d"</span>, <span class="s">"nostras-dvm"</span>],
+    [<span class="s">"k"</span>, <span class="s">"5001"</span>], <span class="c">// summarize</span>
+    [<span class="s">"k"</span>, <span class="s">"5002"</span>], <span class="c">// translate</span>
+    [<span class="s">"k"</span>, <span class="s">"5050"</span>], <span class="c">// ask anything</span>
+    [<span class="s">"k"</span>, <span class="s">"5501"</span>]  <span class="c">// spam/scam check</span>
+  ],
+  <span class="k">"content"</span>: <span class="s">"{ name, about, picture… }"</span>
+}</pre>
+    </div>
+  </div>
+</section>
+
+<footer class="final">
+  <div class="wrap">
+    <div class="foot-links wrap" style="padding-left:0; padding-right:0;">
+      <span class="brand">NOSTRAS</span>
+      <nav class="foot-nav">
+        <a href="https://nostras.app">Home</a>
+        <a href="https://app.nostras.app">Open the app</a>
+        <a href="/why">Why NOSTRAS</a>
+        <a href="/node">NOSTRAS Node</a>
+        <a href="/wallet">Own Your Money</a>
+        <a href="/stats">Stats</a>
+        <a href="https://github.com/nostras-app/nostras">Docs &amp; support</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var canvas = document.getElementById('mesh');
+    var ctx = canvas.getContext('2d');
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var w, h, nodes = [];
+    var NODE_COUNT = 46;
+    var LINK_DIST = 140;
+
+    function isDark() {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
+    function resize() {
+      var rect = canvas.parentElement.getBoundingClientRect();
+      w = canvas.width = rect.width;
+      h = canvas.height = rect.height;
+    }
+
+    function makeNodes() {
+      nodes = [];
+      for (var i = 0; i < NODE_COUNT; i++) {
+        nodes.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          vx: (Math.random() - 0.5) * 0.18,
+          vy: (Math.random() - 0.5) * 0.18,
+          r: 1.2 + Math.random() * 1.6
+        });
+      }
+    }
+
+    function step() {
+      ctx.clearRect(0, 0, w, h);
+      var dark = isDark();
+      var dot = dark ? 'rgba(169,112,255,0.55)' : 'rgba(126,20,255,0.4)';
+      var line = dark ? 'rgba(71,191,255,' : 'rgba(8,145,178,';
+
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        n.x += n.vx; n.y += n.vy;
+        if (n.x < 0 || n.x > w) n.vx *= -1;
+        if (n.y < 0 || n.y > h) n.vy *= -1;
+      }
+
+      for (var i = 0; i < nodes.length; i++) {
+        for (var j = i + 1; j < nodes.length; j++) {
+          var a = nodes[i], b = nodes[j];
+          var dx = a.x - b.x, dy = a.y - b.y;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < LINK_DIST) {
+            ctx.strokeStyle = line + (0.16 * (1 - dist / LINK_DIST)) + ')';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
+      }
+
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        ctx.fillStyle = dot;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (!reduceMotion) requestAnimationFrame(step);
+    }
+
+    resize();
+    makeNodes();
+    step();
+    window.addEventListener('resize', function () { resize(); makeNodes(); if (reduceMotion) step(); });
+  })();
+</script>
+</body>
+</html>

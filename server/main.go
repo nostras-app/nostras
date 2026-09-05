@@ -422,6 +422,11 @@ func main() {
 	// wallet.go/wallet.html.
 	relay.Router().HandleFunc("GET /wallet", withSecurityHeaders(wrapPageView(pageViews, geoip, "wallet", handleWallet)))
 
+	// NOSTRAS AI Tools — the DVM sold as its own turnkey, pay-per-job
+	// product, deliberately decoupled from any relay/self-hosting
+	// pitch. See tools.go/tools.html.
+	relay.Router().HandleFunc("GET /tools", withSecurityHeaders(wrapPageView(pageViews, geoip, "tools", handleTools)))
+
 	// Public live usage stats — see stats.go/stats.html. The public half
 	// of the dashboard split: real connection/geography data, no
 	// password, backed by the now-public GET /dashboard/data above.
