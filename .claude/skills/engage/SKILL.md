@@ -1,6 +1,6 @@
 ---
 name: engage
-description: Use when the user wants to spend real engagement time on Nostr — replying to and zapping other people's notes — and wants it targeted at genuinely relevant, substantive discussions instead of random liking/zapping. Checks for replies to past engagement first, then surfaces real new threads worth engaging with, helps draft honest replies grounded in the user's actual expertise, and logs what happened. Complements /build-in-public (owns content cadence — what to post) and /grow (tracks the resulting follower/signal deltas) — this one owns the reciprocity half of the growth plan specifically: real engagement, never scripted or generic.
+description: Use when the user wants to spend real engagement time on Nostr — replying to and zapping other people's notes — and wants it targeted at genuinely relevant, substantive discussions instead of random liking/zapping. Checks for replies to past engagement first, then surfaces real new threads worth engaging with — prioritizing genuine technical questions the user can answer with real precision, per real zap-receipt evidence (2026-09-05) that this specific archetype, especially language-matched and naming something concrete, is what actually converts into reciprocity — helps draft honest replies grounded in the user's actual expertise, and logs what happened. Complements /build-in-public (owns content cadence — what to post) and /grow (tracks the resulting follower/signal deltas) — this one owns the reciprocity half of the growth plan specifically: real engagement, never scripted or generic, aiming for more of it in both volume and hit rate without lowering the substance bar.
 ---
 
 # Engaging on Nostr, on purpose
@@ -50,6 +50,18 @@ reply, not your own threading. A quick `{"kinds":[7,9735],
 own existing "a reply, a follow, a zap in return" language in step 8 —
 a like or zap back is a real, lighter-weight signal worth logging even
 when it doesn't warrant a drafted follow-up.
+
+**When a real zap comes back on one of these, decode it, don't just
+count it (2026-09-05)** — a kind:9735 receipt's own `description` tag
+holds the original signed zap request, which has the sender's real
+pubkey, the amount, and any comment; the receipt's `e` tag names which
+of your replies earned it. This is exactly how the archetype in step 3
+was found in the first place, and it's cheap to redo every session:
+knowing that a *specific* reply (language-matched, or naming a
+concrete detail) earned a real zap — versus a reply that didn't — is
+the actual feedback signal for whether step 3/4's guidance is working,
+not just a nice thing to log. Note it explicitly in step 8's write-up
+when it happens.
 
 **Extraction caveat, real not hypothetical (2026-09-02)**: don't rely on
 a single fixed phrase (e.g. grepping for the word "reply" near a hex
@@ -151,7 +163,32 @@ same test**: several of the 15 (`relay.nostr.band`, `eden.nostr.land`,
 `relay.nostr.bg`, `relay.current.fyi`, `relayable.org`) were
 unreachable at test time — query all of them every run, but don't
 expect every one to answer; that's normal relay-availability churn, not
-a sign the list is wrong.
+a sign the list is wrong. A single 503/timeout on one relay
+(`relay.damus.io` has done this repeatedly) is worth one retry a few
+seconds later before writing that relay off for the session — a real
+zap receipt was once missed entirely this way (see the archetype
+write-up in step 3) purely because the relay it lived on happened to
+be down on the first attempt.
+
+**Widening search for more real opportunities, not a lower bar
+(2026-09-05)**: the user explicitly asked for more engagement, in both
+quantity and quality, after seeing real zap evidence (see step 3) that
+direct technical-question threads are what actually convert. The
+right way to get *more* of those is to search harder for the same
+narrow, high-value category — not to relax which threads qualify.
+Concretely: add question-shaped hashtags this list didn't originally
+prioritize (`#nip42`, `#nip90`, `#nostrdev`, `#help`, `#asknostr` — the
+existing set already had some of these, worth treating as the primary
+targets now rather than one category among many), widen the `--since`
+window when a run comes up thin (72h instead of 48h is a reasonable
+second pass, not a standing default), and query in more than one
+language when scanning — a Spanish-language technical question is
+exactly the shape that produced this project's single largest real zap
+(see step 3) and a hashtag-only/English-keyword search can miss it
+entirely. Running this skill more often (daily rather than sporadically)
+compounds the same way any search does — more passes over a live feed
+surface more real candidates — and is a real lever for "more quantity"
+that doesn't touch the substance bar at all.
 
 ## 3. Filter for substance
 
@@ -171,6 +208,48 @@ racist content with an unrelated stock-volume stat — purely to farm
 follower growth. That's the failure mode this whole skill exists to
 avoid: volume over judgment. A handful of genuinely substantive replies
 a day is the point, not a limitation to work around.
+
+**The highest-value archetype, confirmed by real zap data, not a
+guess (2026-09-05)**: the user asked directly why three specific real
+zaps landed in the last 5 days, and the answer was traceable and
+concrete for two of the three. Both real, organic zaps (not the third
+— see below) were reactions to a **direct reply answering a specific
+technical question about NIP-42 relay authentication** — not a
+broadcast post, not general commentary. **LL62 zapped 100 sats** for a
+clear, precise English answer (what NIP-42 auth actually proves,
+why NOSTRAS defaults it on). **ErDuende zapped 500 sats** — this
+project's single largest real zap to date — for the *same* explanation
+delivered in Spanish, the asker's own language, with one added,
+concrete detail: a real bug the user had actually hit in NDK's own
+NIP-42 helper (`NDKRelayAuthPolicies.signIn` hanging silently), named
+specifically rather than described generically. The third zap in that
+same window (10 sats, from an account posting what read as a
+self-promotional plug for its own project rather than a reaction to
+anything the user wrote) did **not** fit this pattern — a small
+zap attached to unrelated promotional content is a different, lower-
+signal category, not evidence the archetype below is wrong.
+
+**What this means concretely for finding and drafting threads**:
+1. **Prioritize genuine questions over general discussion.** A post
+   asking "why does X happen" or "how do I do Y" that the user can
+   answer with real, specific, correct technical knowledge is worth
+   more than an on-topic but opinion-only thread — rank these first
+   when a session turns up several candidates.
+2. **Reply in the asker's own language when it isn't English.** Don't
+   translate a canned English answer — write the actual reply in that
+   language, the way the ErDuende case did. This is a real, evidenced
+   multiplier, not a nice-to-have.
+3. **Name something concrete and specific, not a generic explanation.**
+   A real bug encountered, an exact NIP number, a specific measured
+   number, a real file/component name — anything checkable and true,
+   per this project's own established sourcing discipline (see step 4)
+   — is what separated the 500-sat reply from the 100-sat one answering
+   the identical underlying question.
+This doesn't change what already-drafted guidance said (see step 4) —
+it's the same "ground every draft in the user's actual experience,
+never generic" rule this skill already had, now backed by real,
+falsifiable evidence for *which* substantive replies actually convert
+into reciprocity, not just goodwill.
 
 **Before drafting, check whether we've already replied to this exact
 note** — a real, distinct check from step 1's own past-reply-reaction
@@ -197,6 +276,22 @@ dated entries when a reply calls for "here's how we hit that exact
 problem," not from the strategy doc's aspirational sections). Never
 invent a stance, credential, or experience the user doesn't actually
 have.
+
+**Match the asker's own language.** If the original note is written in
+Spanish, French, or anything else, draft the reply in that language —
+not a translated-after-the-fact English answer. See step 3's archetype
+write-up for the real, evidenced case (a Spanish-language reply earned
+this project's largest real zap to date, replying to the same question
+an English reply had already answered for someone else at a fifth the
+amount). Only fall back to English if genuinely unsure of fluency in
+the target language — a real, correct answer in imperfect language
+beats a fluent non-answer.
+
+**When the note is a real technical question, name something checkable
+and specific in the answer** — a real bug hit, an exact NIP number, a
+file or component name, a real measured number — not just a correct-
+but-generic explanation. Both are honest; only the specific one is what
+the real zap evidence in step 3 shows actually converts.
 
 ## 5. Flag it plainly when a linked post only renders correctly in NOSTRAS
 
@@ -264,6 +359,16 @@ signal instead of "still hasn't started," and lets the next `/engage`
 session pick up from real state instead of re-surfacing the same
 threads.
 
+**When a reply matched the archetype in step 3** (a real technical
+question, answered in the asker's own language and/or naming something
+concrete), say so explicitly in the write-up even before knowing
+whether it earned a zap — this is what lets a future session count how
+often the high-value pattern was actually attempted, not just how many
+replies went out total. Quantity and quality are both being tracked
+here on purpose, per the user's own explicit ask (2026-09-05): more
+sessions, more candidates found per session, and a rising share of them
+matching the confirmed archetype — not just a bigger raw reply count.
+
 ## 9. Be honest about what this can't do
 
 This can make engagement time more targeted and can draft better
@@ -274,3 +379,16 @@ turns up nothing genuinely worth engaging with — no new reactions in
 step 1, nothing substantive in step 2 — say so plainly. A quiet day in
 the relevant discourse is a real observation, not a reason to lower the
 bar just to have something to post.
+
+**The step 3 archetype is a real, evidenced pattern, not a
+guarantee.** Two zaps is a real signal worth building process around —
+it is not a large enough sample to promise that every language-matched,
+specific technical reply earns a zap, or that zaps will scale linearly
+with how many such replies go out. Chasing "more engagement" (the
+user's own explicit 2026-09-05 request) means searching harder and more
+often for genuine technical questions this user can answer well — it
+does not mean answering more questions superficially, and it does not
+mean the reward is guaranteed even when the technique is followed
+exactly. Report real outcomes each session, including a session where
+the pattern was followed correctly and nothing came back — that's
+still useful information, not a failure to hide.
