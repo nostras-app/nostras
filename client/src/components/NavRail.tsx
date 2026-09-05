@@ -15,6 +15,7 @@ import {
   PencilIcon,
   StoreIcon,
   WalletIcon,
+  LayoutBoardIcon,
 } from './icons'
 
 export type View =
@@ -29,6 +30,7 @@ export type View =
   | 'notifications'
   | 'messages'
   | 'communities'
+  | 'boards'
   | 'marketplace'
   | 'wallet'
   | 'article'
@@ -95,6 +97,14 @@ export function NavRail({
         title="Communities"
       >
         <UsersIcon />
+      </button>
+      <button
+        type="button"
+        className={`nav-rail-btn${activeClass('boards')}`}
+        onClick={() => onSelect('boards')}
+        title="Boards"
+      >
+        <LayoutBoardIcon />
       </button>
       <button
         type="button"

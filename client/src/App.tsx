@@ -30,6 +30,7 @@ import { ProfileView } from './components/ProfileView'
 import { BookmarksView } from './components/BookmarksView'
 import { NotificationsView } from './components/NotificationsView'
 import { CommunitiesView } from './components/CommunitiesView'
+import { BoardsView } from './components/BoardsView'
 import { MessagesView } from './components/MessagesView'
 import { Feed } from './components/Feed'
 import { ProfileEditor } from './components/ProfileEditor'
@@ -74,6 +75,7 @@ function App() {
     listing,
     dmTarget,
     groupTarget,
+    board,
   } = useNavState()
   const deepLinkResolved = useRef(false)
   const appPreferencesSynced = useRef(false)
@@ -371,6 +373,10 @@ function App() {
 
             <section className={`card ${panelClass('communities')}`}>
               <CommunitiesView groupTarget={groupTarget} />
+            </section>
+
+            <section className={`card ${panelClass('boards')}`}>
+              <BoardsView boardTarget={board} />
             </section>
 
             <section className={`card ${panelClass('marketplace')}`}>

@@ -3264,6 +3264,26 @@ a.profile-external-identity:hover {
   display: none;
 }
 
+/* NIP-72 Boards — a pending post gets a subtle left-border highlight and
+   a small badge so a moderator can tell it apart from already-approved
+   posts in the same list at a glance. Reuses --accent/--accent-bg, the
+   same "informational, not an error" pairing already used for the
+   spam/scam classifier's own badge elsewhere in this app. */
+.board-post-pending {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
+
+.board-post-pending-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-left: 8px;
+}
+
 .view-panel-active {
   display: block;
 }

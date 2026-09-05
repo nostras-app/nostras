@@ -12,6 +12,7 @@ type NavState = {
   listing: NDKEvent | null
   dmTarget: string | null
   groupTarget: string | null
+  board: NDKEvent | null
 }
 
 let state: NavState = {
@@ -24,6 +25,7 @@ let state: NavState = {
   listing: null,
   dmTarget: null,
   groupTarget: null,
+  board: null,
 }
 const listeners = new Set<() => void>()
 
@@ -56,6 +58,7 @@ export function setActiveView(view: View) {
     listing: null,
     dmTarget: null,
     groupTarget: null,
+    board: null,
   }
   notify()
 }
@@ -75,6 +78,7 @@ export function viewProfile(pubkey: string) {
     listing: null,
     dmTarget: null,
     groupTarget: null,
+    board: null,
   }
   notify()
 }
@@ -93,6 +97,7 @@ export function viewArticle(event: NDKEvent) {
     listing: null,
     dmTarget: null,
     groupTarget: null,
+    board: null,
   }
   notify()
 }
@@ -113,6 +118,7 @@ export function viewNote(event: NDKEvent) {
     listing: null,
     dmTarget: null,
     groupTarget: null,
+    board: null,
   }
   notify()
 }
@@ -131,6 +137,7 @@ export function viewThread(event: NDKEvent) {
     listing: null,
     dmTarget: null,
     groupTarget: null,
+    board: null,
   }
   notify()
 }
@@ -149,6 +156,7 @@ export function viewEpisode(event: NDKEvent) {
     listing: null,
     dmTarget: null,
     groupTarget: null,
+    board: null,
   }
   notify()
 }
@@ -167,6 +175,7 @@ export function viewListing(event: NDKEvent) {
     listing: event,
     dmTarget: null,
     groupTarget: null,
+    board: null,
   }
   notify()
 }
@@ -186,6 +195,7 @@ export function startDmWith(pubkey: string) {
     listing: null,
     dmTarget: pubkey,
     groupTarget: null,
+    board: null,
   }
   notify()
 }
@@ -206,6 +216,28 @@ export function viewGroup(groupId: string) {
     listing: null,
     dmTarget: null,
     groupTarget: groupId,
+    board: null,
+  }
+  notify()
+}
+
+// Opens a specific board's feed within Boards — same "already-fetched
+// event in hand" shape as viewArticle/viewNote/viewThread/viewEpisode/
+// viewListing, since board discovery (useCommunityList) already gives
+// the full kind:34550 event directly, unlike viewGroup's id-only shape
+// (NIP-29 group state is a live subscription, not a one-off fetch).
+export function viewBoard(event: NDKEvent) {
+  state = {
+    view: 'boards',
+    profilePubkey: null,
+    article: null,
+    note: null,
+    thread: null,
+    episode: null,
+    listing: null,
+    dmTarget: null,
+    groupTarget: null,
+    board: event,
   }
   notify()
 }

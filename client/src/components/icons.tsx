@@ -352,3 +352,21 @@ export function WalletIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+// Boards (NIP-72) nav icon — a pin/bulletin-board glyph, deliberately
+// distinct from UsersIcon (already used for NIP-29 Communities) so the
+// two structurally different features never share a visual identity.
+// Standard icon-library shape (a pinned card on a board), not a
+// reproduction of any specific product's logo.
+export function LayoutBoardIcon({ className }: IconProps) {
+  return (
+    <svg {...shared} fill="none" stroke="currentColor" className={className}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18" />
+      <path d="M8 4v6" />
+      <path d="M16 4v6" />
+      <rect x="6" y="13" width="5" height="4" rx="0.5" />
+      <rect x="13" y="13" width="5" height="4" rx="0.5" />
+    </svg>
+  )
+}
