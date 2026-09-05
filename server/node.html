@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>NOSTRAS Node — run your own, we already fixed the hard parts</title>
+<title>NOSTRAS Node — the exact stack running nostras.app, for your own domain</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="A self-hosted or managed version of NOSTRAS's own relay + DVM stack, for people who want their own Nostr node without building outbox aggregation, payment-gated DVM jobs, and push notifications from scratch." />
+<meta name="description" content="The real relay + DVM stack running nostras.app, packaged for your own domain. Not self-serve yet — this page exists to find out if real demand and a real price point exist before we build the provisioning to make it one." />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 46'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='48' y2='46' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23863bff'/%3E%3Cstop offset='1' stop-color='%2347bfff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z'/%3E%3C/svg%3E" />
 <style>
   :root {
@@ -114,6 +114,12 @@
   .tier-list li { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; color: var(--text-dim); line-height: 1.5; }
   .tier-list svg { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--ok); }
   .tier-note { margin-top: auto; padding-top: 12px; font-size: 12.5px; color: var(--text-dim); border-top: 1px dashed var(--border); }
+  .tier-status {
+    display: inline-flex; align-self: flex-start; font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em;
+    color: var(--warm); background: color-mix(in srgb, var(--warm) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warm) 30%, transparent);
+    border-radius: 6px; padding: 3px 8px; margin-top: 2px;
+  }
 
   /* ---------- Custody reassurance ---------- */
 
@@ -197,21 +203,21 @@
       </svg>
     </span>
 
-    <div class="eyebrow"><span class="dot"></span> NOSTRAS Node — early access</div>
+    <div class="eyebrow"><span class="dot"></span> Not launched — validating real demand first</div>
 
-    <h1 class="headline">Run your own node.<br>We already <span class="own">hit the mistakes</span> for you.</h1>
+    <h1 class="headline">Your own domain.<br><span class="own">Our production stack.</span></h1>
 
     <p class="sub">
-      NOSTRAS's relay, DVM, and push stack is real, production-tested
-      software — not a weekend project. Outbox aggregation, payment-gated
-      AI jobs, push notifications that actually work: we already built it,
-      broke it under real load, and fixed it. NOSTRAS Node is that same
-      stack, for your own instance.
+      Not a pitch for software that might work — the exact relay, DVM,
+      and push stack running <code>nostras.app</code> today, packaged
+      for your own instance. Unlike our <a href="/tools" style="color: var(--accent); text-decoration: none;">pay-per-job AI tools</a>,
+      this isn't self-serve yet: no checkout, no live pricing. This
+      page is how we find out whether it should be.
     </p>
 
     <div class="cta-row">
       <a class="btn btn-primary" href="#waitlist">
-        Join the waitlist
+        Tell us what you'd pay
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
       </a>
       <a class="btn btn-ghost" href="https://nostras.app">Back to nostras.app</a>
@@ -260,11 +266,14 @@
 
 <section class="block" id="tiers">
   <div class="wrap">
-    <p class="kicker">Three shapes, one codebase</p>
-    <h2 class="title">Pick how much of the operating you want to do yourself.</h2>
+    <p class="kicker">Designed, not yet buildable</p>
+    <h2 class="title">Three shapes. None of them exist as a product yet.</h2>
     <p class="lede">
-      Pricing isn't locked yet — that's part of what the waitlist is for.
-      These are the shapes we're actually building toward.
+      No checkout button here, on purpose — building real tiering,
+      licensing, and (for Managed Node) automated provisioning is real
+      engineering we haven't spent yet. This is what we're weighing
+      spending it on, and the waitlist below is the actual input to
+      that decision, not a formality before a launch that's already set.
     </p>
 
     <div class="tier-grid">
@@ -277,7 +286,7 @@
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Genuinely free, genuinely useful</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>No AI jobs, no push, no support</li>
         </ul>
-        <p class="tier-note">Good for: trying it, or a relay you're happy to run bare.</p>
+        <p class="tier-note"><span class="tier-status">Not packaged yet</span><br>Good for: trying it, or a relay you're happy to run bare.</p>
       </div>
       <div class="tier-card highlight">
         <span class="tier-name">Self-Hosted Pro</span>
@@ -288,7 +297,7 @@
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>DVM, push, outbox — bring your own keys</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>You run <code>flyctl deploy</code>, we don't</li>
         </ul>
-        <p class="tier-note">Good for: comfortable with infra, just don't want to build it.</p>
+        <p class="tier-note"><span class="tier-status">Closest to buildable</span><br>Good for: comfortable with infra, just don't want to build the software.</p>
       </div>
       <div class="tier-card">
         <span class="tier-name">Managed Node</span>
@@ -299,7 +308,7 @@
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Updates, monitoring, incident response</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>On your cloud account, or ours</li>
         </ul>
-        <p class="tier-note">Good for: want your own node, not your own on-call rotation.</p>
+        <p class="tier-note"><span class="tier-status">Biggest lift — needs real automation</span><br>Good for: want your own node, not your own on-call rotation.</p>
       </div>
     </div>
 
@@ -314,25 +323,25 @@
   <div class="wrap">
     <div class="waitlist-panel">
       <div id="waitlist-form-wrap">
-        <p class="kicker" style="text-align:center;">Get on the list</p>
-        <h2 class="title">No commitment, no payment — just tell us you want this.</h2>
-        <p class="lede">We'll follow up directly once pricing and provisioning are ready. Real interest here is what decides whether this gets built out further.</p>
+        <p class="kicker" style="text-align:center;">The actual question we need answered</p>
+        <h2 class="title">Which tier, and what would you actually pay?</h2>
+        <p class="lede">No commitment, no payment today. But be specific — "the Solo tier, maybe $15/mo" is worth far more to us than "sounds cool." That's the real gap between building this and not: we don't yet know if a real price point exists.</p>
 
         <label class="field-label" for="wl-email">Email</label>
         <input class="field-input" id="wl-email" type="email" placeholder="you@example.com" autocomplete="email" />
 
-        <label class="field-label" for="wl-note">What would you use it for? (optional)</label>
-        <textarea class="field-textarea" id="wl-note" placeholder="e.g. a relay for my community, my own DVM experiments…"></textarea>
+        <label class="field-label" for="wl-note">Which tier, what for, and what you'd pay</label>
+        <textarea class="field-textarea" id="wl-note" placeholder="e.g. Self-Hosted Pro, for a community relay, around $200/year — or Managed Solo, my own DVM experiments, around $20/month…"></textarea>
 
-        <button type="button" class="btn btn-primary waitlist-submit" id="wl-submit">Join the waitlist</button>
+        <button type="button" class="btn btn-primary waitlist-submit" id="wl-submit">Send it</button>
         <div class="waitlist-msg" id="wl-msg"></div>
         <p class="waitlist-hint">Used only to follow up about NOSTRAS Node. Nothing else.</p>
         <p class="waitlist-hint">Prefer email? Reach us directly at <a href="mailto:hello@nostras.app" style="color: var(--accent); text-decoration: none;">hello@nostras.app</a>.</p>
       </div>
       <div class="waitlist-done" id="wl-done" style="display:none;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
-        <h3>You're on the list</h3>
-        <p>We'll be in touch once NOSTRAS Node is ready for real signups.</p>
+        <h3>Got it — thank you</h3>
+        <p>This is exactly the input we're missing right now. We'll reach out directly if this moves forward.</p>
       </div>
     </div>
   </div>
@@ -376,7 +385,7 @@
         return;
       }
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Joining…';
+      submitBtn.textContent = 'Sending…';
       msg.className = 'waitlist-msg';
 
       fetch('/node/waitlist', {
@@ -392,7 +401,7 @@
       }).catch(function (err) {
         showMsg(err.message || 'Something went wrong — please try again.', 'err');
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Join the waitlist';
+        submitBtn.textContent = 'Send it';
       });
     });
   })();
