@@ -110,6 +110,27 @@ export async function publishCommunityDefinition(input: {
   return event
 }
 
+// Adds/removes moderators by republishing the board's own kind:34550
+// definition — it's addressable (same d tag), so this genuinely replaces
+// the prior version rather than creating a second board. Deliberately
+// "spread, don't replace": only the p/moderator tags are touched, every
+// other tag (d, name, description, image, and anything this client
+// doesn't itself know about) is carried over from the current event
+// untouched — the same data-preservation discipline already established
+// for ProfileEditor's kind:0 saves and every other fetch-then-republish
+// hook in this app, applied here even though there's no separate fetch
+// step (the caller already has the current board event in hand).
+export async function updateModerators(
+  board: NDKEvent,
+  moderators: string[],
+): Promise<NDKEvent> {
+  const nonModeratorTags = board.tags.filter((t) => !(t[0] === 'p' && t[3] === 'moderator'))
+  const tags = [...nonModeratorTags, ...moderators.map((pubkey) => ['p', pubkey, '', 'moderator'])]
+  const event = new NDKEvent(ndk, { kind: KIND_COMMUNITY_DEFINITION, content: board.content, tags })
+  await event.publish(boardsRelaySet, PUBLISH_TIMEOUT_MS)
+  return event
+}
+
 // Moderator approval (kind:4550) — the mechanism that gives a post real
 // visibility per NIP-72's own model (this is genuinely client-side,
 // unlike NIP-29's relay-enforced membership: any relay just stores the

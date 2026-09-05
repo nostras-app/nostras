@@ -4,11 +4,136 @@ import { useProfile } from '../hooks/useProfile'
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useCommunityFeed } from '../hooks/useCommunityFeed'
 import { publishComment } from '../lib/comments'
-import { boardsRelaySet, parseCommunityMeta, publishPostApproval } from '../lib/community'
+import {
+  boardsRelaySet,
+  parseCommunityMeta,
+  publishPostApproval,
+  updateModerators,
+} from '../lib/community'
 import { formatRelativeTime } from '../lib/time'
+import { resolvePubkeyInput } from '../lib/resolvePubkey'
 import { viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
-import { ArrowLeftIcon, UsersIcon } from './icons'
+import { ArrowLeftIcon, SettingsIcon, UsersIcon } from './icons'
+
+function ModeratorRow({
+  pubkey,
+  canRemove,
+  busy,
+  onRemove,
+}: {
+  pubkey: string
+  canRemove: boolean
+  busy: boolean
+  onRemove: (pubkey: string) => void
+}) {
+  const profile = useProfile(pubkey)
+  const label = profile?.name || profile?.displayName || `${pubkey.slice(0, 12)}…`
+
+  return (
+    <li className="follow-list-row">
+      {isSecureImageUrl(profile?.picture) ? (
+        <img className="avatar" src={profile.picture} alt="" />
+      ) : (
+        <span className="avatar-fallback">{label.charAt(0)}</span>
+      )}
+      <span className="feed-item-name-btn follow-list-name-btn">
+        <span className="feed-item-name">{label}</span>
+      </span>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        onClick={() => onRemove(pubkey)}
+        disabled={busy || !canRemove}
+        title={canRemove ? 'Remove moderator' : "A board needs at least one moderator — can't remove the last one"}
+      >
+        {busy ? '…' : 'Remove'}
+      </button>
+    </li>
+  )
+}
+
+// Shown only when the active user is already a moderator (BoardView's own
+// amModerator check gates this, not this component itself). Republishes
+// the board's own kind:34550 with an updated moderator list — see
+// lib/community.ts's updateModerators for why this preserves every other
+// tag rather than replacing the event wholesale.
+function ModeratorsPanel({
+  moderators,
+  onUpdate,
+}: {
+  moderators: string[]
+  onUpdate: (next: string[]) => Promise<void>
+}) {
+  const [addInput, setAddInput] = useState('')
+  const [addError, setAddError] = useState('')
+  const [busyPubkey, setBusyPubkey] = useState<string | null>(null)
+  const [busyAdd, setBusyAdd] = useState(false)
+
+  async function handleAdd() {
+    const pubkey = resolvePubkeyInput(addInput)
+    if (!pubkey) {
+      setAddError('Not a valid npub or pubkey')
+      return
+    }
+    if (moderators.includes(pubkey)) {
+      setAddError('Already a moderator')
+      return
+    }
+    setAddError('')
+    setBusyAdd(true)
+    try {
+      await onUpdate([...moderators, pubkey])
+      setAddInput('')
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : 'Could not add moderator')
+    } finally {
+      setBusyAdd(false)
+    }
+  }
+
+  async function handleRemove(pubkey: string) {
+    setBusyPubkey(pubkey)
+    try {
+      await onUpdate(moderators.filter((m) => m !== pubkey))
+    } catch {
+      // Left silently visible on the row itself would need per-row error
+      // state; a failed remove just leaves the moderator list unchanged,
+      // which the next render already reflects correctly on its own.
+    } finally {
+      setBusyPubkey(null)
+    }
+  }
+
+  return (
+    <div className="group-admin-panel">
+      <p className="field-hint">Board moderators — visible only to moderators.</p>
+      <ul className="follow-list">
+        {moderators.map((pubkey) => (
+          <ModeratorRow
+            key={pubkey}
+            pubkey={pubkey}
+            canRemove={moderators.length > 1}
+            busy={busyPubkey === pubkey}
+            onRemove={handleRemove}
+          />
+        ))}
+      </ul>
+      <div className="btn-row">
+        <input
+          className="input"
+          placeholder="npub to add as moderator"
+          value={addInput}
+          onChange={(e) => setAddInput(e.target.value)}
+        />
+        <button type="button" className="btn btn-secondary btn-sm" onClick={handleAdd} disabled={busyAdd || !addInput.trim()}>
+          {busyAdd ? 'Adding…' : 'Add'}
+        </button>
+      </div>
+      {addError && <p className="alert-error">{addError}</p>}
+    </div>
+  )
+}
 
 function PostRow({
   post,
@@ -68,13 +193,21 @@ function PostRow({
   )
 }
 
-export function BoardView({ board, onBack }: { board: NDKEvent; onBack: () => void }) {
+export function BoardView({ board: initialBoard, onBack }: { board: NDKEvent; onBack: () => void }) {
+  // Local, not just the initial prop: adding/removing a moderator
+  // republishes the board's own kind:34550 event (same d tag, a new
+  // object) — BoardsView's own boardTarget (lib/navigation.ts) is a
+  // one-time snapshot from when this view was opened, not a live
+  // subscription, so this component has to track the update itself
+  // rather than wait for a prop that will never change.
+  const [board, setBoard] = useState(initialBoard)
   const meta = parseCommunityMeta(board.tags)
   const activeUser = useActiveUser()
   const { approvedPosts, pendingPosts, isModerator, loading } = useCommunityFeed(board)
   const [content, setContent] = useState('')
   const [posting, setPosting] = useState(false)
   const [error, setError] = useState('')
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false)
   // Bumped to force a re-fetch feel after a moderator approves a post —
   // the live subscription already picks up the new kind:4550 on its own,
   // this just avoids the approve button appearing to do nothing for the
@@ -82,6 +215,11 @@ export function BoardView({ board, onBack }: { board: NDKEvent; onBack: () => vo
   const [, forceRefresh] = useState(0)
 
   const amModerator = !!activeUser && isModerator(activeUser.pubkey)
+
+  async function handleUpdateModerators(next: string[]) {
+    const updated = await updateModerators(board, next)
+    setBoard(updated)
+  }
 
   async function handlePost() {
     if (!content.trim()) return
@@ -113,6 +251,20 @@ export function BoardView({ board, onBack }: { board: NDKEvent; onBack: () => vo
       <button type="button" className="dm-back-btn" onClick={onBack} title="Back">
         <ArrowLeftIcon />
       </button>
+      {amModerator && (
+        <button
+          type="button"
+          className="dm-back-btn"
+          onClick={() => setAdminPanelOpen((v) => !v)}
+          title="Manage moderators"
+        >
+          <SettingsIcon />
+        </button>
+      )}
+
+      {amModerator && adminPanelOpen && (
+        <ModeratorsPanel moderators={meta.moderators} onUpdate={handleUpdateModerators} />
+      )}
 
       <div className="communities-group-card-body">
         {isSecureImageUrl(meta.image) ? (
