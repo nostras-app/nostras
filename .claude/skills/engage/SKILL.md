@@ -43,9 +43,11 @@ mistake to fix, not an accepted format.
 
 For each full id you have, query public relays
 (`{"kinds":[1], "#e":["<reply-id>"]}` on `wss://relay.damus.io`,
-`wss://relay.primal.net`, `wss://nos.lol`) and keep anything authored
-by someone other than the user's own pubkey — a genuine reply-to-your-
-reply, not your own threading. A quick `{"kinds":[7,9735],
+`wss://relay.primal.net`, `wss://nos.lol`, **and `wss://nostras.app`
+— see the real 2026-09-05 miss below for why this one isn't
+optional**) and keep anything authored by someone other than the
+user's own pubkey — a genuine reply-to-your-reply, not your own
+threading. A quick `{"kinds":[7,9735],
 "#e":["<reply-id>"]}` pass is worth adding too, matching this skill's
 own existing "a reply, a follow, a zap in return" language in step 8 —
 a like or zap back is a real, lighter-weight signal worth logging even
@@ -265,6 +267,18 @@ Query `{"kinds":[1], "#e":["<candidate-note-id>"], "authors":
 uses, for every candidate, right before drafting — cheap (one query per
 candidate, not per historical id) and catches this regardless of how
 any earlier session happened to phrase its own write-up.
+
+**Always include `wss://nostras.app` in this specific query, not just
+the three public relays (2026-09-05)** — a real, live near-miss: a
+pre-draft check queried `relay.damus.io` (down at the time) +
+`relay.primal.net` + `nos.lol` and came back empty for a note that
+already had a real reply, only findable because it happened to also
+live on `nostras.app`. The user caught it before sending, not this
+check. One dead relay in a 3-relay list is enough to miss a real reply
+if the other two don't happen to carry it — `nostras.app` is this
+project's own relay and a likely landing spot for its own replies, so
+it belongs in this query by default, not as a fallback tried only
+after a miss.
 
 ## 4. Draft honest, specific replies — never generic
 
