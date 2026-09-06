@@ -55,7 +55,11 @@ function useListingFeed() {
 
 export function MarketplaceView() {
   const { events, loading } = useListingFeed()
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
+  // '' means "All" — matches a <select>'s own natural empty-option value,
+  // simpler than a separate null sentinel now that this is a dropdown
+  // instead of a row of tab buttons.
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [searchText, setSearchText] = useState('')
 
   // Each listing is addressable (kind:30402) — a status edit republishes
   // the same (kind, pubkey, d), so keep only the newest copy per address
@@ -84,9 +88,23 @@ export function MarketplaceView() {
     return [...set].sort()
   }, [active])
 
-  const visible = categoryFilter
-    ? active.filter((e) => parseListingMeta(e).categories.includes(categoryFilter))
-    : active
+  // Category (exact match against a listing's own "t" tags) and free-text
+  // search (substring match against title/description/categories) combine
+  // with AND — picking a category narrows the pool, typing further
+  // narrows within it, matching how category+search filters normally
+  // compose on any marketplace/shopping UI.
+  const visible = useMemo(() => {
+    const needle = searchText.trim().toLowerCase()
+    return active.filter((e) => {
+      const meta = parseListingMeta(e)
+      if (categoryFilter && !meta.categories.includes(categoryFilter)) return false
+      if (needle) {
+        const haystack = [meta.title, meta.description, ...meta.categories].join(' ').toLowerCase()
+        if (!haystack.includes(needle)) return false
+      }
+      return true
+    })
+  }, [active, categoryFilter, searchText])
 
   if (loading) {
     return <FeedSkeleton />
@@ -94,36 +112,51 @@ export function MarketplaceView() {
 
   return (
     <div className="marketplace-view">
-      {categories.length > 0 && (
-        <div className="feed-tabs marketplace-category-filter" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={categoryFilter === null}
-            className={`feed-tab${categoryFilter === null ? ' feed-tab-active' : ''}`}
-            onClick={() => setCategoryFilter(null)}
+      {active.length > 0 && (
+        <div className="field-row marketplace-filter-row">
+          <select
+            className="input"
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            aria-label="Filter by category"
           >
-            All
-          </button>
-          {categories.map((c) => (
-            <button
-              key={c}
-              type="button"
-              role="tab"
-              aria-selected={categoryFilter === c}
-              className={`feed-tab${categoryFilter === c ? ' feed-tab-active' : ''}`}
-              onClick={() => setCategoryFilter(c)}
-            >
-              {c}
-            </button>
-          ))}
+            <option value="">All categories</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input marketplace-search-input"
+            type="search"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="Search listings…"
+            aria-label="Search listings"
+          />
         </div>
       )}
 
       {visible.length === 0 ? (
         <div className="feed-empty">
-          <p>No listings yet.</p>
-          <p className="feed-empty-hint">Publish one from Compose &gt; Listing.</p>
+          <p>{active.length === 0 ? 'No listings yet.' : 'No listings match your filter.'}</p>
+          <p className="feed-empty-hint">
+            {active.length === 0 ? (
+              <>Publish one from Compose &gt; Listing.</>
+            ) : (
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  setCategoryFilter('')
+                  setSearchText('')
+                }}
+              >
+                Clear filters
+              </button>
+            )}
+          </p>
         </div>
       ) : (
         <ul className="feed">

@@ -3277,8 +3277,15 @@ a.profile-external-identity:hover {
   gap: 12px;
 }
 
-.marketplace-category-filter {
-  flex-wrap: wrap;
+.marketplace-filter-row select.input {
+  flex: none;
+  width: auto;
+  min-width: 160px;
+}
+
+.marketplace-search-input {
+  flex: 1;
+  min-width: 160px;
 }
 
 /* ---------- View switching ----------
