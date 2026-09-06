@@ -3277,12 +3277,13 @@ a.profile-external-identity:hover {
   gap: 12px;
 }
 
-.marketplace-filter-row select.input {
-  flex: none;
-  width: auto;
-  min-width: 160px;
-}
-
+/* Real mobile bug: width: auto on a <select> lets some mobile browsers
+   size it by its own content/native picker chevron instead of the flex
+   layout, overriding .input's own `width: 100%` and overflowing well
+   past the search box next to it. Both controls now share the exact
+   same flex sizing, so they're always the same width — full-width and
+   stacked once .field-row's own flex-wrap kicks in on narrow screens. */
+.marketplace-filter-row select.input,
 .marketplace-search-input {
   flex: 1;
   min-width: 160px;
