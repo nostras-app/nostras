@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { profileFromEvent, type NDKUserProfile } from '@nostr-dev-kit/ndk'
 import { authorQueryRelaySet } from '../lib/ndk'
 import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
+import { subscribeRelayStatus, getRelayGeneration } from '../lib/relayStatus'
 
 // Module-level cache shared across all components so the same pubkey is
 // never fetched more than once per session, and every subscriber re-renders
@@ -13,6 +14,36 @@ const listeners = new Set<() => void>()
 function notify() {
   for (const listener of listeners) listener()
 }
+
+// Real, reported bug (2026-09-06): a profile — including the active user's
+// own — got permanently stuck rendering "Anonymous" for the rest of a
+// session, alongside several other feed cards falling back to raw npubs.
+// Root cause: fetchLatestReplaceableEvent() always waits its full 5s
+// window and resolves null if zero relays in authorQueryRelaySet answer in
+// time — plausible right at page load, before all three relays finish
+// connecting — and ensureFetched() below caches that null with no expiry.
+// Every other long-lived subscription hook in this app (useNoteFeed,
+// useNotifications, useDirectMessages, useGroupList/Chat/Membership,
+// MarketplaceView) already resubscribes on a genuine relay recovery via
+// relayStatus.ts's shared `generation` counter — this cache never did.
+// Fixed by clearing only the failed (null) entries on a real generation
+// bump, so a pubkey that lost the race once gets a genuine retry once a
+// relay is known reachable again, without forcing a redundant re-fetch of
+// anything that already resolved successfully.
+let lastProfileGeneration = getRelayGeneration()
+subscribeRelayStatus(() => {
+  const gen = getRelayGeneration()
+  if (gen === lastProfileGeneration) return
+  lastProfileGeneration = gen
+  let hadFailure = false
+  for (const [pubkey, profile] of cache) {
+    if (profile === null) {
+      cache.delete(pubkey)
+      hadFailure = true
+    }
+  }
+  if (hadFailure) notify()
+})
 
 function subscribe(listener: () => void) {
   listeners.add(listener)
