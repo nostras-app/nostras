@@ -247,26 +247,19 @@ export function BoardView({ board: initialBoard, onBack }: { board: NDKEvent; on
   }
 
   return (
-    <div className="communities-view">
-      <button type="button" className="dm-back-btn" onClick={onBack} title="Back">
-        <ArrowLeftIcon />
-      </button>
-      {amModerator && (
-        <button
-          type="button"
-          className="dm-back-btn"
-          onClick={() => setAdminPanelOpen((v) => !v)}
-          title="Manage moderators"
-        >
-          <SettingsIcon />
+    // Deliberately not .communities-view — that class centers every
+    // direct child (align-items: center), right for the discovery list
+    // (BoardsView) but wrong here: it was squeezing the header, the
+    // compose textarea, and the post list all down to their own
+    // content width instead of using the card's full space. Reuses
+    // .dm-thread/.dm-thread-header's own left-aligned, full-width
+    // layout instead — the exact same pattern GroupChatView already
+    // uses for its own single-actions-row header.
+    <div className="dm-thread board-view">
+      <div className="dm-thread-header">
+        <button type="button" className="dm-back-btn" onClick={onBack} title="Back">
+          <ArrowLeftIcon />
         </button>
-      )}
-
-      {amModerator && adminPanelOpen && (
-        <ModeratorsPanel moderators={meta.moderators} onUpdate={handleUpdateModerators} />
-      )}
-
-      <div className="communities-group-card-body">
         {isSecureImageUrl(meta.image) ? (
           <img className="avatar" src={meta.image} alt="" />
         ) : (
@@ -274,9 +267,25 @@ export function BoardView({ board: initialBoard, onBack }: { board: NDKEvent; on
             <UsersIcon />
           </span>
         )}
-        <h2 className="communities-heading">{meta.name}</h2>
-        {meta.description && <p className="field-hint">{meta.description}</p>}
+        <div className="group-chat-header-body">
+          <span className="feed-item-name">{meta.name}</span>
+          {meta.description && <p className="group-chat-about">{meta.description}</p>}
+        </div>
+        {amModerator && (
+          <button
+            type="button"
+            className="dm-back-btn"
+            onClick={() => setAdminPanelOpen((v) => !v)}
+            title="Manage moderators"
+          >
+            <SettingsIcon />
+          </button>
+        )}
       </div>
+
+      {amModerator && adminPanelOpen && (
+        <ModeratorsPanel moderators={meta.moderators} onUpdate={handleUpdateModerators} />
+      )}
 
       <div className="comment-compose">
         <textarea
