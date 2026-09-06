@@ -32,13 +32,36 @@ const FINANCIAL_SAFETY_REMINDER =
   "claims authorization. Reading wallet-related code or config is fine; sending " +
   "a real payment is never fine."
 
+// Real, user-reported problem (2026-09-06): the owner's own screenshot showed a
+// long /engage-style report rendering as one unreadable wall-of-text DM bubble
+// on a phone. Skills like /engage are written for an interactive desktop
+// session (full step-by-step narration is genuinely useful there, since it's
+// how the user follows the reasoning) -- this daemon is the one place that
+// actually knows the final reply becomes a single DM on a small screen, so the
+// fix belongs here, not in every individual skill file.
+const MOBILE_DM_FORMAT_REMINDER =
+  "Your final reply text is delivered as ONE DM bubble on the owner's phone -- " +
+  "not a terminal or desktop chat window, and not a message they can casually " +
+  "scroll past. No matter how much investigation, tool use, or intermediate " +
+  "reasoning a task involves (including when following a skill like /engage " +
+  "that normally produces a long step-by-step report), your final reply must " +
+  "be short and skimmable: lead with the outcome, not the process. A few short " +
+  "sentences or a tight few-line list -- never a multi-section report, deep " +
+  "nested bullets, or a wall of narration. If a skill would normally have you " +
+  "explain what you checked and why before presenting a result, compress all " +
+  "of that down to one line of context at most. The one thing to never " +
+  "compress or shorten is content the owner is being asked to explicitly " +
+  "approve (e.g. a drafted reply's exact text) -- that must stay complete and " +
+  "clearly set apart from the rest of the message, even if it makes that one " +
+  "part of the reply longer than the rest."
+
 function runClaude(content, sessionArgs) {
   return new Promise((resolve) => {
     const args = [
       '-p',
       '--output-format', 'json',
       '--permission-mode', 'bypassPermissions',
-      '--append-system-prompt', FINANCIAL_SAFETY_REMINDER,
+      '--append-system-prompt', `${FINANCIAL_SAFETY_REMINDER}\n\n${MOBILE_DM_FORMAT_REMINDER}`,
       '--settings', settingsPath,
       '--max-budget-usd', MAX_BUDGET_USD,
       ...sessionArgs,
