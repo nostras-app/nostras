@@ -6,6 +6,7 @@
 /nip86-admin.json
 /node-waitlist.json
 /page-views.json
+/client-heartbeats.json
 /enumerated-relays.json
 /enumerated-identities.json
 *.mmdb

@@ -409,7 +409,8 @@ function drawChart(byDay, heartbeatByDay) {
   const dpr = window.devicePixelRatio || 1;
   const barSlot = 26;
   const yAxisW = 44;
-  const cssWidth = Math.max(wrap.clientWidth, days.length * barSlot + yAxisW);
+  const yAxisWRight = 44;
+  const cssWidth = Math.max(wrap.clientWidth, days.length * barSlot + yAxisW + yAxisWRight);
   const cssHeight = 180;
   canvas.width = cssWidth * dpr;
   canvas.height = cssHeight * dpr;
@@ -428,21 +429,35 @@ function drawChart(byDay, heartbeatByDay) {
 
   const chartTop = 8, chartBottom = 148, labelY = 168;
   const plotLeft = yAxisW;
+  const plotRight = cssWidth - yAxisWRight;
 
-  // Y-axis: gridlines + value labels for the connections (left) scale.
+  // Y-axis: gridlines + value labels for the connections (left) scale,
+  // plus the matching real-client-loads value (right, in the same red/
+  // warm color as the line itself) at the same gridline height — the
+  // two scales share the same 0/0.5/1 fractions of chart height, just
+  // against their own independent max (maxConn vs. maxHb), so a given
+  // gridline is genuinely "this height" on both axes, not just visually
+  // aligned by coincidence.
   ctx.font = "10px " + sans;
-  ctx.fillStyle = dim;
   [0, 0.5, 1].forEach((frac) => {
     const y = chartBottom - frac * (chartBottom - chartTop);
     ctx.strokeStyle = border;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(plotLeft, y + 0.5);
-    ctx.lineTo(cssWidth, y + 0.5);
+    ctx.lineTo(plotRight, y + 0.5);
     ctx.stroke();
-    ctx.textAlign = "right";
     ctx.textBaseline = "middle";
+    ctx.fillStyle = dim;
+    ctx.textAlign = "right";
     ctx.fillText(Math.round(maxConn * frac).toLocaleString(), plotLeft - 8, y);
+    // Right axis only needs the max/mid values, not a second "0" —
+    // the baseline is shared and already labeled once on the left.
+    if (frac > 0) {
+      ctx.fillStyle = warm;
+      ctx.textAlign = "left";
+      ctx.fillText(Math.round(maxHb * frac).toLocaleString(), plotRight + 8, y);
+    }
   });
   ctx.textBaseline = "alphabetic";
 
@@ -539,7 +554,7 @@ function renderCountries(byDay) {
   wrap.innerHTML = html;
 }
 
-const PAGE_LABELS = { home: "Home (/)", why: "Why NOSTRAS (/why)", node: "NOSTRAS Node (/node)", wallet: "Own Your Money (/wallet)" };
+const PAGE_LABELS = { home: "Home (/)", why: "Why NOSTRAS (/why)", node: "NOSTRAS Node (/node)", wallet: "Own Your Money (/wallet)", tools: "AI Tools (/tools)" };
 
 function renderPageViews(byPage) {
   const wrap = document.getElementById("pageviews-wrap");
