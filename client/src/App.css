@@ -844,8 +844,14 @@
 
 .profile-header-body {
   display: flex;
+  /* Stacked, matching the same avatar-on-top treatment applied to
+     .feed-item — reclaims the width the avatar column used to take from
+     the name/stats/bio block. align-items is deliberately left at its
+     stretch default (not flex-start) so .profile-info still fills the
+     full row width; .profile-avatar's own explicit width/height already
+     keep it from being stretched too. */
+  flex-direction: column;
   gap: 16px;
-  align-items: flex-start;
   padding: 20px;
 }
 
@@ -1193,12 +1199,29 @@ a.profile-external-identity:hover {
 
 .feed-item {
   display: flex;
+  /* Stacked (avatar row, then everything else full-width below it)
+     instead of a side-by-side avatar column — per direct user request,
+     the avatar column was taking real width away from content on every
+     card. */
+  flex-direction: column;
   gap: 12px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 14px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* .feed-item-avatar-btn has no explicit width of its own (its 40px size
+   comes from the .avatar/.avatar-fallback child) — without this, the
+   column flex container's default align-items:stretch would stretch the
+   button itself to the full card width. Scoped to a direct child of
+   .feed-item specifically, not the class in general, since the same
+   className is reused inside row-based list rows (.follow-list-row,
+   etc.) elsewhere where stretching was never the concern and this
+   override would wrongly change their vertical alignment instead. */
+.feed-item > .feed-item-avatar-btn {
+  align-self: flex-start;
 }
 
 .feed-item:hover {
