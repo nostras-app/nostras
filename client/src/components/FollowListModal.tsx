@@ -1,6 +1,7 @@
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useFollowing } from '../hooks/useFollowing'
 import { useProfile } from '../hooks/useProfile'
+import { useFollowerCount } from '../hooks/useFollowerCount'
 import { viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { XIcon } from './icons'
@@ -22,6 +23,7 @@ function FollowListRow({
 }) {
   const profile = useProfile(pubkey)
   const label = profile?.name || profile?.displayName || `${pubkey.slice(0, 12)}…`
+  const followerCount = useFollowerCount(pubkey)
 
   return (
     <li className="follow-list-row">
@@ -39,6 +41,12 @@ function FollowListRow({
       </button>
       <button type="button" className="feed-item-name-btn follow-list-name-btn" onClick={onNavigate}>
         <span className="feed-item-name">{label}</span>
+        <span
+          className="follow-list-follower-count"
+          title="Followers visible across connected relays, not the whole network"
+        >
+          {followerCount === null ? '…' : followerCount.toLocaleString()} followers
+        </span>
       </button>
       {isSelf ? (
         <span className="field-hint">You</span>
