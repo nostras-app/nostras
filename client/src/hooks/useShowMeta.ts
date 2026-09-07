@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { fetchShowMetaTags, parseShowMeta, type ShowMeta } from '../lib/podcast'
+import { subscribeRelayStatus, getRelayGeneration } from '../lib/relayStatus'
 
 // Module-level cache shared across all components, same
 // useSyncExternalStore pattern as useProfile.ts — an episode feed can
@@ -12,6 +13,25 @@ const listeners = new Set<() => void>()
 function notify() {
   for (const listener of listeners) listener()
 }
+
+// Same fix as useProfile.ts/useReferencedNote.ts (2026-09-06/07): a fetch
+// that resolves null was cached permanently with no retry, unlike every
+// long-lived subscription hook in this app. Clear only the failed (null)
+// entries on a genuine relayStatus.ts relay-recovery signal.
+let lastShowMetaGeneration = getRelayGeneration()
+subscribeRelayStatus(() => {
+  const gen = getRelayGeneration()
+  if (gen === lastShowMetaGeneration) return
+  lastShowMetaGeneration = gen
+  let hadFailure = false
+  for (const [pubkey, meta] of cache) {
+    if (meta === null) {
+      cache.delete(pubkey)
+      hadFailure = true
+    }
+  }
+  if (hadFailure) notify()
+})
 
 function subscribe(listener: () => void) {
   listeners.add(listener)

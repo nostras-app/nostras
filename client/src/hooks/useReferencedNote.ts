@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk } from '../lib/ndk'
+import { subscribeRelayStatus, getRelayGeneration } from '../lib/relayStatus'
 
 // Same module-level-cache pattern as useProfile.ts — a reply's parent note
 // is frequently referenced by more than one card on the same page (several
@@ -14,6 +15,34 @@ const listeners = new Set<() => void>()
 function notify() {
   for (const listener of listeners) listener()
 }
+
+// Real, reported bug (2026-09-07): a reply stuck showing "Replying to a
+// note…" indefinitely, even for a note that genuinely exists and that
+// another client (Ditto) resolved and named correctly. Same root cause
+// already found and fixed in useProfile.ts a day earlier: a fetch that
+// resolves null (the note wasn't found by whichever relays answered
+// within this attempt) gets cached permanently with no retry, unlike
+// every long-lived subscription hook in this app, which resubscribes on
+// a genuine relayStatus.ts relay-recovery signal. This hook was never
+// covered by that earlier audit since it's a structurally different
+// fetch (a single note by id, not an author's replaceable event) — same
+// fix applies directly: clear only the failed (null) entries on a real
+// generation bump, so a note that lost the race once gets a genuine
+// retry instead of staying stuck for the rest of the session.
+let lastReferencedNoteGeneration = getRelayGeneration()
+subscribeRelayStatus(() => {
+  const gen = getRelayGeneration()
+  if (gen === lastReferencedNoteGeneration) return
+  lastReferencedNoteGeneration = gen
+  let hadFailure = false
+  for (const [id, event] of cache) {
+    if (event === null) {
+      cache.delete(id)
+      hadFailure = true
+    }
+  }
+  if (hadFailure) notify()
+})
 
 function subscribe(listener: () => void) {
   listeners.add(listener)

@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { authorQueryRelaySet } from '../lib/ndk'
 import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
+import { subscribeRelayStatus, getRelayGeneration } from '../lib/relayStatus'
 import {
   KIND_BADGE_DEFINITION,
   parseBadgeAddress,
@@ -21,6 +22,25 @@ const listeners = new Set<() => void>()
 function notify() {
   for (const listener of listeners) listener()
 }
+
+// Same fix as useProfile.ts/useReferencedNote.ts (2026-09-06/07): a fetch
+// that resolves null was cached permanently with no retry, unlike every
+// long-lived subscription hook in this app. Clear only the failed (null)
+// entries on a genuine relayStatus.ts relay-recovery signal.
+let lastBadgeGeneration = getRelayGeneration()
+subscribeRelayStatus(() => {
+  const gen = getRelayGeneration()
+  if (gen === lastBadgeGeneration) return
+  lastBadgeGeneration = gen
+  let hadFailure = false
+  for (const [address, def] of cache) {
+    if (def === null) {
+      cache.delete(address)
+      hadFailure = true
+    }
+  }
+  if (hadFailure) notify()
+})
 
 function subscribe(listener: () => void) {
   listeners.add(listener)
