@@ -15,3 +15,13 @@ export function getReplyToEventId(tags: string[][]): string | undefined {
 
   return eTags[eTags.length - 1][1]
 }
+
+// The note a repost (NIP-18)/like (NIP-25)/zap receipt (NIP-57) was made
+// against — these events carry a single plain (unmarked) "e" tag, never
+// NIP-10's root/reply markers, so this is deliberately simpler than
+// getReplyToEventId() above rather than reusing its marker-parsing logic
+// for a kind it was never written for.
+export function getReactedEventId(tags: string[][]): string | undefined {
+  const eTags = tags.filter((t) => t[0] === 'e' && t[1])
+  return eTags[eTags.length - 1]?.[1]
+}

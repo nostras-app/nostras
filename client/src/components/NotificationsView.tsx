@@ -1,12 +1,15 @@
 import { zapInvoiceFromEvent, type NDKEvent } from '@nostr-dev-kit/ndk'
 import { useProfile } from '../hooks/useProfile'
+import { useReferencedNote } from '../hooks/useReferencedNote'
 import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { getContentWarningReason } from '../lib/contentWarning'
 import { getSubject } from '../lib/subject'
+import { getReactedEventId } from '../lib/nip10'
 import { NoteContent } from './NoteContent'
 import { NoteMenu } from './NoteMenu'
+import { EngagementBar } from './EngagementBar'
 import { FeedSkeleton } from './Feed'
 import { ReplyIcon, RepostIcon, HeartIcon, ZapIcon } from './icons'
 
@@ -51,6 +54,19 @@ function NotificationItem({ event }: { event: NDKEvent }) {
   const profile = useProfile(actor)
   const label = profile?.name || profile?.displayName || `${actor.slice(0, 12)}…`
 
+  // Real gap found comparing against Ditto's own notifications (2026-09-07):
+  // NOSTRAS never offered reply/repost/like/zap straight from a
+  // notification, only a "..." menu. For a mention/reply (kind:1), `event`
+  // IS the note to act on directly. For a repost/like/zap (kind:6/7/9735),
+  // `event` is the reaction/receipt itself — there's nothing meaningful to
+  // reply/repost/like/zap on a bare reaction, so fetch the actual note it
+  // references (its own single, unmarked "e" tag — see getReactedEventId's
+  // own comment for why this needs different tag logic than a NIP-10
+  // reply's marked "e" tags) and act on that instead.
+  const reactedEventId = event.kind !== 1 ? getReactedEventId(event.tags) : undefined
+  const reactedNote = useReferencedNote(reactedEventId)
+  const targetNote = event.kind === 1 ? event : reactedNote
+
   return (
     <li className="feed-item">
       <button
@@ -84,16 +100,27 @@ function NotificationItem({ event }: { event: NDKEvent }) {
             tags={event.tags}
           />
         )}
+        {event.kind !== 1 && reactedNote && (
+          <NoteContent
+            content={reactedNote.content}
+            contentWarning={getContentWarningReason(reactedNote.tags)}
+            subject={getSubject(reactedNote.tags)}
+            tags={reactedNote.tags}
+          />
+        )}
         {/* Real traceability gap reported by the user (2026-08-07): a
             notification's actor name wasn't even clickable, and there was
             no way to inspect who they actually are beyond the display
             name NDK happened to cache — no profile link, no way to see
             the account's real npub or the notification event's raw data.
-            Both fixed above/below by reusing the exact same
-            viewProfile()/NoteMenu already proven for regular notes,
-            rather than building new investigation tooling from scratch. */}
+            Fixed by reusing the exact same viewProfile() already proven
+            for regular notes. The engagement/menu row below reuses
+            EngagementBar (which includes its own NoteMenu) once the real
+            target note is known, falling back to a bare NoteMenu on the
+            notification event itself only while that's still resolving
+            (or genuinely unfindable) — never a dead end either way. */}
         <div className="feed-item-footer notification-item-footer">
-          <NoteMenu event={event} />
+          {targetNote ? <EngagementBar event={targetNote} /> : <NoteMenu event={event} />}
         </div>
       </div>
     </li>
