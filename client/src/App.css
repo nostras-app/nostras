@@ -1901,10 +1901,10 @@ a.profile-external-identity:hover {
 /* ---------- Follow list modal (Following/Followers popup) ---------- */
 
 .follow-list-modal {
-  /* Widened from 360px, per direct user request, to make room for the
-     per-row follower count added below without cramping the name or the
-     Follow/Unfollow button. */
-  width: 440px;
+  /* Reverted to 360px (2026-09-08, direct user request) — the follower
+     count added below the name doesn't need extra horizontal room since
+     it's stacked underneath, not alongside. */
+  width: 360px;
 }
 
 .follow-list-header {

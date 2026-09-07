@@ -45,7 +45,10 @@ function FollowListRow({
           className="follow-list-follower-count"
           title="Followers visible across connected relays, not the whole network"
         >
-          {followerCount === null ? '…' : followerCount.toLocaleString()} followers
+          {followerCount === null
+            ? '…'
+            : `${followerCount.count.toLocaleString()}${followerCount.truncated ? '+' : ''}`}{' '}
+          followers
         </span>
       </button>
       {isSelf ? (

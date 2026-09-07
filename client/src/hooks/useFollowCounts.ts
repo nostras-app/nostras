@@ -67,7 +67,21 @@ export function useFollowCounts(pubkey: string | undefined) {
 
     setFollowerPubkeys([])
     const seen = new Set<string>()
-    const sub = ndk.subscribe({ kinds: [3], '#p': [pubkey] })
+    // A `limit` bounds the initial backlog burst a relay sends before
+    // EOSE — real, reported bug (2026-09-08): a genuinely popular pubkey
+    // (Derek Ross) has 500+ real followers on these same relays, and
+    // fetching that unbounded meant a much larger initial burst than a
+    // decorative count needs. This doesn't cap the count going forward —
+    // this subscription stays open and keeps accumulating any genuinely
+    // new follower published live afterward, same as before. Explicitly
+    // scoped to authorQueryRelaySet for the same reason useFollowerCount.ts
+    // is — an unscoped subscribe() queries whatever's in the live pool at
+    // that moment (outbox-discovered relays, stale custom ones), which
+    // measurably slowed convergence versus these 3 known-fast relays.
+    const sub = ndk.subscribe(
+      { kinds: [3], '#p': [pubkey], limit: 500 },
+      { relaySet: authorQueryRelaySet },
+    )
 
     sub.on('event', (event: NDKEvent) => {
       if (seen.has(event.pubkey)) return
