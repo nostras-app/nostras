@@ -1,7 +1,6 @@
 import { useActiveUser } from '../hooks/useActiveUser'
 import { useFollowing } from '../hooks/useFollowing'
 import { useProfile } from '../hooks/useProfile'
-import { useFollowerCount } from '../hooks/useFollowerCount'
 import { viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { XIcon } from './icons'
@@ -23,7 +22,6 @@ function FollowListRow({
 }) {
   const profile = useProfile(pubkey)
   const label = profile?.name || profile?.displayName || `${pubkey.slice(0, 12)}…`
-  const followerCount = useFollowerCount(pubkey)
 
   return (
     <li className="follow-list-row">
@@ -41,15 +39,6 @@ function FollowListRow({
       </button>
       <button type="button" className="feed-item-name-btn follow-list-name-btn" onClick={onNavigate}>
         <span className="feed-item-name">{label}</span>
-        <span
-          className="follow-list-follower-count"
-          title="Followers visible across connected relays, not the whole network"
-        >
-          {followerCount === null
-            ? '…'
-            : `${followerCount.count.toLocaleString()}${followerCount.truncated ? '+' : ''}`}{' '}
-          followers
-        </span>
       </button>
       {isSelf ? (
         <span className="field-hint">You</span>
@@ -75,6 +64,17 @@ function FollowListRow({
 // matching this project's standing lesson (from the DM conversation-list
 // duplicate-subscription bug) about not re-deriving the same hook's state
 // once per list item.
+//
+// A per-row follower count was added and then reverted the same day
+// (2026-09-08): even with client-side concurrency limiting, a big list
+// (687 real rows in the report that caught this) meant real production
+// query volume against badger's tag index — a live CPU profile pulled
+// during the incident showed 91% of relay CPU inside BadgerBackend.query,
+// dominated by per-event Get() + SSTable block decompression, sustained
+// well after testing stopped (i.e. genuine live usage, not a residual
+// test-session tail). Reverted rather than tuned live on production;
+// see useFollowerCount.ts's own git history if this is revisited with a
+// cheaper design (e.g. only fetching for genuinely visible rows).
 export function FollowListModal({
   title,
   pubkeys,

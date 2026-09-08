@@ -1950,21 +1950,6 @@ a.profile-external-identity:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  /* Stacks the name above the per-row follower count added below —
-     harmless for every other reuse of this class (GroupMemberList,
-     EngagementListModal, MuteListSettings), which only ever render the
-     one .feed-item-name child, so a single-item flex column looks
-     identical to before there. */
-  display: flex;
-  flex-direction: column;
-}
-
-.follow-list-follower-count {
-  font-size: 12px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .note-menu-toast {
