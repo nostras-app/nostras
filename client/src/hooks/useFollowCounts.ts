@@ -75,11 +75,18 @@ export function useFollowCounts(pubkey: string | undefined) {
     // this subscription stays open and keeps accumulating any genuinely
     // new follower published live afterward, same as before. Explicitly
     // scoped to authorQueryRelaySet for the same reason useFollowerCount.ts
-    // is — an unscoped subscribe() queries whatever's in the live pool at
-    // that moment (outbox-discovered relays, stale custom ones), which
+    // (since reverted, see FollowListModal.tsx's own comment on why) was —
+    // an unscoped subscribe() queries whatever's in the live pool at that
+    // moment (outbox-discovered relays, stale custom ones), which
     // measurably slowed convergence versus these 3 known-fast relays.
+    //
+    // Capped at 200, not 500 — matches maxFilterLimit, the relay's own
+    // server-side clamp added the same day this exact query shape caused a
+    // real production CPU incident (see main.go's own comment). The relay
+    // silently clamps any larger limit anyway now, so asking for more here
+    // would just be requesting something that's never actually honored.
     const sub = ndk.subscribe(
-      { kinds: [3], '#p': [pubkey], limit: 500 },
+      { kinds: [3], '#p': [pubkey], limit: 200 },
       { relaySet: authorQueryRelaySet },
     )
 

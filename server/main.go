@@ -475,6 +475,33 @@ func main() {
 	}
 	aggregatedQuery := newAggregatedQuery(&db, sys, outboxCache)
 	relay.QueryEvents = append(relay.QueryEvents, newSearchAwareQuery(&searchIndex, aggregatedQuery))
+
+	// Real, live production incident (2026-09-08): a client-side feature
+	// requesting `limit: 500` on a tag-filtered query (kind:3 events
+	// tagging a given pubkey, to approximate a follower count) pushed this
+	// relay's CPU to ~95-100% sustained. A live pprof capture showed 91% of
+	// CPU inside BadgerBackend.query, dominated by per-event Get() calls
+	// each needing an SSTable block seek + decompress — badger's tag index
+	// only yields matching keys, so a large `limit` on a tag-heavy filter
+	// means that many individual point-lookups, each one expensive. The
+	// client-side feature was reverted, but the relay had no protection of
+	// its own against this shape from any client (old cached bundles,
+	// other NIP-90/NIP-50-aware clients, anything future) — this closes
+	// that gap at the actual resource boundary instead of only at one now-
+	// reverted call site, the same "guard the boundary, not every caller"
+	// principle already applied to wsGuard.ts (client-side) and the CSP
+	// header (mixed content) elsewhere in this project's history.
+	// Silently clamps rather than rejecting outright (OverwriteFilter, not
+	// RejectFilter) — degrades a query to "fewer results than asked for"
+	// instead of an error, the same graceful-degrade posture as every
+	// other resource guard in this file (outboxSem, broadcastSem,
+	// maxLiveConnections).
+	const maxFilterLimit = 200
+	relay.OverwriteFilter = append(relay.OverwriteFilter, func(ctx context.Context, filter *nostr.Filter) {
+		if filter.Limit > maxFilterLimit {
+			filter.Limit = maxFilterLimit
+		}
+	})
 	// Untracks an id the instant a real client directly publishes that
 	// exact event — see outboxCacheStore's own doc comment for why this
 	// is what makes eviction safe even in the "outbox-cached first,
