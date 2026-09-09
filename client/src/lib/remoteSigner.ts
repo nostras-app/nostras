@@ -92,16 +92,38 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 // this NDK version doesn't check for it, so a real, user-approved
 // connection was being reported as "failed to connect".
 //
-// By the time blockUntilReady() rejects this way, the user has already
-// tapped Connect on the remote signer and its RPC subscription is live —
-// a direct get_public_key call, which only the bunker holding the
-// matching key could answer on our private response channel, succeeds
-// where the stricter ack check just failed. This isn't a weaker check:
-// a genuinely-declined or unreachable bunker fails this the same way (or
-// times out, handled below), so it only recovers the false-negative case.
+// A second, distinct interop gap found later (Arindam/Clave report,
+// 2026-09-09 — "Nostras did not detect clave," fixed by generating a
+// fresh bunker link): NDK's blockUntilReady() has NO timeout anywhere.
+// Its promise only settles when a `connect` response actually arrives
+// over the relay — if one never does (a relay hiccup, the request never
+// reaching the bunker, the bunker app not subscribed yet), it hangs
+// forever with no error, and this function's own try/catch never even
+// runs, since a hung promise never rejects into the catch block. That's
+// what made this read as "did not detect" rather than a visible failure.
+// A fresh bunker link retries the whole relay handshake from scratch and
+// can succeed purely by chance, while the first hung attempt just gets
+// abandoned. Fixed by wrapping the outer call in withTimeout() too (not
+// just the fallback's own getPublicKey() call below) — CONNECT_TIMEOUT_MS
+// is deliberately generous since approving a bunker connection is a real,
+// manual human action (tap approve on a phone), not a background fetch.
+//
+// By the time blockUntilReady() rejects (ack mismatch) or times out (no
+// response), the user has already tapped Connect on the remote signer and
+// its RPC subscription is live — a direct get_public_key call, which only
+// the bunker holding the matching key could answer on our private
+// response channel, succeeds where the stricter ack check just failed.
+// This isn't a weaker check: a genuinely-declined bunker fails this the
+// same way, so it only recovers the false-negative/no-response cases.
+const CONNECT_TIMEOUT_MS = 45000
+
 async function blockUntilReadyWithAckFallback(signer: NDKNip46Signer): Promise<NDKUser> {
   try {
-    return await signer.blockUntilReady()
+    return await withTimeout(
+      signer.blockUntilReady(),
+      CONNECT_TIMEOUT_MS,
+      'Timed out waiting for the remote signer to respond. It may be offline, or the connection link may have expired — try generating a fresh one.',
+    )
   } catch (originalError) {
     try {
       const pubkey = await withTimeout(
