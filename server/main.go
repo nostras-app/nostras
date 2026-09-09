@@ -19,6 +19,18 @@ import (
 	"github.com/nbd-wtf/go-nostr/sdk"
 )
 
+// maxFilterLimit bounds how many events a single REQ filter can ask for
+// — applied twice, deliberately, at two different boundaries: once via
+// BadgerBackend.MaxLimit (server/main.go's db := badger.BadgerBackend{}
+// literal), which bounds the library's own fallback for a filter that
+// omits `limit` entirely (otherwise defaults to maxLimit/4 = 250 with
+// no cap set at all — the gap a live pprof profile caught, see the
+// MaxLimit field's own comment); once via the OverwriteFilter hook
+// below, which catches a filter that explicitly asks for more than
+// this. See PQ-085/its 2026-09-09 follow-up in NOSTRAS-CSV.md for the
+// production incident that prompted both.
+const maxFilterLimit = 200
+
 // indexLongerTag opts address-shaped ("kind:pubkey:d") tag values into
 // badger's index instead of being silently dropped. Real bug found
 // while building NIP-22 comments, not a NIP-22-specific fix: the
@@ -169,6 +181,20 @@ func main() {
 				WithIndexCacheSize(128 << 20)
 		},
 		IndexLongerTag: indexLongerTag,
+		// Left unset, this defaults to 1000 (eventstore/badger's own
+		// Init()) — and a filter with NO `limit` field at all (an
+		// extremely common shape: most live kind/tag subscriptions, ours
+		// and third-party clients alike, never set one) falls back to
+		// maxLimit/4 = 250 results, which is *more* than the
+		// maxFilterLimit OverwriteFilter clamp below allows for a filter
+		// that explicitly asks for a large limit. Found via a live pprof
+		// profile (2026-09-09, PQ-085 follow-up) still showing ~88% of
+		// relay CPU in badger's tag-index point-lookup path even after
+		// that clamp shipped — this is the gap it never covered. Setting
+		// MaxLimit here fixes it at the actual library boundary, for
+		// every code path, not just the explicit-large-limit case the
+		// OverwriteFilter hook catches.
+		MaxLimit: maxFilterLimit,
 	}
 	if err := db.Init(); err != nil {
 		panic(err)
@@ -495,8 +521,10 @@ func main() {
 	// RejectFilter) — degrades a query to "fewer results than asked for"
 	// instead of an error, the same graceful-degrade posture as every
 	// other resource guard in this file (outboxSem, broadcastSem,
-	// maxLiveConnections).
-	const maxFilterLimit = 200
+	// maxLiveConnections). Catches the explicit-large-limit case;
+	// BadgerBackend.MaxLimit (set on the `db` literal above) catches the
+	// omitted-limit case this hook alone can't — see maxFilterLimit's own
+	// doc comment.
 	relay.OverwriteFilter = append(relay.OverwriteFilter, func(ctx context.Context, filter *nostr.Filter) {
 		if filter.Limit > maxFilterLimit {
 			filter.Limit = maxFilterLimit
