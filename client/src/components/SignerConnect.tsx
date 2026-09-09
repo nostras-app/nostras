@@ -76,6 +76,10 @@ export function SignerConnect() {
         Signing with a local key stored in this browser (see Identities
         above). Connect a real signer instead:
       </p>
+      <p className="field-hint">
+        A browser extension (e.g. Alby, nos2x) is detected automatically
+        — nothing to paste.
+      </p>
       <div className="btn-row" style={{ justifyContent: 'flex-start' }}>
         <button
           type="button"
@@ -95,6 +99,19 @@ export function SignerConnect() {
               : 'No extension detected'}
         </button>
       </div>
+      {/* Real UX gap, found from a live user report (Arindam/Clave,
+          2026-09-09/10, see NOSTRAS-CSV.md PQ-087): a bunker signer app
+          (Clave, Amber, nsec.app, etc.) can't be auto-detected the way a
+          browser extension is — there's no equivalent of `window.nostr`
+          to check for a mobile/companion app. Without this copy, the
+          silence read as "Nostras did not detect Clave," when the real
+          expectation is: open the signer app yourself, generate/copy its
+          connection link, paste it below. */}
+      <p className="field-hint">
+        Using a bunker app instead (e.g. Clave, Amber, nsec.app)? These
+        can't be auto-detected — open the app, generate a connection
+        link, then paste it below.
+      </p>
       <div className="field-row">
         <input
           className="input"
