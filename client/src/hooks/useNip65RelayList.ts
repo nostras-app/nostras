@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NDKEvent, normalizeRelayUrl } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, localRelayUrl, authorQueryRelaySet } from '../lib/ndk'
-import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
+import { fetchLatestReplaceableEventWithRetry } from '../lib/fetchLatestReplaceable'
 import { useActiveUser } from './useActiveUser'
 
 const normalizedLocalRelayUrl = normalizeRelayUrl(localRelayUrl)
@@ -55,13 +55,18 @@ export function useNip65RelayList() {
       return
     }
     let cancelled = false
-    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() with no
-    // relay set at all — exposed to both the unscoped-CONNECTED-only-
+    // fetchLatestReplaceableEventWithRetry, not plain ndk.fetchEvent() with
+    // no relay set at all — exposed to both the unscoped-CONNECTED-only-
     // fallback race (2026-08-09) and closeOnEose's own convergence race
     // (2026-08-17, see CLAUDE.md's dated entry). A stale copy here would
     // seed the editor with an outdated relay list rather than the real
-    // current one.
-    fetchLatestReplaceableEvent({ kinds: [10002], authors: [activeUser.pubkey] }, authorQueryRelaySet)
+    // current one. The retry (not the bare single-attempt function) matters
+    // specifically because this list's only real publish target is often
+    // just the local relay — see fetchLatestReplaceableEventWithRetry's own
+    // comment for the real 2026-09-12 bug this fixed (a slow connection to
+    // that one relay lost the race against a fixed 5s timeout and silently
+    // seeded a fake single-relay default instead of the real 24-relay list).
+    fetchLatestReplaceableEventWithRetry({ kinds: [10002], authors: [activeUser.pubkey] }, authorQueryRelaySet)
       .then((event) => {
         if (cancelled) return
         if (event) {

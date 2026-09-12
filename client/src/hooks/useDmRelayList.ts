@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { NDKEvent, normalizeRelayUrl } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, localRelayUrl, authorQueryRelaySet } from '../lib/ndk'
 import { DM_RELAY_LIST_KIND, parseDmRelayTags } from '../lib/dm'
-import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
+import { fetchLatestReplaceableEventWithRetry } from '../lib/fetchLatestReplaceable'
 import { useActiveUser } from './useActiveUser'
 
 const normalizedLocalRelayUrl = normalizeRelayUrl(localRelayUrl)
@@ -14,12 +14,14 @@ const normalizedLocalRelayUrl = normalizeRelayUrl(localRelayUrl)
 // OTHER users' lists — this hook is the missing publish side for our own).
 // Same fetch-then-republish safety shape already settled on for
 // useFollowing/useBookmark/useNip65RelayList after real bugs were found and
-// fixed in each: fetchLatestReplaceableEvent + authorQueryRelaySet (not a
-// plain unscoped fetchEvent(), which races both an unscoped-CONNECTED-only
-// relay fallback and closeOnEose's own stale-copy convergence), an explicit
-// publish timeout, and save() returning a boolean rather than void so the
-// caller can react synchronously instead of risking a stale-closure error
-// read.
+// fixed in each: fetchLatestReplaceableEventWithRetry + authorQueryRelaySet
+// (not a plain unscoped fetchEvent(), which races both an unscoped-
+// CONNECTED-only relay fallback and closeOnEose's own stale-copy
+// convergence — and not the bare single-attempt fetchLatestReplaceableEvent
+// either, see that function's own comment for the real 2026-09-12 bug this
+// retry wrapper fixed), an explicit publish timeout, and save() returning a
+// boolean rather than void so the caller can react synchronously instead of
+// risking a stale-closure error read.
 const PUBLISH_TIMEOUT_MS = 8000
 
 export function useDmRelayList() {
@@ -34,7 +36,7 @@ export function useDmRelayList() {
       return
     }
     let cancelled = false
-    fetchLatestReplaceableEvent(
+    fetchLatestReplaceableEventWithRetry(
       { kinds: [DM_RELAY_LIST_KIND], authors: [activeUser.pubkey] },
       authorQueryRelaySet,
     ).then((event) => {

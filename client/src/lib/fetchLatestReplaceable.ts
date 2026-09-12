@@ -58,3 +58,26 @@ export function fetchLatestReplaceableEvent(
     setTimeout(finish, timeoutMs)
   })
 }
+
+// For callers that treat a null result as "no event exists yet" and seed a
+// plausible-looking default from that (useDmRelayList.ts, useNip65RelayList.ts)
+// — a single fixed timeout can't tell "genuinely nothing published" apart
+// from "the relay that actually has it just hadn't finished connecting yet."
+// Real, live bug (2026-09-12): a real kind:10050 list (3 relays) and a real
+// kind:10002 list (24 relays), both weeks old, both stored only on the local
+// relay (their only publish target at save time) — a slow connection to that
+// one relay was enough to lose the 5s race, and the null result got silently
+// treated as "no list yet," seeding a single-relay default that looked like
+// real data but wasn't. Not data loss — the real list was never touched —
+// but a misleading display with no error and no indication anything failed.
+// One retry at a longer window is cheap insurance against exactly that race;
+// only a null on *both* attempts (10s+ of nothing from any relay in the set)
+// is treated as "this user genuinely has no list yet."
+export async function fetchLatestReplaceableEventWithRetry(
+  filter: NDKFilter,
+  relaySet: NDKRelaySet,
+): Promise<NDKEvent | null> {
+  const first = await fetchLatestReplaceableEvent(filter, relaySet, 5000)
+  if (first) return first
+  return fetchLatestReplaceableEvent(filter, relaySet, 10000)
+}
