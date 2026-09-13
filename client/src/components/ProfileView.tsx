@@ -51,7 +51,9 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
     [viewedPubkey],
   )
   const profile = useProfile(viewedPubkey)
-  const { events, loading } = useNoteFeed(viewedPubkey ? [viewedPubkey] : undefined)
+  const { events, loading, loadOlder, loadingOlder, loadOlderError, hasMore } = useNoteFeed(
+    viewedPubkey ? [viewedPubkey] : undefined,
+  )
   const { following, followers, followingPubkeys, followerPubkeys } = useFollowCounts(viewedPubkey)
   const [listModal, setListModal] = useState<'following' | 'followers' | null>(null)
   const {
@@ -222,6 +224,24 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
               <FeedItem key={event.id} event={event} />
             ))}
           </ul>
+        )}
+
+        {events.length > 0 && hasMore && (
+          <div className="feed-load-more">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={loadOlder}
+              disabled={loadingOlder}
+            >
+              {loadingOlder ? 'Loading…' : 'Load older'}
+            </button>
+            {loadOlderError && <p className="alert-error">{loadOlderError}</p>}
+          </div>
+        )}
+
+        {events.length > 0 && !hasMore && (
+          <p className="feed-load-more-end">That's everything.</p>
         )}
       </div>
 

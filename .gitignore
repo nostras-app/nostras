@@ -9,6 +9,11 @@ nostras-node-productization-strategy.md
 nostras-nips-compliance.md
 NOSTRAS-CSV.md
 nostras-exclusive-features.md
+nostras-production-scale-infrastructure.md
+nostras-foss-migration-strategy.md
+
+# Local relay runtime data (this machine's own dev instance)
+server/outbox-cache.json
 
 # Editor swap files
 *.swp

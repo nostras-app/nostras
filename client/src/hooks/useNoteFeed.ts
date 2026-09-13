@@ -4,8 +4,12 @@ import { ndk, authorQueryRelaySet } from '../lib/ndk'
 import { useRelayStatus } from './useRelayStatus'
 import { KIND_POLL } from '../lib/poll'
 import { KIND_FORUM_THREAD } from '../lib/forum'
-import { KIND_PODCAST_EPISODE } from '../lib/podcast'
+import { KIND_PODCAST_EPISODE, withTimeout } from '../lib/podcast'
 import { KIND_LISTING } from '../lib/listing'
+
+// A page's worth of history, both for the initial subscription's own
+// backlog and for each loadOlder() fetch below.
+const PAGE_SIZE = 50
 
 // Not in NDK's own kind catalog — same gap already hit for several
 // other project-specific kinds this session (NIP-29 delete kinds,
@@ -102,8 +106,101 @@ export function useNoteFeed(
   // below for the part that handles that.
   const excludeRef = useRef<Set<string>>(new Set())
 
+  // How many events loadOlder() has explicitly paged in beyond the
+  // initial backlog — the live-arrival handler below normally caps
+  // `events` at MAX_RENDERED_EVENTS on every new note (PQ-043's
+  // freeze-prevention slice), but without this offset that same slice
+  // would silently discard history the user just explicitly asked to
+  // load the next time any live note arrives. Reset alongside the rest
+  // of this feed's state whenever it resets (new author, relay
+  // recovery) — not persisted across a genuine resubscribe.
+  const pagedInCountRef = useRef(0)
+
+  // Mirrors `events` for loadOlder() below, which needs to read the
+  // current oldest-loaded timestamp synchronously without depending on
+  // `events` itself (that would redefine the callback, and therefore
+  // reset any in-flight caller's closure, on every single event arrival
+  // from the live subscription — the same ref-for-synchronous-read
+  // pattern excludeRef already uses above, for the same reason).
+  const eventsRef = useRef<NDKEvent[]>([])
+  useEffect(() => {
+    eventsRef.current = events
+  }, [events])
+
   const authorsKey = authors?.join(',') ?? ''
   const excludeKey = options?.excludePubkeys?.join(',') ?? ''
+
+  // Kinds this feed subscribes to and pages through — kind:1 notes,
+  // kind:30023 long-form articles, kind:9041 zap goals, kind:1068 polls,
+  // kind:11 forum threads, kind:54 podcast episodes, kind:30402
+  // classified listings. Static, but computed once per render rather
+  // than module-level since KIND_POLL etc. are plain numbers anyway —
+  // kept here (not hoisted to module scope) so both the subscription
+  // effect and loadOlder below share the exact same list without a
+  // second copy to keep in sync.
+  const kinds = useMemo(
+    () => [1, 30023, KIND_ZAP_GOAL, KIND_POLL as NDKKind, KIND_FORUM_THREAD, KIND_PODCAST_EPISODE, KIND_LISTING],
+    [],
+  )
+
+  // Real, live user report (2026-09-13): a profile's own-notes feed has
+  // no way to see anything past the initial PAGE_SIZE backlog — a note
+  // genuinely still stored on the relay (confirmed directly via `nak`)
+  // just silently never loads once enough newer activity pushes it past
+  // the subscription's own limit, with nothing in the UI indicating
+  // there's more history that was never fetched. loadOlder() is a real,
+  // explicit pagination action: a one-shot fetchEvents() for events
+  // strictly older than whatever's currently loaded, merged in rather
+  // than replacing. Deliberately NOT wired into the live subscription's
+  // own MAX_RENDERED_EVENTS cap — that cap exists to stop an unbounded
+  // *live* arrival flood from freezing the tab in one commit (PQ-043);
+  // a user explicitly clicking "load older" a page at a time is a
+  // fundamentally safer, self-paced pattern that shouldn't be capped
+  // the same way.
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [loadOlderError, setLoadOlderError] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(true)
+
+  const loadOlder = useCallback(async () => {
+    if (loadingOlder) return
+    const current = eventsRef.current
+    if (current.length === 0) return
+    const oldest = current.reduce(
+      (min, e) => Math.min(min, e.created_at ?? min),
+      current[0].created_at ?? Math.floor(Date.now() / 1000),
+    )
+    setLoadingOlder(true)
+    setLoadOlderError(null)
+    const filter = authors
+      ? { kinds, authors, until: oldest - 1, limit: PAGE_SIZE }
+      : { kinds, until: oldest - 1, limit: PAGE_SIZE }
+    try {
+      const fetched = await withTimeout(
+        ndk.fetchEvents(filter, undefined, authors ? authorQueryRelaySet : undefined),
+        8000,
+        'Timed out loading older notes',
+      )
+      const older = Array.from(fetched).filter((e) => !excludeRef.current.has(e.pubkey))
+      if (older.length === 0) {
+        setHasMore(false)
+      } else {
+        setEvents((prev) => {
+          const seen = new Set(prev.map((e) => e.id))
+          const genuinelyNew = older.filter((e) => !seen.has(e.id))
+          pagedInCountRef.current += genuinelyNew.length
+          return [...prev, ...genuinelyNew].sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+        })
+      }
+    } catch (e) {
+      setLoadOlderError(e instanceof Error ? e.message : 'Failed to load older notes')
+    } finally {
+      setLoadingOlder(false)
+    }
+    // authorsKey (not authors) is the real dependency, same reasoning as
+    // the subscription effect above — a fresh array reference on every
+    // render must not redefine this callback. Same already-accepted
+    // oxlint warning shape as that effect, not suppressed here either.
+  }, [authorsKey, kinds, loadingOlder])
 
   useEffect(() => {
     excludeRef.current = new Set(options?.excludePubkeys ?? [])
@@ -147,6 +244,10 @@ export function useNoteFeed(
   }, [])
 
   useEffect(() => {
+    setHasMore(true)
+    setLoadOlderError(null)
+    pagedInCountRef.current = 0
+
     if (authors && authors.length === 0) {
       setEvents([])
       setNewEvents([])
@@ -181,17 +282,8 @@ export function useNoteFeed(
     // in the filter, NDK already queries the full explicit relay list
     // unconditionally, not gated on which relays happen to be CONNECTED
     // yet, so it was never subject to this race.
-    const kinds = [
-      1,
-      30023,
-      KIND_ZAP_GOAL,
-      KIND_POLL as NDKKind,
-      KIND_FORUM_THREAD,
-      KIND_PODCAST_EPISODE,
-      KIND_LISTING,
-    ]
     const sub = ndk.subscribe(
-      authors ? { kinds, authors, limit: 50 } : { kinds, limit: 50 },
+      authors ? { kinds, authors, limit: PAGE_SIZE } : { kinds, limit: PAGE_SIZE },
       authors ? { relaySet: authorQueryRelaySet } : undefined,
     )
 
@@ -222,7 +314,7 @@ export function useNoteFeed(
         if (prev.some((existing) => existing.id === event.id)) return prev
         return [event, ...prev]
           .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
-          .slice(0, MAX_RENDERED_EVENTS)
+          .slice(0, MAX_RENDERED_EVENTS + pagedInCountRef.current)
       })
     })
 
@@ -277,5 +369,9 @@ export function useNoteFeed(
     // implying an exact count it can no longer actually back up.
     newCountTruncated: truncatedRef.current,
     showNew,
+    loadOlder,
+    loadingOlder,
+    loadOlderError,
+    hasMore,
   }
 }
