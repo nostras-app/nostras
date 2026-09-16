@@ -243,12 +243,38 @@ func main() {
 	ctx := context.Background()
 	payment := loadPaymentConfig(ctx)
 
-	// Throwaway identity for this DVM *process's whole lifetime* — stays
-	// stable across the relay reconnects below, so a client that already
-	// received a payment-required from this pubkey still gets its result
-	// from the same pubkey after a brief connection drop, not a new
-	// random one it has no reason to trust.
-	sk := nostr.GeneratePrivateKey()
+	// Was unconditionally ephemeral (regenerated every boot) until
+	// 2026-09-16 — a real, live finding from an external NIP-90 researcher
+	// (nilo_agent, a self-disclosed AI agent) who ran a reproducible scan
+	// against our own DVM pubkey and got back a real, verified zero: not
+	// just no job activity, but no kind:0 and no kind:31990 at all on
+	// standard discovery relays. Root cause, confirmed by reading this
+	// file: publishHandlerAnnouncement only ever published to our own
+	// relay, and this key regenerated on every restart — so even a fix to
+	// the publish targets alone would leave every external index chasing
+	// a moving pubkey. "Jobs correlate by request id, not by a client
+	// trusting the DVM's pubkey across restarts" (the original reasoning
+	// for ephemeral) is still true and still fine — it just never
+	// required instability, and instability is actively harmful for
+	// discovery, which this app's own /tools page now leads with as the
+	// growth strategy. NOSTRAS_DVM_IDENTITY_KEY, if set, makes this the
+	// DVM's real stable public identity across restarts — job feedback/
+	// results, the handler announcements, and the DVM's own kind:0
+	// profile (see publishDvmProfile) all sign with the same key now, so
+	// a client that discovers the DVM via a stable announcement pubkey
+	// gets job responses from that identical pubkey, not a different one.
+	// Unset falls back to the original ephemeral behavior unchanged — this
+	// is additive, never a requirement to keep the DVM running.
+	sk := os.Getenv("NOSTRAS_DVM_IDENTITY_KEY")
+	if sk != "" {
+		if _, err := nostr.GetPublicKey(sk); err != nil {
+			fmt.Println("warning: NOSTRAS_DVM_IDENTITY_KEY set but invalid, falling back to an ephemeral identity:", err)
+			sk = ""
+		}
+	}
+	if sk == "" {
+		sk = nostr.GeneratePrivateKey()
+	}
 	pk, _ := nostr.GetPublicKey(sk)
 
 	// Deliberately a *separate* key from sk above, and — unlike sk — must
@@ -365,8 +391,20 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, a
 	markRelayConnected(true)
 	defer markRelayConnected(false)
 
-	publishHandlerAnnouncement(ctx, relay, sk, articleKeyPk, communityKeyPk)
-	publishClientHandlerAnnouncement(ctx, relay, sk)
+	handlerEvt := publishHandlerAnnouncement(ctx, relay, sk, articleKeyPk, communityKeyPk)
+	clientHandlerEvt := publishClientHandlerAnnouncement(ctx, relay, sk)
+	dvmAbout, _ := dvmAboutAndTags(articleKeyPk, communityKeyPk)
+	profileEvt := publishDvmProfile(ctx, relay, sk, dvmAbout)
+
+	var discoveryEvts []nostr.Event
+	for _, evt := range []nostr.Event{handlerEvt, clientHandlerEvt, profileEvt} {
+		if evt.Sig != "" {
+			discoveryEvts = append(discoveryEvts, evt)
+		}
+	}
+	if len(discoveryEvts) > 0 {
+		publishToDiscoveryRelays(ctx, discoveryEvts)
+	}
 
 	kinds := []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate, kindJobRequestModerate, kindJobRequestListingPurchase}
 	if articleKeySk != "" {
@@ -1228,14 +1266,11 @@ func callClaude(ctx context.Context, claude anthropic.Client, systemPrompt, user
 	return "", fmt.Errorf("no text content in response")
 }
 
-// publishHandlerAnnouncement advertises this DVM per NIP-89/NIP-90's
-// service-provider-discoverability appendix: a single kind:31990 event
-// listing every job kind this DVM handles, so a generic NIP-90-aware
-// client or marketplace can find and pay it directly. Content is static
-// (kind:0-style JSON), deliberately not a live price — the actual price
-// is dynamic per job (see estimateJobCostSats), so the description gives
-// a representative price band instead of a number that would go stale.
-func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, articleKeyPk, communityKeyPk string) {
+// dvmAboutAndTags builds the shared "about" text and kind:31990 job-kind
+// tags — factored out so publishDvmProfile's real kind:0 event can reuse
+// the exact same about text as the handler announcement, rather than a
+// second, driftable copy.
+func dvmAboutAndTags(articleKeyPk, communityKeyPk string) (string, nostr.Tags) {
 	about := fmt.Sprintf("Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes. Marketplace purchase confirmation (5907) — pay a NIP-99 listing's own seller directly via their real Lightning address, and get back a public, independently-verifiable NIP-32 receipt; NOSTRAS keeps a flat %d-sat fee for the confirmation service.", marketplacePurchaseFeeSats)
 	tags := nostr.Tags{
 		{"d", dvmHandlerDTag},
@@ -1253,16 +1288,30 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, art
 		about += fmt.Sprintf(" Paid community joining (5906) — the group sets its own price and payout address, paid directly; NOSTRAS keeps a flat %d-sat fee for the admission service.", communityJoinFeeSats)
 		tags = append(tags, nostr.Tag{"k", strconv.Itoa(kindJobRequestCommunityJoin)})
 	}
+	return about, tags
+}
+
+// publishHandlerAnnouncement advertises this DVM per NIP-89/NIP-90's
+// service-provider-discoverability appendix: a single kind:31990 event
+// listing every job kind this DVM handles, so a generic NIP-90-aware
+// client or marketplace can find and pay it directly. Content is static
+// (kind:0-style JSON), deliberately not a live price — the actual price
+// is dynamic per job (see estimateJobCostSats), so the description gives
+// a representative price band instead of a number that would go stale.
+func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, articleKeyPk, communityKeyPk string) nostr.Event {
+	about, tags := dvmAboutAndTags(articleKeyPk, communityKeyPk)
 
 	// articleEncryptionPubkey/communityAdminPubkey, each present only
 	// when its own feature is enabled, are *separate* fields from this
 	// event's own signing pubkey (evt.PubKey, set by signAndPublish
-	// below) — that key is only stable for this process's lifetime (see
-	// main()'s own comment on why), while these are persisted and must
-	// stay constant: articleEncryptionPubkey for authors to encrypt
-	// articles against long-term, communityAdminPubkey so a group owner
-	// knows which exact pubkey to promote to admin for paid joining to
-	// keep working across DVM restarts.
+	// below) — that pubkey is stable across restarts too now when
+	// NOSTRAS_DVM_IDENTITY_KEY is set (see main()'s own comment), but
+	// these two stay their own dedicated persisted keys regardless:
+	// articleEncryptionPubkey for authors to encrypt articles against
+	// long-term, communityAdminPubkey so a group owner knows which exact
+	// pubkey to promote to admin for paid joining to keep working across
+	// DVM restarts — kept separate so a bug in either feature's own key
+	// handling can't touch the DVM's core identity.
 	content, err := json.Marshal(struct {
 		Name                    string `json:"name"`
 		About                   string `json:"about"`
@@ -1280,7 +1329,7 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, art
 	})
 	if err != nil {
 		fmt.Println("handler announcement marshal error:", err)
-		return
+		return nostr.Event{}
 	}
 
 	evt := nostr.Event{
@@ -1289,7 +1338,7 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, art
 		Content:   string(content),
 		Tags:      tags,
 	}
-	signAndPublish(ctx, relay, sk, evt)
+	return signForBroadcast(ctx, relay, sk, evt)
 }
 
 // publishClientHandlerAnnouncement advertises NOSTRAS the client (not the
@@ -1302,7 +1351,7 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, art
 // the discovering client per NIP-89 with a real naddr; client/src/lib/
 // deeplink.ts is what makes that URL actually resolve once someone lands
 // on it, via the same `?nostr=` query param.
-func publishClientHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk string) {
+func publishClientHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk string) nostr.Event {
 	content, err := json.Marshal(struct {
 		Name    string `json:"name"`
 		About   string `json:"about"`
@@ -1316,7 +1365,7 @@ func publishClientHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, s
 	})
 	if err != nil {
 		fmt.Println("client handler announcement marshal error:", err)
-		return
+		return nostr.Event{}
 	}
 
 	evt := nostr.Event{
@@ -1329,7 +1378,7 @@ func publishClientHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, s
 			{"web", "https://app.nostras.app/?nostr=<bech32>", "naddr"},
 		},
 	}
-	signAndPublish(ctx, relay, sk, evt)
+	return signForBroadcast(ctx, relay, sk, evt)
 }
 
 func publishFeedback(ctx context.Context, relay *nostr.Relay, sk string, req *nostr.Event, status, message string) {
@@ -1455,6 +1504,106 @@ func signAndPublish(ctx context.Context, relay *nostr.Relay, sk string, evt nost
 	if err := signAndPublishChecked(ctx, relay, sk, evt); err != nil {
 		fmt.Println(err)
 	}
+}
+
+// dvmDiscoveryRelayURLs — where a real NIP-90-aware client, marketplace, or
+// directory tool would actually go looking for a DVM's kind:0 and kind:31990,
+// not just our own relay. Real, verified gap (2026-09-16): an external
+// researcher's reproducible scan found genuinely zero events of any kind for
+// this DVM's pubkey across 20 relays, including purplepag.es and
+// relay.nostrdvm.com — not because there was no activity, but because
+// publishHandlerAnnouncement never published anywhere but our own relay.
+// purplepag.es is the standard kind:0 profile-discovery relay generic
+// clients already query; relay.nostrdvm.com is DVM-specific discovery.
+var dvmDiscoveryRelayURLs = []string{"wss://purplepag.es", "wss://relay.nostrdvm.com"}
+
+// signForBroadcast signs an identity event (the DVM's kind:0 profile, its
+// kind:31990 handler announcements) and publishes it to the primary relay,
+// same as signAndPublish — but also returns the now-signed event so the
+// caller can batch it into one publishToDiscoveryRelays call alongside the
+// DVM's other identity events, instead of each announcement dialing the
+// same discovery relays separately.
+//
+// Real, live-caught reason this matters, not theoretical (2026-09-16): the
+// first version had each of the three identity-event publishers dial
+// dvmDiscoveryRelayURLs independently, each with its own up-to-8s-per-relay
+// timeout — three publishers times two discovery relays meant up to six
+// sequential dials on every single boot (and every reconnect, since this
+// runs inside the retry loop), and a real local test run hit "context
+// deadline exceeded" on a later publish purely from that accumulated
+// dialing time, not from any actual failure. Connecting once per discovery
+// relay and publishing all three events through that one connection cuts
+// the real dial count from six to two.
+func signForBroadcast(ctx context.Context, relay *nostr.Relay, sk string, evt nostr.Event) nostr.Event {
+	if err := evt.Sign(sk); err != nil {
+		fmt.Println("sign error:", err)
+		return evt
+	}
+	if err := relay.Publish(ctx, evt); err != nil {
+		fmt.Println("publish error:", err)
+	}
+	return evt
+}
+
+// publishToDiscoveryRelays dials each of dvmDiscoveryRelayURLs exactly
+// once and publishes every already-signed event in evts through that one
+// connection — not once per event (see signForBroadcast's own comment for
+// the real boot-time cost that shape had). One slow or unreachable
+// discovery relay never blocks another, and never blocks the primary
+// relay's own publishes, which already happened before this runs.
+// Failures are logged, not fatal — a discovery relay being briefly down,
+// or (confirmed live, 2026-09-16: purplepag.es structurally rejects
+// kind:31990 — it's a kind:0-only metadata relay) refusing a kind it
+// doesn't accept, shouldn't stop the DVM from booting.
+func publishToDiscoveryRelays(ctx context.Context, evts []nostr.Event) {
+	for _, url := range dvmDiscoveryRelayURLs {
+		func() {
+			dctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+			defer cancel()
+			dr, err := nostr.RelayConnect(dctx, url)
+			if err != nil {
+				fmt.Printf("discovery relay %s: connect error: %v\n", url, err)
+				return
+			}
+			defer dr.Close()
+			for _, evt := range evts {
+				if err := dr.Publish(dctx, evt); err != nil {
+					fmt.Printf("discovery relay %s: publish error (kind %d): %v\n", url, evt.Kind, err)
+				}
+			}
+		}()
+	}
+}
+
+// publishDvmProfile gives the DVM a genuine kind:0 profile event — the
+// kind:31990 handler announcement's own content is kind:0-*shaped* JSON,
+// but was never an actual kind:0 event, so any tool that specifically
+// resolves kind:0 to answer "who is this pubkey" (purplepag.es chief among
+// them) found nothing for this DVM. Same identity, name, about text, and
+// broad discovery-relay fanout as the handler announcement — this is purely
+// additive, not a replacement for it.
+func publishDvmProfile(ctx context.Context, relay *nostr.Relay, sk, about string) nostr.Event {
+	content, err := json.Marshal(struct {
+		Name    string `json:"name"`
+		About   string `json:"about"`
+		Picture string `json:"picture"`
+		Website string `json:"website"`
+	}{
+		Name:    "NOSTRAS DVM",
+		About:   about,
+		Picture: "https://app.nostras.app/pwa-512x512.png",
+		Website: "https://nostras.app",
+	})
+	if err != nil {
+		fmt.Println("dvm profile marshal error:", err)
+		return nostr.Event{}
+	}
+	evt := nostr.Event{
+		Kind:      0,
+		CreatedAt: nostr.Now(),
+		Content:   string(content),
+	}
+	return signForBroadcast(ctx, relay, sk, evt)
 }
 
 // signAndPublishChecked is the same sign-then-publish as signAndPublish,
