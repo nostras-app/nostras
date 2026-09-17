@@ -85,12 +85,33 @@ export function JobBoardView() {
     return open.filter((e) => parseJobMeta(e).categories.includes(categoryFilter))
   }, [open, categoryFilter])
 
+  // Same top-of-view explainer convention as SearchView/AskClaudeCard —
+  // shown unconditionally, including while still loading, since it's
+  // orientation text about the feature itself, not feed content.
+  const hint = (
+    <p className="field-hint">
+      Job Board: post a paid job, people apply by commenting on it
+      (NIP-22), and you pick who gets paid — completion payment settles
+      over Lightning through a NIP-90 DVM job, plus a small flat NOSTRAS
+      relay fee. The job offer itself is a NOSTRAS-specific event kind,
+      not a ratified NIP, so it won't render in other Nostr clients —
+      share the app.nostras.app link if you want people elsewhere to
+      see it.
+    </p>
+  )
+
   if (loading) {
-    return <FeedSkeleton />
+    return (
+      <div className="marketplace-view">
+        {hint}
+        <FeedSkeleton />
+      </div>
+    )
   }
 
   return (
     <div className="marketplace-view">
+      {hint}
       {open.length > 0 && categories.length > 0 && (
         <div className="field-row marketplace-filter-row">
           <select
