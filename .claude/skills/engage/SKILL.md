@@ -426,6 +426,26 @@ project's own relay and a likely landing spot for its own replies, so
 it belongs in this query by default, not as a fallback tried only
 after a miss.
 
+**A candidate found via a reply chain has at least two ids in play —
+query the right one (2026-09-17)**: a real, live instance, caught by
+the user, not this skill. A candidate surfaced because it replied to
+one of our own earlier notes — so it carries *two* distinct ids: its
+own (`X`), and the note it replies to (`Y`, one of ours, already in
+the tracked set from step 1). The pre-draft check ran
+`{"#e":["Y"]}` — "have we replied to our own earlier note" — instead
+of `{"#e":["X"]}` — "have we replied to *this candidate specifically*"
+— and came back empty because that's a real question with a different,
+unrelated answer, not the one this check exists to ask. `Y` being in
+step 1's tracked set doesn't clear `X` at all; a real reply already
+existed on `X` from six days earlier, sent then querying it directly.
+**Before running this query, state which id is `X`**: it's the exact
+id you would put in this new reply's own `e` tag — the candidate
+event's own `.id` field, never an id found *inside* that event's own
+`tags` array. If a candidate's content or context surfaces more than
+one plausible id (its own id, a parent it replies to, a root it's
+nested under), write out explicitly which one is the candidate before
+querying, and query that one.
+
 ## 4. Draft honest, specific replies — never generic
 
 No "nice post!", no emoji-only reactions, nothing that could have been
