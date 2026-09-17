@@ -2,7 +2,8 @@ import { NDKRelaySet, nip19 } from '@nostr-dev-kit/ndk'
 import { ndk, localRelaySet, localRelayUrl, publicRelayUrls } from './ndk'
 import { makeRelayConnectionFilter } from './relayFilter'
 import { resolveNoteReference } from './resolvePubkey'
-import { viewArticle, viewNote, viewGroup } from './navigation'
+import { viewArticle, viewNote, viewGroup, viewJobOffer } from './navigation'
+import { KIND_JOB_OFFER } from './job'
 
 const isAllowedRelayUrl = makeRelayConnectionFilter(localRelayUrl)
 
@@ -84,6 +85,28 @@ export async function resolveDeepLinkFromUrl(): Promise<boolean> {
       )
       if (event) {
         viewArticle(event)
+        return true
+      }
+    }
+
+    // Same shape and same reasoning as the kind:30023 branch just
+    // above (scoped to localRelaySet, not left to NDK's own outbox-relay
+    // resolution) — job offers are addressable the same way articles
+    // are, and this app's own job offers are always reachable via its
+    // own relay regardless of which relay a link happens to be shared
+    // through.
+    if (decoded.type === 'naddr' && decoded.data.kind === KIND_JOB_OFFER) {
+      const event = await ndk.fetchEvent(
+        {
+          kinds: [KIND_JOB_OFFER],
+          authors: [decoded.data.pubkey],
+          '#d': [decoded.data.identifier],
+        },
+        undefined,
+        localRelaySet,
+      )
+      if (event) {
+        viewJobOffer(event)
         return true
       }
     }
