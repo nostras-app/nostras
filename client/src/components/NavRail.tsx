@@ -16,6 +16,7 @@ import {
   StoreIcon,
   WalletIcon,
   LayoutBoardIcon,
+  BriefcaseIcon,
 } from './icons'
 
 export type View =
@@ -32,12 +33,14 @@ export type View =
   | 'communities'
   | 'boards'
   | 'marketplace'
+  | 'jobs'
   | 'wallet'
   | 'article'
   | 'note'
   | 'thread'
   | 'episode'
   | 'listing'
+  | 'job'
 
 // Caps the displayed number so a genuinely large backlog (e.g. a fresh
 // account importing years of history) doesn't blow out the badge's fixed
@@ -113,6 +116,14 @@ export function NavRail({
         title="Marketplace"
       >
         <StoreIcon />
+      </button>
+      <button
+        type="button"
+        className={`nav-rail-btn${activeClass('jobs')}`}
+        onClick={() => onSelect('jobs')}
+        title="Job Board"
+      >
+        <BriefcaseIcon />
       </button>
       <button
         type="button"

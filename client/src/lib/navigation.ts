@@ -10,6 +10,7 @@ type NavState = {
   thread: NDKEvent | null
   episode: NDKEvent | null
   listing: NDKEvent | null
+  job: NDKEvent | null
   dmTarget: string | null
   groupTarget: string | null
   board: NDKEvent | null
@@ -23,6 +24,7 @@ let state: NavState = {
   thread: null,
   episode: null,
   listing: null,
+  job: null,
   dmTarget: null,
   groupTarget: null,
   board: null,
@@ -56,6 +58,7 @@ export function setActiveView(view: View) {
     thread: null,
     episode: null,
     listing: null,
+    job: null,
     dmTarget: null,
     groupTarget: null,
     board: null,
@@ -76,6 +79,7 @@ export function viewProfile(pubkey: string) {
     thread: null,
     episode: null,
     listing: null,
+    job: null,
     dmTarget: null,
     groupTarget: null,
     board: null,
@@ -95,6 +99,7 @@ export function viewArticle(event: NDKEvent) {
     thread: null,
     episode: null,
     listing: null,
+    job: null,
     dmTarget: null,
     groupTarget: null,
     board: null,
@@ -116,6 +121,7 @@ export function viewNote(event: NDKEvent) {
     thread: null,
     episode: null,
     listing: null,
+    job: null,
     dmTarget: null,
     groupTarget: null,
     board: null,
@@ -135,6 +141,7 @@ export function viewThread(event: NDKEvent) {
     thread: event,
     episode: null,
     listing: null,
+    job: null,
     dmTarget: null,
     groupTarget: null,
     board: null,
@@ -154,6 +161,7 @@ export function viewEpisode(event: NDKEvent) {
     thread: null,
     episode: event,
     listing: null,
+    job: null,
     dmTarget: null,
     groupTarget: null,
     board: null,
@@ -173,6 +181,7 @@ export function viewListing(event: NDKEvent) {
     thread: null,
     episode: null,
     listing: event,
+    job: null,
     dmTarget: null,
     groupTarget: null,
     board: null,
@@ -193,6 +202,7 @@ export function startDmWith(pubkey: string) {
     thread: null,
     episode: null,
     listing: null,
+    job: null,
     dmTarget: pubkey,
     groupTarget: null,
     board: null,
@@ -214,6 +224,7 @@ export function viewGroup(groupId: string) {
     thread: null,
     episode: null,
     listing: null,
+    job: null,
     dmTarget: null,
     groupTarget: groupId,
     board: null,
@@ -235,9 +246,30 @@ export function viewBoard(event: NDKEvent) {
     thread: null,
     episode: null,
     listing: null,
+    job: null,
     dmTarget: null,
     groupTarget: null,
     board: event,
+  }
+  notify()
+}
+
+// Opens a job board offer's full view — same "already-fetched event in
+// hand" shape as viewArticle/viewNote/viewThread/viewEpisode/viewListing,
+// reached by clicking a JobOfferCard in the feed or the Job Board view.
+export function viewJobOffer(event: NDKEvent) {
+  state = {
+    view: 'job',
+    profilePubkey: null,
+    article: null,
+    note: null,
+    thread: null,
+    episode: null,
+    listing: null,
+    job: event,
+    dmTarget: null,
+    groupTarget: null,
+    board: null,
   }
   notify()
 }

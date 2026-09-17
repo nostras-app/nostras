@@ -6,6 +6,7 @@ import { KIND_POLL } from '../lib/poll'
 import { KIND_FORUM_THREAD } from '../lib/forum'
 import { KIND_PODCAST_EPISODE, withTimeout } from '../lib/podcast'
 import { KIND_LISTING } from '../lib/listing'
+import { KIND_JOB_OFFER } from '../lib/job'
 
 // A page's worth of history, both for the initial subscription's own
 // backlog and for each loadOlder() fetch below.
@@ -133,13 +134,22 @@ export function useNoteFeed(
   // Kinds this feed subscribes to and pages through — kind:1 notes,
   // kind:30023 long-form articles, kind:9041 zap goals, kind:1068 polls,
   // kind:11 forum threads, kind:54 podcast episodes, kind:30402
-  // classified listings. Static, but computed once per render rather
-  // than module-level since KIND_POLL etc. are plain numbers anyway —
-  // kept here (not hoisted to module scope) so both the subscription
-  // effect and loadOlder below share the exact same list without a
-  // second copy to keep in sync.
+  // classified listings, kind:30406 job offers. Static, but computed
+  // once per render rather than module-level since KIND_POLL etc. are
+  // plain numbers anyway — kept here (not hoisted to module scope) so
+  // both the subscription effect and loadOlder below share the exact
+  // same list without a second copy to keep in sync.
   const kinds = useMemo(
-    () => [1, 30023, KIND_ZAP_GOAL, KIND_POLL as NDKKind, KIND_FORUM_THREAD, KIND_PODCAST_EPISODE, KIND_LISTING],
+    () => [
+      1,
+      30023,
+      KIND_ZAP_GOAL,
+      KIND_POLL as NDKKind,
+      KIND_FORUM_THREAD,
+      KIND_PODCAST_EPISODE,
+      KIND_LISTING,
+      KIND_JOB_OFFER,
+    ],
     [],
   )
 

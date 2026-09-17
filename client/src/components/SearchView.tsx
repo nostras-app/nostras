@@ -11,17 +11,27 @@ import { KIND_POLL } from '../lib/poll'
 import { KIND_FORUM_THREAD } from '../lib/forum'
 import { KIND_PODCAST_EPISODE } from '../lib/podcast'
 import { KIND_LISTING } from '../lib/listing'
+import { KIND_JOB_OFFER } from '../lib/job'
 
 // Same kind list useNoteFeed.ts subscribes the main feed to — search had
 // been kind:1-only since it was first built, so every other content type
 // this app supports (articles, zap goals, polls, forum threads, podcast
-// episodes, and now listings) was structurally unsearchable through this
-// UI even though the relay's own NIP-50 index (server/search.go) has
-// always indexed them regardless of kind. Found live while verifying
-// NIP-99 listings: a real published listing, confirmed present via a
-// direct `nak req --search` against the relay, came back "No results"
-// through this exact search box.
-const SEARCH_KINDS = [1, 30023, 9041, KIND_POLL as NDKKind, KIND_FORUM_THREAD, KIND_PODCAST_EPISODE, KIND_LISTING]
+// episodes, listings, and now job offers) was structurally unsearchable
+// through this UI even though the relay's own NIP-50 index
+// (server/search.go) has always indexed them regardless of kind. Found
+// live while verifying NIP-99 listings: a real published listing,
+// confirmed present via a direct `nak req --search` against the relay,
+// came back "No results" through this exact search box.
+const SEARCH_KINDS = [
+  1,
+  30023,
+  9041,
+  KIND_POLL as NDKKind,
+  KIND_FORUM_THREAD,
+  KIND_PODCAST_EPISODE,
+  KIND_LISTING,
+  KIND_JOB_OFFER,
+]
 
 type State = 'idle' | 'loading' | 'results' | 'empty' | 'error'
 

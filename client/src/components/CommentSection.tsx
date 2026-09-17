@@ -1,15 +1,29 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { useProfile } from '../hooks/useProfile'
 import { useComments } from '../hooks/useComments'
+import { useExternalIdentities } from '../hooks/useExternalIdentities'
 import { publishComment } from '../lib/comments'
 import { formatRelativeTime } from '../lib/time'
 import { viewProfile } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
+import { externalIdentityProfileUrl } from '../lib/externalIdentities'
 
-function CommentRow({ comment }: { comment: NDKEvent }) {
+function CommentRow({
+  comment,
+  renderExtra,
+}: {
+  comment: NDKEvent
+  renderExtra?: (comment: NDKEvent) => ReactNode
+}) {
   const profile = useProfile(comment.pubkey)
   const label = profile?.name || profile?.displayName || `${comment.author.npub.slice(0, 12)}…`
+  // Job Board's real motivation for this (a poster judging an
+  // applicant), but harmless and mildly useful on any comment thread —
+  // a real, independently-verified signal (NIP-39), not a claim.
+  const identities = useExternalIdentities(comment.pubkey)
+  const github = identities.find((i) => i.platform === 'github')
+  const githubUrl = github ? externalIdentityProfileUrl(github.platform, github.identity) : null
   return (
     <li className="comment-row">
       <button type="button" className="comment-author" onClick={() => viewProfile(comment.pubkey)}>
@@ -23,9 +37,21 @@ function CommentRow({ comment }: { comment: NDKEvent }) {
           <span className="feed-item-time">{formatRelativeTime(comment.created_at)}</span>
         )}
       </button>
+      {githubUrl && (
+        <a
+          className="relay-badge"
+          href={githubUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          GitHub: {github?.identity}
+        </a>
+      )}
       {/* NIP-22 content is plaintext only (no HTML/Markdown/formatting per
           the spec itself) — rendered as-is, no segment parsing needed. */}
       <p className="comment-content">{comment.content}</p>
+      {renderExtra?.(comment)}
     </li>
   )
 }
@@ -36,7 +62,22 @@ function CommentRow({ comment }: { comment: NDKEvent }) {
 // app's established "one level of depth, not a full nested tree"
 // precedent (SingleNoteView's own reply view) — no reply-to-a-comment
 // UI here.
-export function CommentSection({ rootEvent }: { rootEvent: NDKEvent }) {
+export function CommentSection({
+  rootEvent,
+  title = 'Comments',
+  placeholder = 'Add a comment…',
+  renderExtra,
+}: {
+  rootEvent: NDKEvent
+  // Job Board reuses this component as-is for "Applications" (title
+  // overridden) with an owner-only "Pay this applicant" action injected
+  // per comment via renderExtra — avoids a second, duplicate useComments
+  // subscription just to render one extra button per row, the same
+  // duplicate-subscription bug class this app has hit and fixed before.
+  title?: string
+  placeholder?: string
+  renderExtra?: (comment: NDKEvent) => ReactNode
+}) {
   const comments = useComments(rootEvent)
   const [content, setContent] = useState('')
   const [posting, setPosting] = useState(false)
@@ -59,7 +100,7 @@ export function CommentSection({ rootEvent }: { rootEvent: NDKEvent }) {
   return (
     <div className="comment-section">
       <h2 className="comment-section-title">
-        Comments{comments.length > 0 ? ` (${comments.length})` : ''}
+        {title}{comments.length > 0 ? ` (${comments.length})` : ''}
       </h2>
 
       {comments.length === 0 && <p className="field-hint">No comments yet.</p>}
@@ -67,7 +108,7 @@ export function CommentSection({ rootEvent }: { rootEvent: NDKEvent }) {
       {comments.length > 0 && (
         <ul className="comment-list">
           {comments.map((c) => (
-            <CommentRow key={c.id} comment={c} />
+            <CommentRow key={c.id} comment={c} renderExtra={renderExtra} />
           ))}
         </ul>
       )}
@@ -77,7 +118,7 @@ export function CommentSection({ rootEvent }: { rootEvent: NDKEvent }) {
           className="textarea"
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="Add a comment…"
+          placeholder={placeholder}
           rows={2}
         />
         {error && <p className="alert-error">{error}</p>}

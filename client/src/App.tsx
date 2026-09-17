@@ -23,6 +23,8 @@ import { ThreadView } from './components/ThreadView'
 import { PodcastEpisodeView } from './components/PodcastEpisodeView'
 import { ListingView } from './components/ListingView'
 import { MarketplaceView } from './components/MarketplaceView'
+import { JobOfferView } from './components/JobOfferView'
+import { JobBoardView } from './components/JobBoardView'
 import { WalletView } from './components/WalletView'
 import { AskClaudeCard } from './components/AskClaudeCard'
 import { SearchView } from './components/SearchView'
@@ -73,6 +75,7 @@ function App() {
     thread,
     episode,
     listing,
+    job,
     dmTarget,
     groupTarget,
     board,
@@ -355,6 +358,10 @@ function App() {
               {listing && <ListingView event={listing} />}
             </div>
 
+            <div className={panelClass('job')}>
+              {job && <JobOfferView event={job} />}
+            </div>
+
             <section className={`card ${panelClass('ask-claude')}`}>
               <AskClaudeCard />
             </section>
@@ -381,6 +388,10 @@ function App() {
 
             <section className={`card ${panelClass('marketplace')}`}>
               <MarketplaceView />
+            </section>
+
+            <section className={`card ${panelClass('jobs')}`}>
+              <JobBoardView />
             </section>
 
             <section className={`card ${panelClass('wallet')}`}>

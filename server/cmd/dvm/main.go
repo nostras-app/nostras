@@ -91,6 +91,27 @@ const (
 	kindJobResultListingPurchase  = 6907
 	kindListing                   = 30402
 
+	// Job board completion payment — 5908/6908, the next free slot in the
+	// same custom 590x cluster, checked against the vendored NIP-90 kind
+	// registry (go-nostr's nip90/kinds.go — 5900/5901/5905/5970 taken
+	// nearby, nothing at 5908) and this project's own already-used 590x
+	// list, same discipline as every prior job kind pick here. Unlike
+	// listing purchase (where any buyer can pay any seller), only the job
+	// offer's own poster may trigger this — enforced in
+	// handleJobCompletionPaymentJob, not implicit in the kind itself.
+	// The payment recipient is a worker pubkey named in a ["param",
+	// "worker", ...] tag, not the job offer's own author (the poster),
+	// which is the one real structural difference from listing purchase.
+	kindJobRequestCompletionPayment = 5908
+	kindJobResultCompletionPayment  = 6908
+	// 32406, not 30406 — see client/src/lib/job.ts's own comment: a
+	// real, live collision found during this feature's local
+	// verification (30406 already in active real-world use by an
+	// unrelated app, and the whole neighboring 30400s range turned out
+	// similarly occupied). 32406 was checked live against 12 major
+	// public relays with zero hits before being chosen.
+	kindJobOffer = 32406
+
 	kindJobFeedback = 7000
 
 	// NIP-32 labeling — see publishModerationLabel. A moderate-job result
@@ -155,6 +176,11 @@ const (
 	// existing flat-fee convention rather than a dedicated env var —
 	// one can be added later if a different rate is ever wanted.
 	marketplacePurchaseFeeSats = 21
+
+	// Same shape and reasoning again: a job's own reward goes straight to
+	// whichever applicant the poster pays; this is NOSTRAS's own flat fee
+	// for running the completion-payment/receipt service.
+	jobCompletionFeeSats = 21
 
 	// claude-opus-5 pricing (per shared/models.md — keep in sync if the
 	// model ever changes). Job pricing is computed from these rather than
@@ -406,7 +432,7 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, a
 		publishToDiscoveryRelays(ctx, discoveryEvts)
 	}
 
-	kinds := []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate, kindJobRequestModerate, kindJobRequestListingPurchase}
+	kinds := []int{kindJobRequestSummarize, kindJobRequestTranslate, kindJobRequestGenerate, kindJobRequestModerate, kindJobRequestListingPurchase, kindJobRequestCompletionPayment}
 	if articleKeySk != "" {
 		kinds = append(kinds, kindJobRequestArticleUnlock)
 	}
@@ -473,6 +499,10 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 	}
 	if req.Kind == kindJobRequestListingPurchase {
 		handleListingPurchaseJob(ctx, relay, sk, payment, req)
+		return
+	}
+	if req.Kind == kindJobRequestCompletionPayment {
+		handleJobCompletionPaymentJob(ctx, relay, sk, payment, req)
 		return
 	}
 
@@ -947,20 +977,23 @@ func handleGroupJoinJob(ctx context.Context, relay *nostr.Relay, sk, communityKe
 	signAndPublish(ctx, relay, sk, result)
 }
 
-// listingPriceSats converts a NIP-99 listing's ["price", amount, currency,
-// frequency?] tag into a real sats amount to invoice. "sats"/"btc" convert
-// directly; "usd" converts via the same live BTC/USD rate feed already
-// used for dynamic job pricing (fetchBTCUSDRate). Any other currency, or
-// a missing/malformed price tag, is a real, stated scope limit for Buy
-// Now — not silently mishandled.
-func listingPriceSats(ctx context.Context, tags nostr.Tags) (int64, error) {
-	priceTag := tags.Find("price")
+// priceTagSats converts a ["<tagName>", amount, currency, frequency?] tag
+// into a real sats amount to invoice — tagName is "price" for a NIP-99
+// listing (see listingPriceSats) or "reward" for a job board offer (see
+// handleJobCompletionPaymentJob), same conversion logic either way, just
+// a different tag name since a job's payout isn't semantically a
+// "price." "sats"/"btc" convert directly; "usd" converts via the same
+// live BTC/USD rate feed already used for dynamic job pricing
+// (fetchBTCUSDRate). Any other currency, or a missing/malformed tag, is
+// a real, stated scope limit — not silently mishandled.
+func priceTagSats(ctx context.Context, tags nostr.Tags, tagName string) (int64, error) {
+	priceTag := tags.Find(tagName)
 	if len(priceTag) < 3 {
-		return 0, fmt.Errorf("this listing has no price set")
+		return 0, fmt.Errorf("this event has no %q tag set", tagName)
 	}
 	amount, err := strconv.ParseFloat(priceTag[1], 64)
 	if err != nil || amount <= 0 {
-		return 0, fmt.Errorf("this listing has an invalid price")
+		return 0, fmt.Errorf("this event has an invalid %q amount", tagName)
 	}
 	switch strings.ToLower(priceTag[2]) {
 	case "sats", "sat":
@@ -970,11 +1003,11 @@ func listingPriceSats(ctx context.Context, tags nostr.Tags) (int64, error) {
 	case "usd":
 		rate, err := fetchBTCUSDRate(ctx)
 		if err != nil {
-			return 0, fmt.Errorf("could not look up a live BTC/USD rate to price this listing: %w", err)
+			return 0, fmt.Errorf("could not look up a live BTC/USD rate to price this: %w", err)
 		}
 		return int64(math.Round(amount / rate * 100_000_000)), nil
 	default:
-		return 0, fmt.Errorf("this listing is priced in %s, which Buy Now doesn't support yet (sats, btc, and usd only)", priceTag[2])
+		return 0, fmt.Errorf("this is priced in %s, which isn't supported yet (sats, btc, and usd only)", priceTag[2])
 	}
 }
 
@@ -1017,7 +1050,7 @@ func handleListingPurchaseJob(ctx context.Context, relay *nostr.Relay, sk string
 		return
 	}
 
-	priceSats, err := listingPriceSats(ctx, listing.Tags)
+	priceSats, err := priceTagSats(ctx, listing.Tags, "price")
 	if err != nil {
 		publishFeedback(ctx, relay, sk, req, "error", err.Error())
 		return
@@ -1098,6 +1131,171 @@ func handleListingPurchaseJob(ctx context.Context, relay *nostr.Relay, sk string
 		Tags:      nostr.Tags{{"e", req.ID}, {"p", req.PubKey}, {"e", listingID, "", "listing"}},
 	}
 	signAndPublish(ctx, relay, sk, result)
+}
+
+// handleJobCompletionPaymentJob confirms a real payment for a NOSTRAS job
+// board offer (kind:30406) and publishes a public, independently-
+// verifiable receipt — the job-board analogue of handleListingPurchaseJob
+// just above, with one real structural difference: a job's payment
+// recipient is not the offer's own author (the poster), it's whichever
+// applicant the poster picked, named in a ["param","worker",<pubkey>]
+// tag. There is deliberately no separate "accepted applicant" tag or
+// state on the job offer itself — the poster reviews applications (NIP-22
+// comments) in the client and pays whichever one they choose directly;
+// payment settling is the only state transition this job produces.
+func handleJobCompletionPaymentJob(ctx context.Context, relay *nostr.Relay, sk string, payment *paymentConfig, req *nostr.Event) {
+	markJobReceived()
+
+	iTag := req.Tags.Find("i")
+	if len(iTag) < 2 || iTag[1] == "" {
+		publishFeedback(ctx, relay, sk, req, "error", `missing required i tag naming the job offer (["i", "<job-offer-event-id>"])`)
+		return
+	}
+	jobID := iTag[1]
+
+	workerPubkey := ""
+	for _, t := range req.Tags {
+		if len(t) >= 3 && t[0] == "param" && t[1] == "worker" {
+			workerPubkey = t[2]
+			break
+		}
+	}
+	if len(workerPubkey) != 64 {
+		publishFeedback(ctx, relay, sk, req, "error", `missing required param tag ["param","worker",<pubkey>] naming who to pay`)
+		return
+	}
+
+	found, err := relay.QuerySync(ctx, nostr.Filter{IDs: []string{jobID}, Kinds: []int{kindJobOffer}})
+	if err != nil || len(found) == 0 {
+		publishFeedback(ctx, relay, sk, req, "error", "could not find that job offer")
+		return
+	}
+	jobOffer := found[0]
+
+	// Unlike listing purchase (any buyer may pay any seller), only the
+	// job offer's own poster may trigger paying an applicant — a job
+	// offer isn't for sale, it's the poster's own commitment to pay
+	// someone for work done for *them* specifically.
+	if req.PubKey != jobOffer.PubKey {
+		publishFeedback(ctx, relay, sk, req, "error", "only this job's poster can confirm payment")
+		return
+	}
+
+	if statusTag := jobOffer.Tags.Find("status"); len(statusTag) >= 2 && statusTag[1] == "paid" {
+		publishFeedback(ctx, relay, sk, req, "error", "this job has already been marked paid")
+		return
+	}
+
+	rewardSats, err := priceTagSats(ctx, jobOffer.Tags, "reward")
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+
+	// Same real-provenance reasoning as the listing-purchase seller
+	// payout: this DVM fetches a real invoice itself, directly from the
+	// domain in the *worker's* own published lud16, not the poster's —
+	// that HTTPS call is what actually establishes it's genuine.
+	workerProfileEvents, err := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{0}, Authors: []string{workerPubkey}, Limit: 1})
+	if err != nil || len(workerProfileEvents) == 0 {
+		publishFeedback(ctx, relay, sk, req, "error", "could not find the worker's profile")
+		return
+	}
+	var workerProfile struct {
+		Lud16 string `json:"lud16"`
+	}
+	if err := json.Unmarshal([]byte(workerProfileEvents[0].Content), &workerProfile); err != nil || workerProfile.Lud16 == "" {
+		publishFeedback(ctx, relay, sk, req, "error", "the worker has no Lightning address set — cannot pay them")
+		return
+	}
+
+	lnurlParams, err := fetchLnurlPayParams(ctx, workerProfile.Lud16)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+	rewardMsat := rewardSats * 1000
+	if rewardMsat < lnurlParams.MinSendable || rewardMsat > lnurlParams.MaxSendable {
+		publishFeedback(ctx, relay, sk, req, "error", "this job's reward is outside the worker's wallet's accepted range")
+		return
+	}
+	workerInvoice, err := fetchLnurlInvoice(ctx, lnurlParams.Callback, rewardMsat)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", err.Error())
+		return
+	}
+	if invoiceMsat, err := bolt11Amount(workerInvoice.PR); err != nil || invoiceMsat != rewardMsat {
+		publishFeedback(ctx, relay, sk, req, "error", "the worker's wallet returned an invoice for the wrong amount")
+		return
+	}
+
+	publishPaymentRequiredFor(ctx, relay, sk, req, rewardMsat, workerInvoice.PR, "worker")
+	settled, preimage, _ := pollLnurlVerify(ctx, workerInvoice.Verify)
+	if !settled {
+		publishFeedback(ctx, relay, sk, req, "error", "worker payment not received in time")
+		return
+	}
+
+	// NOSTRAS's own flat fee for running the completion-payment service —
+	// same operator wallet and requirePayment mechanism as every other
+	// job kind, a small flat amount separate from the job's own reward
+	// above.
+	if payment != nil {
+		paid, err := requirePayment(ctx, relay, sk, payment, req, jobCompletionFeeSats)
+		if err != nil {
+			publishFeedback(ctx, relay, sk, req, "error", err.Error())
+			return
+		}
+		if !paid {
+			return
+		}
+	}
+
+	publishFeedback(ctx, relay, sk, req, "processing", "")
+
+	receiptID, err := publishJobPaymentLabel(ctx, relay, sk, jobID, workerPubkey, rewardSats, preimage)
+	if err != nil {
+		publishFeedback(ctx, relay, sk, req, "error", "worker payment received, but the receipt could not be published — please contact support")
+		return
+	}
+
+	result := nostr.Event{
+		Kind:      kindJobResultCompletionPayment,
+		CreatedAt: nostr.Now(),
+		Content:   receiptID,
+		Tags:      nostr.Tags{{"e", req.ID}, {"p", req.PubKey}, {"e", jobID, "", "job"}, {"p", workerPubkey, "", "worker"}},
+	}
+	signAndPublish(ctx, relay, sk, result)
+}
+
+// publishJobPaymentLabel publishes a NIP-32 label (kind:1985) attesting a
+// job board offer's completion payment genuinely settled — the job-board
+// analogue of publishMarketplaceLabel just below, same shape, a
+// different namespace value ("job-paid" instead of "purchased") and the
+// worker's pubkey rather than the buyer's. The DVM's honest ceiling here
+// too: it cannot sign as the job offer's own poster to mark it "paid"
+// directly, so this receipt is independent, real evidence of the
+// payment rather than a state change to the offer itself.
+func publishJobPaymentLabel(ctx context.Context, relay *nostr.Relay, sk, jobID, workerPubkey string, amountSats int64, preimage string) (string, error) {
+	evt := nostr.Event{
+		Kind:    kindLabel,
+		Content: fmt.Sprintf("Payment of %d sats confirmed for this job, paid to %s at %s.", amountSats, workerPubkey, time.Now().UTC().Format(time.RFC3339)),
+		Tags: nostr.Tags{
+			{"L", marketplaceLabelNamespace},
+			{"l", "job-paid", marketplaceLabelNamespace},
+			{"e", jobID},
+			{"p", workerPubkey},
+			{"preimage", preimage},
+		},
+		CreatedAt: nostr.Now(),
+	}
+	if err := evt.Sign(sk); err != nil {
+		return "", fmt.Errorf("sign error: %w", err)
+	}
+	if err := relay.Publish(ctx, evt); err != nil {
+		return "", fmt.Errorf("publish error: %w", err)
+	}
+	return evt.ID, nil
 }
 
 // publishMarketplaceLabel publishes a NIP-32 label (kind:1985) attesting
@@ -1271,7 +1469,7 @@ func callClaude(ctx context.Context, claude anthropic.Client, systemPrompt, user
 // the exact same about text as the handler announcement, rather than a
 // second, driftable copy.
 func dvmAboutAndTags(articleKeyPk, communityKeyPk string) (string, nostr.Tags) {
-	about := fmt.Sprintf("Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes. Marketplace purchase confirmation (5907) — pay a NIP-99 listing's own seller directly via their real Lightning address, and get back a public, independently-verifiable NIP-32 receipt; NOSTRAS keeps a flat %d-sat fee for the confirmation service.", marketplacePurchaseFeeSats)
+	about := fmt.Sprintf("Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes. Marketplace purchase confirmation (5907) — pay a NIP-99 listing's own seller directly via their real Lightning address, and get back a public, independently-verifiable NIP-32 receipt; NOSTRAS keeps a flat %d-sat fee for the confirmation service. Job board completion payment (5908) — only the job's own poster can trigger it, pays whichever applicant they name directly, same public-receipt pattern; NOSTRAS keeps a flat %d-sat fee.", marketplacePurchaseFeeSats, jobCompletionFeeSats)
 	tags := nostr.Tags{
 		{"d", dvmHandlerDTag},
 		{"k", strconv.Itoa(kindJobRequestSummarize)},
@@ -1279,6 +1477,7 @@ func dvmAboutAndTags(articleKeyPk, communityKeyPk string) (string, nostr.Tags) {
 		{"k", strconv.Itoa(kindJobRequestGenerate)},
 		{"k", strconv.Itoa(kindJobRequestModerate)},
 		{"k", strconv.Itoa(kindJobRequestListingPurchase)},
+		{"k", strconv.Itoa(kindJobRequestCompletionPayment)},
 	}
 	if articleKeyPk != "" {
 		about += fmt.Sprintf(" Paid long-form article unlock (5904) — the author sets the price and is paid directly via a real zap on the article; NOSTRAS keeps a flat %d-sat fee for the unlock service. Decrypted content is NIP-44-encrypted back to you specifically, not published in the clear.", articleAuthorPayoutFeeSats)
