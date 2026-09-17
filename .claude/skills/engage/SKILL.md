@@ -77,6 +77,43 @@ to step 3 below for every fresh candidate, which catches an already-
 replied-to note directly from the relay rather than depending on this
 doc's own text staying perfectly parseable.
 
+**Never trust `## Engagement log` / `## Upstream contributions log`
+header boundaries to bound the extraction — verify the real extent
+first (2026-09-17)**: a real, costly instance, not hypothetical.
+Sessions fifty-seven through seventy-two (sixteen sessions) had gotten
+appended *after* the `## Upstream contributions log` header instead of
+under a fresh `## Engagement log` one — a structural drift from
+whichever earlier session first appended past the wrong header without
+re-adding a heading. A session that bounded its extraction to
+"everything between the two headers" (a reasonable-looking approach,
+and what happened) silently got only 39 ids instead of the true 46+,
+missed sixteen sessions' worth of tracked reply threads, and as a
+direct result presented three already-answered threads as fresh
+candidates — two of which the user then actually sent as genuine,
+avoidable duplicate replies on real people's notes. This was found
+after the fact (a reply's `created_at` was implausibly old for what
+was meant to be a brand-new candidate), not caught in advance. Fixed
+that specific drift by physically moving the misplaced sessions back
+under `## Engagement log` (verify the fix held: `## Engagement log`
+should be immediately followed by `## Upstream contributions log`
+with no numbered `### 2026-` session entries appearing after the
+Upstream header) — but treat this as a bug class that can recur, not a
+one-time fix. Before trusting a header-bounded extraction, do a cheap
+sanity check that would have caught this immediately: find the
+*actual* last `### 2026-` dated entry in the file (e.g. `grep -n
+"^### 2026-" nostr-client-node-strategy.md | tail -1`) and confirm its
+own date/session-number is recent and its ids are included in your
+extraction — don't just trust that the section header you searched
+between is where the content actually ended.
+
+**Sanity-check the id count itself, every session (2026-09-17)**: the
+Engagement log's own text states how many ids the most recent session
+had ("57 known reply ids checked," etc.) — if your own extraction comes
+back with a count meaningfully lower than what the last session
+reported, that's a real signal something was missed, not noise. Stop
+and re-extract before proceeding rather than continuing on a
+suspiciously short list.
+
 Apply the same substance filter as step 3 below — **including the
 known-spam-account check**, not just "is this low-effort": the very
 first real run of this step (2026-08-16, same day it was added) turned
@@ -148,6 +185,25 @@ hashtag-tag filters (`#nostr`, `#nostrdev`, `#asknostr`, `#lightning`,
 step 2's own methodology note below), then read the actual content —
 don't just count matches.
 
+**Widen the topical net toward AI-tool-adjacent questions, not just
+deep protocol threads (2026-09-16)** — direct user instruction after a
+real, honest look at the growth data: `/tools` is genuinely usable from
+*any* Nostr client (`https://nostras.app/tools`, "pay-per-job AI over
+Nostr, from any client" — confirmed live), which makes it a lower-
+friction ask than "switch your client entirely." Anyone asking a
+genuine question this DVM can actually answer is a real, in-scope
+candidate now, not just people asking about NIPs/relays/khatru
+directly: "does anyone have a good translator bot for Nostr," "is
+there a way to auto-summarize long threads," "how do I tell if this
+account is a scam," "anyone built spam detection for Nostr yet" — these
+map straight onto the DVM's real shipped jobs (translate, summarize,
+spam/scam classification, free-form ask) and deserve the same
+substance-checked treatment as any other candidate, with `/tools`
+offered as a genuine, concrete answer, not a generic plug. This widens
+*what counts as on-topic*, not the substance bar — a real question from
+a real person, same as always; just a broader set of real questions now
+counts.
+
 **Query the app's own `CURATED_RELAYS` list** (`client/src/lib/
 curatedRelays.ts` — the 15-relay list already vetted for NOSTRAS's
 Rebroadcast picker), minus `purplepag.es` (a metadata-only relay that
@@ -191,6 +247,81 @@ entirely. Running this skill more often (daily rather than sporadically)
 compounds the same way any search does — more passes over a live feed
 surface more real candidates — and is a real lever for "more quantity"
 that doesn't touch the substance bar at all.
+
+**Add `#ai`, `#llm`, `#translate`, `#spam`, `#automation` to the
+standing hashtag sweep (2026-09-16)**, alongside the existing set —
+these surface the AI-tool-adjacent questions the widened topical net
+above now treats as in-scope, the same way `#nip42`/`#nip90` surface
+protocol questions.
+
+**"Broaden engagement, don't spam" (2026-09-16, the user's own
+framing, direct instruction)**: the real problem this responds to —
+zero organic client usage some days, all of it traceable back to the
+operator's own testing (see the connections-per-day chart discussed
+live) — is a *reach* problem, not a *quality* problem, so the fix is
+reach, not a lower bar. Concretely this means: run the sweep more
+often per the paragraph above, treat the widened AI-tool topical net
+as genuinely in-scope rather than borderline, and don't stop at the
+first 1-2 candidates a session finds if the sweep is clearly turning up
+more real ones — but every single candidate still goes through the
+full step 1/3 substance and bot checks, still gets a specific honest
+answer per step 4, and still needs explicit sign-off per step 7. More
+reach is a search-effort question; it is never a reason to relax what
+actually gets drafted or sent.
+
+**A small curated VIP list, checked every session (2026-09-09)** — the
+user's own explicit visibility strategy: a short, user-maintained list
+of high-authority, high-follower Nostr identities, checked for recent
+notes every run alongside the hashtag sweep. The point isn't proximity
+to fame, it's that a genuinely good, substantive reply under a
+high-follower account's note gets seen by far more people than the
+same reply anywhere else — real leverage on the exact same "answer a
+real question well" mechanic step 3/4 already established, not a
+different tactic.
+
+Current list (name → npub → hex pubkey → why on this list):
+- **gladstein** (Alex Gladstein, CSO at the Human Rights Foundation) —
+  `npub1trr5r2nrpsk6xkjk5a7p6pfcryyt6yzsflwjmz6r7uj7lfkjxxtq78hdpu` /
+  `58c741aa630c2da35a56a77c1d05381908bd10504fdd2d8b43f725efa6d23196` —
+  financial-freedom/censorship-resistance narrative, directly adjacent
+  to NOSTRAS's own framing; already engaged with once for real (the
+  fifty-fourth session's WSJ-essay reply).
+- **Derek Ross** — `npub18ams6ewn5aj2n3wt2qawzglx9mr4nzksxhvrdc4gzrecw7n5tvjqctp424` /
+  `3f770d65d3a764a9c5cb503ae123e62ec7598ad035d836e2a810f3877a745b24` —
+  Nostr developer relations (Soapbox/NostrNests/Zapstore-adjacent
+  tooling), genuinely technical Nostr-ecosystem overlap.
+- **Lyn Alden** — `npub1a2cww4kn9wqte4ry70vyfwqyqvpswksna27rtxd8vty6c74era8sdcw83a`
+  / `eab0e756d32b80bcd464f3d844b8040303075a13eabc3599a762c9ac7ab91f4f`
+  — prominent macro/bitcoin analyst; **honest scope note** — her own
+  posts skew macro/finance, a domain this project has real but shallow
+  standing in (same "not a domain we have deep comparative experience
+  in" caveat pattern already used once, for the Lightning-wallet-for-
+  farmers reply) — only worth a reply when a note has a genuine
+  Nostr/technical angle, not just because she's on the list.
+- **fiatjaf** — `npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6`
+  / `3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d`
+  — creator of the Nostr protocol itself, and author of khatru, the
+  actual relay framework NOSTRAS's own server is built on. The single
+  strongest real-standing overlap on this list — any genuine relay/
+  protocol-implementation discussion from him is squarely inside this
+  project's own documented, checkable experience (the khatru fork, the
+  broadcast-path bug found and patched, the badger/eventstore forks).
+
+Process, every session: `nak req -k 1 -a <hex-pubkey> -l 10 -s <since>`
+per identity (their own recent notes, not a hashtag search), run
+through the exact same step 3 substance filter as any other candidate
+— **the bar is if anything higher here, not lower**: a generic or
+opportunistic-sounding reply under a huge-follower account reads as
+clout-chasing precisely because of the visibility that makes this list
+worth having in the first place, and does more reputational harm than
+skipping it. Most sessions will find nothing worth replying to from
+this list — these are prolific posters, most of what they post is
+commentary/links/general takes with no genuine opening for a NOSTRAS-
+grounded technical answer — and that's a normal, expected outcome, not
+a sign the list isn't working. Log the check every session regardless
+(quiet or not), same as the hashtag sweep. This list is user-curated —
+add to it only when the user names someone, don't invent additions on
+your own judgment of who's "worth" adding.
 
 ## 3. Filter for substance
 
@@ -268,6 +399,21 @@ uses, for every candidate, right before drafting — cheap (one query per
 candidate, not per historical id) and catches this regardless of how
 any earlier session happened to phrase its own write-up.
 
+**Never skip this check under time or budget pressure — a missed check
+is worse than a missed candidate (2026-09-06)**: a real instance, this
+time from the desktop agent (`nostr-agent`) running this skill remotely
+via DM under its own per-invocation cost ceiling. Its report described
+Step 2 as "budget-limited, one pass" and presented a re-surfaced old
+note (already replied to two sessions earlier) as a fresh candidate,
+complete with a drafted reply ready to send — the pre-draft check
+appears to have simply been dropped under the time/cost pressure,
+not run and missed. The user caught it by checking the note's own
+`created_at` before sending, not this skill. If genuinely out of
+budget partway through a run, stop and report fewer candidates (or
+none) rather than skip verification to fit more in — a false "nothing
+new to send" is a safe, honest outcome; a duplicate reply sent to a
+real person is not.
+
 **Always include `wss://nostras.app` in this specific query, not just
 the three public relays (2026-09-05)** — a real, live near-miss: a
 pre-draft check queried `relay.damus.io` (down at the time) +
@@ -306,6 +452,45 @@ and specific in the answer** — a real bug hit, an exact NIP number, a
 file or component name, a real measured number — not just a correct-
 but-generic explanation. Both are honest; only the specific one is what
 the real zap evidence in step 3 shows actually converts.
+
+**Whenever a draft names NOSTRAS, link it — `https://app.nostras.app`,
+not the bare word** (2026-09-09, direct user instruction after editing
+a sent draft this way themselves). A reader with no prior context has
+no path from the word "NOSTRAS" to the actual product; the link is the
+one-click difference between a mention and an actual lead. Applies
+every time the project is named in a drafted reply, not just when the
+note's own subject is directly about NOSTRAS.
+
+**The mention has to earn its place in the specific answer, not just
+carry a link (2026-09-09, user confirmation after three drafts sent
+the same session)**: the user explicitly praised these three for
+referencing `app.nostras.app` "without being a spam message" — the
+link worked *because* each one was doing real work in that sentence
+("more on how we built around this class of bug," "we show this as a
+green check-circle... in both verified and unverified states," "a
+working reference if you want to see the pattern end to end"), not
+because a link was appended after the real answer. If the mention
+could be deleted without losing anything the asker actually needed,
+it reads as a plug; if deleting it would remove real information (what
+NOSTRAS actually does, how it solved the specific thing being asked
+about), it reads as a citation. Aim for the latter every time — the
+link is a byproduct of a genuine reference, not a goal to hit.
+
+**`https://nostras.app/tools` is the default link whenever the topic is
+DVM/AI-tool-adjacent, not the bare app root (2026-09-16)** — direct
+user instruction: make `/tools` the call-to-action everywhere it's a
+genuine fit. This isn't just a different URL, it's a different, better
+ask: `/tools` works from any Nostr client (real page title, confirmed
+live: "pay-per-job AI over Nostr, from any client") — the reader tries
+one concrete thing with zero switching cost, instead of being asked to
+adopt a whole new app. Use it for any translate/summarize/spam-
+detection/ask-an-LLM question (the widened topical net in step 2 above
+exists specifically to surface these) — link the app root instead only
+when the actual subject is the client itself (onboarding, UX, signer
+flows, NIP-65/DM relays, and the like), where `/tools` wouldn't be
+answering what was actually asked. Same earning-its-place rule applies
+either way — this changes *which* real thing gets cited, not whether
+citing has to be genuine.
 
 ## 5. Flag it plainly when a linked post only renders correctly in NOSTRAS
 
