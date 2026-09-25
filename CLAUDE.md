@@ -10398,6 +10398,11 @@ only), `vite build` clean. Known, pre-existing nuance: NIP-78's
 apply-on-boot can rewrite a now-stale remote feed mode into localStorage
 after the fallback; harmless (the fallback reapplies each load).
 
+**Deployed and confirmed by the user on production (2026-09-25)**:
+client deploy succeeded (live bundle contains `d2cbd0c`), and the user
+created their own real VIP list on `app.nostras.app` and confirmed it
+works.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
