@@ -3,6 +3,7 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { useProfile } from '../hooks/useProfile'
 import { useNoteFeed } from '../hooks/useNoteFeed'
 import { useFollowing } from '../hooks/useFollowing'
+import { useFollowSets } from '../hooks/useFollowSets'
 import { useMuteList } from '../hooks/useMuteList'
 import { useReferencedNote } from '../hooks/useReferencedNote'
 import { formatRelativeTime } from '../lib/time'
@@ -171,6 +172,8 @@ export function FeedSkeleton() {
   )
 }
 
+const EMPTY_AUTHORS: string[] = []
+
 export function Feed() {
   const [mode, setMode] = useState<FeedMode>(loadFeedMode)
   const { pubkeys: followingPubkeys, loading: followingLoading } = useFollowing()
@@ -214,8 +217,23 @@ export function Feed() {
   // style convention, not a bug to also fix here.
   const { pubkeys: mutedPubkeys } = useMuteList()
 
+  // NIP-51 follow sets — one extra tab per list (see useFollowSets.ts).
+  const { sets: followSets, loading: followSetsLoading } = useFollowSets()
+  const activeListD = mode.startsWith('list:') ? mode.slice(5) : null
+  const activeList = activeListD ? followSets.find((s) => s.d === activeListD) ?? null : null
+
+  // A persisted list tab whose list no longer exists (deleted here or on
+  // another device, or synced from a different identity) falls back to
+  // Global once lists have actually loaded — never while still loading.
+  useEffect(() => {
+    if (activeListD && !followSetsLoading && !activeList) setMode('global')
+  }, [activeListD, followSetsLoading, activeList])
+
+  const authors =
+    mode === 'following' ? followingPubkeys : activeListD ? (activeList?.pubkeys ?? EMPTY_AUTHORS) : undefined
+
   const { events, loading, newCount, newCountTruncated, showNew } = useNoteFeed(
-    mode === 'following' ? followingPubkeys : undefined,
+    authors,
     { holdNewEvents: true, excludePubkeys: mutedPubkeys },
   )
 
@@ -225,6 +243,17 @@ export function Feed() {
   }
 
   function renderBody() {
+    if (activeListD) {
+      if (!activeList) return <FeedSkeleton />
+      if (activeList.pubkeys.length === 0) {
+        return (
+          <div className="feed-empty">
+            <p>Nobody on “{activeList.title}” yet.</p>
+            <p className="feed-empty-hint">Tap the star on a profile to add people to this list.</p>
+          </div>
+        )
+      }
+    }
     if (mode === 'following' && !followingLoading && followingPubkeys.length === 0) {
       return (
         <div className="feed-empty">
@@ -245,7 +274,11 @@ export function Feed() {
         <div className="feed-empty">
           <p>No notes yet.</p>
           <p className="feed-empty-hint">
-            {mode === 'following' ? 'None of the people you follow have posted yet.' : 'Be the first to post something.'}
+            {mode === 'following'
+              ? 'None of the people you follow have posted yet.'
+              : activeList
+                ? `Nobody on “${activeList.title}” has posted yet.`
+                : 'Be the first to post something.'}
           </p>
         </div>
       )
@@ -281,6 +314,22 @@ export function Feed() {
         >
           Global
         </button>
+        {followSets.map((set) => {
+          const tabMode: FeedMode = `list:${set.d}`
+          return (
+            <button
+              key={set.d}
+              type="button"
+              role="tab"
+              aria-selected={mode === tabMode}
+              className={`feed-tab${mode === tabMode ? ' feed-tab-active' : ''}`}
+              onClick={() => setMode(tabMode)}
+              title={`${set.title} (${set.pubkeys.length})`}
+            >
+              {set.title}
+            </button>
+          )
+        })}
       </div>
       {newCount > 0 && (
         <button type="button" className="feed-new-pill" onClick={handleShowNew}>

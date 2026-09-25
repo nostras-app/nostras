@@ -5,6 +5,8 @@ import { useProfile } from '../hooks/useProfile'
 import { useNoteFeed } from '../hooks/useNoteFeed'
 import { useFollowCounts } from '../hooks/useFollowCounts'
 import { useFollowing } from '../hooks/useFollowing'
+import { useFollowSets } from '../hooks/useFollowSets'
+import { ListPickerModal } from './ListPickerModal'
 import { useNip05Verified } from '../hooks/useNip05Verified'
 import { useWalletBalance } from '../hooks/useWalletBalance'
 import { useUserStatus } from '../hooks/useUserStatus'
@@ -13,7 +15,7 @@ import { EXTERNAL_IDENTITY_PLATFORMS, externalIdentityProfileUrl } from '../lib/
 import { FeedItem, FeedSkeleton } from './Feed'
 import { FollowListModal } from './FollowListModal'
 import { ProfileBadgeRow } from './ProfileBadgeRow'
-import { UserIcon, CheckCircleIcon, ZapCircleIcon } from './icons'
+import { UserIcon, CheckCircleIcon, ZapCircleIcon, StarIcon } from './icons'
 import { parseContentSegments, shortenUrl, isSecureImageUrl } from '../lib/parseContent'
 import { MentionLink } from './MentionLink'
 
@@ -71,6 +73,9 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
   // suggest it's theirs.
   const balanceSats = useWalletBalance()
   const [copied, setCopied] = useState(false)
+  const [listPickerOpen, setListPickerOpen] = useState(false)
+  const { listsContaining } = useFollowSets()
+  const onAnyList = viewedPubkey ? listsContaining(viewedPubkey).length > 0 : false
 
   const label = profile?.name || profile?.displayName || 'Anonymous'
   const npub = viewedUser?.npub ?? null
@@ -84,6 +89,9 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
 
   return (
     <div className="profile-view">
+      {listPickerOpen && viewedPubkey && (
+        <ListPickerModal pubkey={viewedPubkey} name={label} onClose={() => setListPickerOpen(false)} />
+      )}
       <div className={`profile-header${isSecureImageUrl(profile?.banner) ? ' has-banner' : ''}`}>
         {isSecureImageUrl(profile?.banner) && (
           <img className="profile-banner" src={profile.banner} alt="" />
@@ -114,6 +122,17 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
                       : isFollowing(viewedPubkey)
                         ? 'Unfollow'
                         : 'Follow'}
+                </button>
+              )}
+              {!isOwnProfile && viewedPubkey && (
+                <button
+                  type="button"
+                  className={`btn btn-sm btn-secondary profile-lists-btn${onAnyList ? ' profile-lists-btn-active' : ''}`}
+                  onClick={() => setListPickerOpen(true)}
+                  title="Add to lists"
+                  aria-label="Add to lists"
+                >
+                  <StarIcon filled={onAnyList} />
                 </button>
               )}
               {followError && !isOwnProfile && (

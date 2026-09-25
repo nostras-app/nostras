@@ -50,10 +50,22 @@ const APP_DATA_D_TAG = 'nostras-preferences'
 const PUBLISH_TIMEOUT_MS = 8000
 
 export const FEED_MODE_KEY = 'nostras:feed-mode'
-export type FeedMode = 'following' | 'global'
+// `list:<d>` = a NIP-51 follow set (kind:30000) of the active user, by its
+// d tag — see hooks/useFollowSets.ts. Feed.tsx falls back to Global if that
+// list no longer exists (deleted, or synced from a different identity).
+export type FeedMode = 'following' | 'global' | `list:${string}`
+
+export function isFeedMode(value: unknown): value is FeedMode {
+  return (
+    value === 'following' ||
+    value === 'global' ||
+    (typeof value === 'string' && value.startsWith('list:') && value.length > 5)
+  )
+}
 
 export function loadFeedMode(): FeedMode {
-  return localStorage.getItem(FEED_MODE_KEY) === 'following' ? 'following' : 'global'
+  const stored = localStorage.getItem(FEED_MODE_KEY)
+  return isFeedMode(stored) ? stored : 'global'
 }
 
 export type AppPreferences = {
@@ -158,7 +170,7 @@ export async function publishCurrentPreferences(): Promise<void> {
 // one timestamp), capped back down to the same bounded window it's
 // always kept to.
 export function applyFetchedPreferences(prefs: AppPreferences): void {
-  if (prefs.feedMode) localStorage.setItem(FEED_MODE_KEY, prefs.feedMode)
+  if (isFeedMode(prefs.feedMode)) localStorage.setItem(FEED_MODE_KEY, prefs.feedMode)
   for (const url of prefs.customRelays ?? []) {
     if (isValidRelayUrl(url)) addCustomRelayUrl(url)
   }

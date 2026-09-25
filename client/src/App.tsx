@@ -40,6 +40,7 @@ import { PodcastShowSettings } from './components/PodcastShowSettings'
 import { LinkedAccountsSettings } from './components/LinkedAccountsSettings'
 import { BadgesSettings } from './components/BadgesSettings'
 import { MuteListSettings } from './components/MuteListSettings'
+import { FollowSetsSettings } from './components/FollowSetsSettings'
 import { SignerConnect } from './components/SignerConnect'
 import { NwcConnect } from './components/NwcConnect'
 import { ArkWalletSettings } from './components/ArkWalletSettings'
@@ -451,6 +452,10 @@ function App() {
               <div className="settings-section">
                 <span className="settings-section-title">Badges</span>
                 <BadgesSettings />
+              </div>
+              <div className="settings-section">
+                <span className="settings-section-title">Lists</span>
+                <FollowSetsSettings />
               </div>
               <div className="settings-section">
                 <span className="settings-section-title">Muted Accounts</span>

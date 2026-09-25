@@ -2353,9 +2353,23 @@ a.profile-external-identity:hover {
   display: flex;
   gap: 6px;
   border-bottom: 1px solid var(--border);
+  /* One extra tab per NIP-51 follow set (list) — can outgrow the row on
+     narrow viewports, so scroll horizontally inside the row instead of
+     widening the page. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.feed-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .feed-tab {
+  flex: none;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
@@ -3366,4 +3380,97 @@ a.profile-external-identity:hover {
 
 .view-panel-active {
   display: block;
+}
+
+/* ---------- NIP-51 follow sets (Lists) ---------- */
+
+.profile-lists-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+}
+
+.profile-lists-btn-active {
+  color: var(--zap);
+}
+
+.list-picker {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.list-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.list-picker-row:hover {
+  background: var(--bg);
+}
+
+.list-picker-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list-picker-new {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.list-picker-new .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.follow-set-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.follow-set-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.follow-set-toggle {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-h);
+  text-align: left;
+}
+
+.follow-set-title {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.follow-set-delete {
+  align-self: flex-start;
 }

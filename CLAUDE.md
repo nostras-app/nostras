@@ -10362,6 +10362,42 @@ left as-is at the user's request (offered to make them portable, user
 said leave it for now) — worth revisiting only if/when the transfer
 actually happens.
 
+## Lists — NIP-51 follow sets, multiple named lists from day one (2026-09-25)
+
+Scoped 2026-09-23 as a single "VIP" feed; the user chose multiple
+user-named lists from the start (parity with other clients). Each list
+is a public kind:30000 follow set: `d` = random UUID generated once (the
+list's identity, never changes), `title` = the user-chosen name (rename =
+republish with a new title). Lists from other clients show up here and
+vice versa; legacy kind:30000 `d` tags (`mute`/`pin`/`bookmark`/
+`communities`) are hidden. `hooks/useFollowSets.ts` is a shared
+module-level store (same useSyncExternalStore reasoning as useMuteList —
+profile picker, feed tabs and Settings are all mounted at once), fetches
+every list with a full-window newest-per-`d` subscription (same reasoning
+as fetchLatestReplaceableEvent) scoped to authorQueryRelaySet, and
+applies the standard safety shape: no mutation before lists load, tag
+and `content` preservation on republish (private items another client
+encrypted there are never touched), 8s publish timeout, surfaced error.
+Delete = NIP-09 kind:5 with an `a` tag; the fetch also reads the user's
+own kind:5s so a relay that ignores NIP-09 can't resurrect a deleted list.
+
+UI: a star on other people's profiles opens `ListPickerModal` (checkbox
+per list + create-a-list-with-this-person); each list is its own Home
+feed tab (`FeedMode` gained `list:<d>`, synced via NIP-78; a stale list
+mode falls back to Global once lists have loaded); Settings > Lists
+(`FollowSetsSettings.tsx`) renames, removes members, deletes. Feed tabs
+now scroll horizontally so many lists never widen the page.
+
+Verified live against a local relay with throwaway identities: created
+two lists from the picker, toggled membership, confirmed exact tags via
+`nak`; VIP tab showed only the member's note, empty list showed its empty
+state; renamed and deleted in Settings, confirmed the kind:5 `a`-tag
+deletion via `nak` and that the list stayed gone after reload with the
+feed falling back to Global. `tsc -b`, `oxlint` (pre-existing warnings
+only), `vite build` clean. Known, pre-existing nuance: NIP-78's
+apply-on-boot can rewrite a now-stale remote feed mode into localStorage
+after the fallback; harmless (the fallback reapplies each load).
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
