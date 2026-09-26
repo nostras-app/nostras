@@ -1,4 +1,5 @@
 import { nip19 } from '@nostr-dev-kit/ndk'
+import { ndk } from './ndk'
 
 // Accepts whatever form someone might have a pubkey in — raw hex (the
 // format NoteMenu's "Copy user ID" and "View raw event" both surface),
@@ -17,6 +18,25 @@ export function resolvePubkeyInput(input: string): string | null {
     // meaning "treat this as a normal search term" at the call site.
   }
   return null
+}
+
+// resolvePubkeyInput plus NIP-05 (`name@domain`), which needs a network
+// lookup of the domain's .well-known/nostr.json. Bounded so a dead domain
+// can't hang the caller.
+export async function resolvePubkeyOrNip05(input: string): Promise<string | null> {
+  const direct = resolvePubkeyInput(input)
+  if (direct) return direct
+  const trimmed = input.trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return null
+  try {
+    const user = await Promise.race([
+      ndk.getUserFromNip05(trimmed),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 8000)),
+    ])
+    return user?.pubkey ?? null
+  } catch {
+    return null
+  }
 }
 
 export type NoteReference = { id: string; relays: string[] }

@@ -5,7 +5,8 @@ import { useProfile } from '../hooks/useProfile'
 import { useNoteFeed } from '../hooks/useNoteFeed'
 import { useFollowCounts } from '../hooks/useFollowCounts'
 import { useFollowing } from '../hooks/useFollowing'
-import { useFollowSets } from '../hooks/useFollowSets'
+import { useFollowSets, useFollowSetsOf } from '../hooks/useFollowSets'
+import { ProfileListsModal } from './ProfileListsModal'
 import { ListPickerModal } from './ListPickerModal'
 import { useNip05Verified } from '../hooks/useNip05Verified'
 import { useWalletBalance } from '../hooks/useWalletBalance'
@@ -74,6 +75,8 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
   const balanceSats = useWalletBalance()
   const [copied, setCopied] = useState(false)
   const [listPickerOpen, setListPickerOpen] = useState(false)
+  const [profileListsOpen, setProfileListsOpen] = useState(false)
+  const { sets: viewedSets } = useFollowSetsOf(viewedPubkey)
   const { listsContaining } = useFollowSets()
   const onAnyList = viewedPubkey ? listsContaining(viewedPubkey).length > 0 : false
 
@@ -177,6 +180,16 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
               >
                 <strong>{followers ?? '—'}</strong> Followers
               </button>
+              {viewedSets.length > 0 && (
+                <button
+                  type="button"
+                  className="profile-stat-btn"
+                  onClick={() => setProfileListsOpen(true)}
+                  title="Public NIP-51 lists (follow sets)"
+                >
+                  <strong>{viewedSets.length}</strong> {viewedSets.length === 1 ? 'List' : 'Lists'}
+                </button>
+              )}
               {profile?.nip05 && (
                 <span
                   className={`profile-nip05 ${nip05Verified ? 'verified' : 'unverified'}`}
@@ -263,6 +276,15 @@ export function ProfileView({ pubkey }: { pubkey?: string } = {}) {
           <p className="feed-load-more-end">That's everything.</p>
         )}
       </div>
+
+      {profileListsOpen && (
+        <ProfileListsModal
+          name={label}
+          sets={viewedSets}
+          isOwnProfile={isOwnProfile}
+          onClose={() => setProfileListsOpen(false)}
+        />
+      )}
 
       {listModal && (
         <FollowListModal

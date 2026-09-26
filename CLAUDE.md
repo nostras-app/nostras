@@ -10403,6 +10403,34 @@ client deploy succeeded (live bundle contains `d2cbd0c`), and the user
 created their own real VIP list on `app.nostras.app` and confirmed it
 works.
 
+## Lists, part 2 — add people from inside a list, and see anyone's lists (2026-09-26)
+
+Follow-up to the Lists feature above, per explicit user pick. **Add from
+inside the list**: each list in Settings > Lists gained an "Add someone"
+box taking npub/nprofile/hex or a NIP-05 address. New
+`resolvePubkeyOrNip05()` (`lib/resolvePubkey.ts`) wraps the existing
+`resolvePubkeyInput` plus NDK's own `getUserFromNip05`, bounded at 8s so
+a dead domain can't hang the form. `useFollowSets` gained `addMember`,
+an idempotent add (a duplicate is refused with a message, never
+silently toggled off the way the profile star's `toggleMember` would).
+**Other people's lists**: profiles show an "N Lists" stat (only when the
+user has any) opening `ProfileListsModal` — each list expands to its
+members (click-through to their profiles), with "Copy to my lists"
+creating the viewer's own snapshot (same title + members, new random
+`d` tag; not a live sync, and the UI says so). `useFollowSetsOf(pubkey)`
+is a read-only view over the same module-level cache `useFollowSets`
+already keys by pubkey, so it needed no new fetch code.
+
+Verified live against a local relay: a throwaway "curator" with a real
+kind:30000 list showed "1 List" on its profile; the modal listed both
+real members by resolved name; "Copy to my lists" published a correct
+kind:30000 for the viewer (confirmed via `nak`) and the list appeared
+as a Home tab. In Settings > Lists: invalid input and a duplicate each
+got a clear error; an npub and a real NIP-05 (`mmo@llmops.pro`,
+resolving to the operator's real pubkey) both added correctly,
+confirmed via `nak`. `tsc -b`, `oxlint` (pre-existing warnings only),
+`vite build` clean.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

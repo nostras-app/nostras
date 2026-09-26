@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useFollowSets, type FollowSet } from '../hooks/useFollowSets'
 import { useProfile } from '../hooks/useProfile'
 import { viewProfile } from '../lib/navigation'
+import { resolvePubkeyOrNip05 } from '../lib/resolvePubkey'
 import { isSecureImageUrl } from '../lib/parseContent'
 
 function MemberRow({
@@ -35,10 +36,30 @@ function MemberRow({
 }
 
 function SetRow({ set }: { set: FollowSet }) {
-  const { busy, error, renameSet, deleteSet, toggleMember } = useFollowSets()
+  const { busy, error, renameSet, deleteSet, toggleMember, addMember } = useFollowSets()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState(set.title)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [addInput, setAddInput] = useState('')
+  const [resolving, setResolving] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    setAddError(null)
+    setResolving(true)
+    const pubkey = await resolvePubkeyOrNip05(addInput)
+    setResolving(false)
+    if (!pubkey) {
+      setAddError('Paste an npub, nprofile, hex pubkey, or a NIP-05 address (name@domain).')
+      return
+    }
+    if (set.pubkeys.includes(pubkey)) {
+      setAddError('Already on this list.')
+      return
+    }
+    if (await addMember(set.d, pubkey)) setAddInput('')
+  }
   const rowBusy = busy === set.d
   const disabled = !!busy
 
@@ -69,8 +90,25 @@ function SetRow({ set }: { set: FollowSet }) {
             </button>
           </form>
 
+          <form className="list-picker-new" onSubmit={handleAdd}>
+            <input
+              className="input"
+              placeholder="Add someone: npub, nprofile or name@domain"
+              value={addInput}
+              onChange={(e) => {
+                setAddInput(e.target.value)
+                setAddError(null)
+              }}
+              disabled={disabled || resolving}
+            />
+            <button type="submit" className="btn btn-primary btn-sm" disabled={disabled || resolving || !addInput.trim()}>
+              {resolving ? 'Looking up…' : 'Add'}
+            </button>
+          </form>
+          {addError && <p className="alert-error">{addError}</p>}
+
           {set.pubkeys.length === 0 ? (
-            <p className="field-hint">Nobody on this list yet — tap the star on a profile to add people.</p>
+            <p className="field-hint">Nobody on this list yet — add someone above, or tap the star on a profile.</p>
           ) : (
             <ul className="linked-accounts-list">
               {set.pubkeys.map((pk) => (

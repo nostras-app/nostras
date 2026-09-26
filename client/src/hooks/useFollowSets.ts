@@ -218,6 +218,22 @@ export function useFollowSets() {
     [run, sets, pubkey],
   )
 
+  // Idempotent add (never removes) — used by the "add people" box inside
+  // Settings > Lists, where a pasted npub that's already on the list
+  // should be a no-op rather than silently toggling them back off.
+  const addMember = useCallback(
+    (d: string, target: string) =>
+      run(d, 'Failed to update list', async () => {
+        const set = sets.find((s) => s.d === d)
+        if (!set) throw new Error('List not found')
+        if (set.pubkeys.includes(target)) throw new Error('Already on this list')
+        const event = await publishSet([...set.tags, ['p', target]], set.content)
+        const next = toFollowSet(event)
+        if (next && pubkey) replaceSet(pubkey, next)
+      }),
+    [run, sets, pubkey],
+  )
+
   const renameSet = useCallback(
     (d: string, title: string) =>
       run(d, 'Failed to rename list', async () => {
@@ -270,8 +286,21 @@ export function useFollowSets() {
     error,
     createSet,
     toggleMember,
+    addMember,
     renameSet,
     deleteSet,
     listsContaining,
   }
+}
+
+// Read-only view of ANY user's follow sets (e.g. the lists shown on someone
+// else's profile). Shares the same module-level cache as useFollowSets, so
+// viewing your own profile doesn't refetch.
+export function useFollowSetsOf(pubkey: string | undefined) {
+  const state = useSyncExternalStore(subscribe, () => {
+    if (!pubkey) return null
+    ensureFetched(pubkey)
+    return cache.get(pubkey) ?? null
+  })
+  return { sets: state?.sets ?? EMPTY, loading: !!pubkey && !state }
 }
