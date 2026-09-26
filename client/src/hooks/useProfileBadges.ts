@@ -1,40 +1,62 @@
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { authorQueryRelaySet } from '../lib/ndk'
 import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { KIND_PROFILE_BADGES, parseProfileBadgeTags, type ProfileBadgeEntry } from '../lib/badges'
 
 // Read-only: any pubkey's accepted, ordered badge display list
 // (kind:10008), for rendering on a profile (own or someone else's).
-// authors-filtered, so scoped to authorQueryRelaySet like every other
-// profile-adjacent authors-filtered fetch in this app. Note: this shows
-// whatever the profile owner's own client published — same
-// "shown as this profile's own claim, not independently re-verified"
-// posture NIP-39's linked accounts already established for a
-// structurally similar situation, not glossed over as more certain than
-// it is.
+// Shown as the profile owner's own claim, not independently re-verified
+// (same posture as NIP-39 linked accounts).
+//
+// Real bug (2026-09-26, user-reported: "I clicked add to my profile, but
+// the profile doesn't show it"): this used to be per-component state
+// fetched once per pubkey. Every view stays mounted, so the own-profile
+// row fetched the badge list at boot — before the badge was accepted —
+// and never refetched; accepting in Settings (useMyProfileBadges, its own
+// separate state) never reached it. Same bug class and same fix as
+// useMuteList.ts: a module-level cache shared by every consumer, which
+// useMyProfileBadges writes into on every successful publish.
+const cache = new Map<string, ProfileBadgeEntry[]>()
+const inFlight = new Set<string>()
+const listeners = new Set<() => void>()
+const EMPTY: ProfileBadgeEntry[] = []
+
+function notify() {
+  for (const l of listeners) l()
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+function ensureFetched(pubkey: string) {
+  if (cache.has(pubkey) || inFlight.has(pubkey)) return
+  inFlight.add(pubkey)
+  // fetchLatestReplaceableEvent, not ndk.fetchEvent() — see that
+  // function's own comment (stale-relay EOSE-convergence race).
+  fetchLatestReplaceableEvent({ kinds: [KIND_PROFILE_BADGES], authors: [pubkey] }, authorQueryRelaySet)
+    .then((event) => {
+      // Don't clobber a value written by setCachedProfileBadges while
+      // this fetch was in flight (the user's own accept/remove is newer).
+      if (!cache.has(pubkey)) cache.set(pubkey, event ? parseProfileBadgeTags(event.tags) : [])
+      notify()
+    })
+    .catch(() => {})
+    .finally(() => inFlight.delete(pubkey))
+}
+
+// Called by useMyProfileBadges after a successful publish, so the user's
+// own profile row updates immediately instead of on the next reload.
+export function setCachedProfileBadges(pubkey: string, entries: ProfileBadgeEntry[]) {
+  cache.set(pubkey, entries)
+  notify()
+}
+
 export function useProfileBadges(pubkey: string | undefined): ProfileBadgeEntry[] {
-  const [entries, setEntries] = useState<ProfileBadgeEntry[]>([])
-
-  useEffect(() => {
-    setEntries([])
-    if (!pubkey) return
-    let cancelled = false
-    // fetchLatestReplaceableEvent, not plain ndk.fetchEvent() — even
-    // authorQueryRelaySet-scoped, fetchEvent() hardcodes
-    // closeOnEose:true and can converge on a stale relay's copy of this
-    // replaceable kind:10008 before a slower relay's fresher one
-    // arrives (2026-08-17, see CLAUDE.md's dated entry for the full
-    // mechanism, first found for useFollowing.ts/useFollowCounts.ts).
-    fetchLatestReplaceableEvent({ kinds: [KIND_PROFILE_BADGES], authors: [pubkey] }, authorQueryRelaySet)
-      .then((event) => {
-        if (cancelled || !event) return
-        setEntries(parseProfileBadgeTags(event.tags))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [pubkey])
-
-  return entries
+  return useSyncExternalStore(subscribe, () => {
+    if (!pubkey) return EMPTY
+    ensureFetched(pubkey)
+    return cache.get(pubkey) ?? EMPTY
+  })
 }

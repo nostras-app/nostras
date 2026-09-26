@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react'
-import { authorQueryRelaySet } from '../lib/ndk'
+import { NDKRelaySet } from '@nostr-dev-kit/ndk'
+import { ndk, authorQueryRelaySet, localRelayUrl } from '../lib/ndk'
+import { makeRelayConnectionFilter } from '../lib/relayFilter'
 import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { subscribeRelayStatus, getRelayGeneration } from '../lib/relayStatus'
 import {
@@ -60,10 +62,7 @@ function ensureFetched(address: string) {
   // and can converge on a stale relay's copy of this addressable
   // kind:30009 definition before a slower relay's fresher one arrives
   // (2026-08-17, see CLAUDE.md's dated entry).
-  fetchLatestReplaceableEvent(
-    { kinds: [KIND_BADGE_DEFINITION], authors: [parsed.pubkey], '#d': [parsed.d] },
-    authorQueryRelaySet,
-  )
+  fetchBadgeDefinitionEvent(parsed.pubkey, parsed.d)
     .then((event) => {
       cache.set(address, event ? parseBadgeDefinition(event) : null)
       inFlight.delete(address)
@@ -72,6 +71,35 @@ function ensureFetched(address: string) {
     .catch(() => {
       inFlight.delete(address)
     })
+}
+
+const isAllowedRelayUrl = makeRelayConnectionFilter(localRelayUrl)
+const MAX_ISSUER_RELAYS = 6
+
+// Real gap (2026-09-26): a real badge ("Brasil", issued from Amethyst)
+// had its kind:30009 definition ONLY on the issuer's own relays
+// (nexus.libernet.app, relay.mitosystem.net, …), none of which are in
+// authorQueryRelaySet — so the accepted badge couldn't render for anyone
+// whose session didn't happen to have it. Badge definitions live wherever
+// the issuer publishes, so fall back to the issuer's NIP-65 write relays
+// (outbox model), same approach as lib/dm.ts's recipient-relay discovery.
+// Untrusted third-party URLs → filtered through the same private/local
+// address guard before NDKRelaySet.fromRelayUrls (which bypasses the
+// pool-level filter), and capped so a huge relay list can't fan out.
+async function fetchBadgeDefinitionEvent(issuer: string, d: string) {
+  const filter = { kinds: [KIND_BADGE_DEFINITION], authors: [issuer], '#d': [d] }
+  // fetchLatestReplaceableEvent, not ndk.fetchEvent() — stale-relay
+  // EOSE-convergence race (2026-08-17, see CLAUDE.md).
+  const found = await fetchLatestReplaceableEvent(filter, authorQueryRelaySet)
+  if (found) return found
+  const relayList = await fetchLatestReplaceableEvent({ kinds: [10002], authors: [issuer] }, authorQueryRelaySet)
+  const writeRelays = (relayList?.tags ?? [])
+    .filter((t) => t[0] === 'r' && !!t[1] && t[2] !== 'read')
+    .map((t) => t[1])
+    .filter(isAllowedRelayUrl)
+    .slice(0, MAX_ISSUER_RELAYS)
+  if (writeRelays.length === 0) return null
+  return fetchLatestReplaceableEvent(filter, NDKRelaySet.fromRelayUrls(writeRelays, ndk))
 }
 
 // Read-only lookup of a badge's own definition (name/description/image)

@@ -10431,6 +10431,42 @@ resolving to the operator's real pubkey) both added correctly,
 confirmed via `nak`. `tsc -b`, `oxlint` (pre-existing warnings only),
 `vite build` clean.
 
+## Accepted badge didn't show on the profile — two real gaps (2026-09-26)
+
+User-reported: accepted a real NIP-58 award ("Brasil", issued by OK3E
+from Amethyst) via Settings > Badges > "Show on profile" — Settings then
+correctly showed "Remove from profile", but the profile's badge row
+stayed empty. Checked the data first, not assumed: the user's kind:10008
+was correct on `nostras.app`/damus/primal, pointing at the right award.
+
+1. **Stale profile row (the reported bug).** `useProfileBadges` was
+   per-component state fetched once per pubkey. Every view stays
+   mounted, so the own-profile row fetched kind:10008 at boot — before
+   the accept — and never refetched; `useMyProfileBadges` (separate
+   state) never reached it. Same bug class as useMuteList. Fixed the
+   same way: a module-level `useSyncExternalStore` cache, with
+   `setCachedProfileBadges()` called by `useMyProfileBadges` after every
+   successful publish (accept/remove/reorder). An in-flight fetch never
+   overwrites a value written by the user's own newer publish.
+2. **Definition only on the issuer's relays.** The badge's kind:30009
+   definition existed only on OK3E's own relays (libernet, mitosystem,
+   …), none in `authorQueryRelaySet` — so for most viewers it would
+   never resolve, and `BadgeIcon` fails closed to nothing. The user's
+   own session happened to resolve it; a fresh one wouldn't reliably.
+   `useBadgeDefinition` now falls back to the issuer's NIP-65 write
+   relays (outbox model, same as lib/dm.ts): filtered through
+   `makeRelayConnectionFilter` before `NDKRelaySet.fromRelayUrls`
+   (untrusted URLs; fromRelayUrls bypasses the pool filter), capped at
+   6 relays.
+
+Verified live: (A) read-only against production, a brand-new throwaway
+viewer opening the user's real profile now renders "Brasil: Brasileiros
+do Nostr" with its real thumbnail, fetched from the issuer's relays;
+(B) on a local relay, own profile loaded with 0 badges → accepted a real
+award in Settings → profile showed it with no reload; removing it
+emptied the row live too. `tsc -b`, `oxlint` (pre-existing warnings
+only), `vite build` clean.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

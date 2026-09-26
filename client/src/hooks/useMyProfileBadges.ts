@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { setCachedProfileBadges } from './useProfileBadges'
 import { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, authorQueryRelaySet } from '../lib/ndk'
 import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
@@ -76,6 +77,9 @@ export function useMyProfileBadges() {
       })
       await event.publish(devPublishRelaySet, PUBLISH_TIMEOUT_MS)
       setEntries(nextEntries)
+      // Keep the profile's own badge row (useProfileBadges, a separate
+      // shared cache) in sync — see that file's 2026-09-26 bug note.
+      setCachedProfileBadges(activeUser.pubkey, nextEntries)
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to update badge display')
