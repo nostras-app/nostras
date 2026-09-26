@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -428,7 +430,13 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, a
 			discoveryEvts = append(discoveryEvts, evt)
 		}
 	}
-	if len(discoveryEvts) > 0 {
+	// A DVM pointed at a loopback relay is a local dev/test instance
+	// (production uses Fly's private hostname, see fly.toml). It must not
+	// announce itself on public discovery relays: an ad-hoc test run
+	// would otherwise publish a throwaway (or, if the real identity key
+	// got loaded from .nostras.env, the real) DVM profile/handler to
+	// public infrastructure. Added 2026-09-26 while testing Community DAOs.
+	if len(discoveryEvts) > 0 && !isLoopbackRelayURL(relayURL) {
 		publishToDiscoveryRelays(ctx, discoveryEvts)
 	}
 
@@ -437,7 +445,12 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, a
 		kinds = append(kinds, kindJobRequestArticleUnlock)
 	}
 	if communityKeySk != "" {
-		kinds = append(kinds, kindJobRequestCommunityJoin)
+		// Community DAOs (5909) reuse the community key: it signs the
+		// official "open"/"passed"/"rejected" labels. See dao.go.
+		kinds = append(kinds, kindJobRequestCommunityJoin, kindJobRequestDaoProposal)
+		if communityKeyPk != "" {
+			go resumePendingDaoTallies(ctx, relay, relayURL, communityKeySk, communityKeyPk)
+		}
 	}
 	since := nostr.Now()
 	sub, err := relay.Subscribe(ctx, nostr.Filters{{
@@ -449,6 +462,13 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, a
 	}
 
 	for evt := range sub.Events {
+		// Dispatched here rather than inside handleJob: the DAO job needs
+		// relayURL (its tally timer dials its own connection later, see
+		// scheduleDaoTally), which nothing else in handleJob needs.
+		if evt.Kind == kindJobRequestDaoProposal {
+			go handleDaoProposalJob(ctx, relay, relayURL, sk, communityKeySk, payment, evt)
+			continue
+		}
 		go handleJob(ctx, relay, claude, sk, articleKeySk, communityKeySk, payment, evt)
 	}
 	return nil
@@ -1486,6 +1506,8 @@ func dvmAboutAndTags(articleKeyPk, communityKeyPk string) (string, nostr.Tags) {
 	if communityKeyPk != "" {
 		about += fmt.Sprintf(" Paid community joining (5906) — the group sets its own price and payout address, paid directly; NOSTRAS keeps a flat %d-sat fee for the admission service.", communityJoinFeeSats)
 		tags = append(tags, nostr.Tag{"k", strconv.Itoa(kindJobRequestCommunityJoin)})
+		about += fmt.Sprintf(" Community DAO proposal registration + tally (5909) — a NIP-29 group admin registers a NIP-88 proposal; members vote; the tally is published as a public NIP-32 label anyone can recount. The DAO's treasury stays in the owner's own wallet; NOSTRAS keeps a flat %d-sat fee per proposal.", daoProposalFeeSats)
+		tags = append(tags, nostr.Tag{"k", strconv.Itoa(kindJobRequestDaoProposal)})
 	}
 	return about, tags
 }
@@ -1754,6 +1776,19 @@ func signForBroadcast(ctx context.Context, relay *nostr.Relay, sk string, evt no
 // or (confirmed live, 2026-09-16: purplepag.es structurally rejects
 // kind:31990 — it's a kind:0-only metadata relay) refusing a kind it
 // doesn't accept, shouldn't stop the DVM from booting.
+func isLoopbackRelayURL(relayURL string) bool {
+	u, err := url.Parse(relayURL)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func publishToDiscoveryRelays(ctx context.Context, evts []nostr.Event) {
 	for _, url := range dvmDiscoveryRelayURLs {
 		func() {

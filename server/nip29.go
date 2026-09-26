@@ -498,8 +498,10 @@ func daoGovernanceCheck(cache *groupCache, evt *nostr.Event) (bool, string) {
 }
 
 // validateProposalTags checks the NOSTRAS governance convention on top of
-// NIP-88: quorum and threshold are fractions in (0, 1], endsAt is required
-// (a proposal with no end can never be tallied).
+// NIP-88: quorum and threshold are fractions in (0, 1], the poll is
+// single-choice with an ["approve", <optionId>] tag naming a real option,
+// and endsAt is required (a proposal with no end can never be tallied).
+// server/cmd/dvm/dao.go's tally reads exactly these tags.
 func validateProposalTags(evt *nostr.Event) string {
 	for _, name := range []string{"quorum", "threshold"} {
 		tag := evt.Tags.GetFirst([]string{name, ""})
@@ -510,6 +512,26 @@ func validateProposalTags(evt *nostr.Event) string {
 		if err != nil || f <= 0 || f > 1 {
 			return name + " must be a fraction in (0, 1]"
 		}
+	}
+	// DAO proposals are single-choice with one designated "approve"
+	// option, so the tally has something concrete to measure the
+	// threshold against (NIP-88 options are otherwise generic labels).
+	if pt := evt.Tags.GetFirst([]string{"polltype", ""}); pt != nil && len(*pt) >= 2 && (*pt)[1] == "multiplechoice" {
+		return "DAO proposals must be single-choice"
+	}
+	approve := evt.Tags.GetFirst([]string{"approve", ""})
+	if approve == nil || len(*approve) < 2 || (*approve)[1] == "" {
+		return "proposal missing approve tag naming the approving option"
+	}
+	approveFound := false
+	for _, tag := range evt.Tags {
+		if len(tag) >= 2 && tag[0] == "option" && tag[1] == (*approve)[1] {
+			approveFound = true
+			break
+		}
+	}
+	if !approveFound {
+		return "approve tag must name one of the proposal's options"
 	}
 	endsAt := evt.Tags.GetFirst([]string{"endsAt", ""})
 	if endsAt == nil || len(*endsAt) < 2 {

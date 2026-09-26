@@ -10538,7 +10538,76 @@ response the relay can't gate, so Piece 2's tally must only count
 second replay in undefined order at boot (pre-existing, rare). A
 non-paid DAO group currently has no UI to add plain members (the admin
 panel only promotes to admin); Piece 3 needs an "Add member" action.
-Not yet deployed as of this entry.
+**Deployed 2026-09-26** (`d9a6c82`): both CI deploys succeeded,
+production NIP-11 reports that version, and the production DVM answered
+a real kind:5050 job with `payment-required` (not paid). **Correction
+to the verification above**: the "member votes accepted" case actually
+tested an admin. The `nak` shape used, `p="<pk>;;member"`, produces
+`["p", pk, "", "member"]`, which the relay correctly reads as "no role
+→ admin". Caught during Piece 2; re-run with `p="<pk>;member"` and the
+member tier behaves as intended. Worth remembering for any future
+NIP-29 test: `nak`'s `;` separates tag elements, so `;;` inserts an
+empty one.
+
+## Community DAOs, Piece 2 — DVM proposal registration + tally (2026-09-26)
+
+New `server/cmd/dvm/dao.go`, job **5909→6909** (checked free upstream
+and in vendored go-nostr). Registration: the proposal must parse
+(`h`/`quorum`/`threshold`/`approve`/`endsAt`), voting mustn't have
+ended, the group's newest kind:9002 must carry `dao`, the requester
+must be a current admin (role-aware 9007/9000/9001 replay matching
+`nip29.go`), and it mustn't already be registered. Then it charges a
+flat 21 sats via `requirePayment` (when gating is on) and publishes an
+`open` NIP-32 label (`org.nostras.dao`) signed by the community key,
+plus a 6909 `registered` result. Dispatched from `runDVM`'s loop rather
+than `handleJob`, because it needs `relayURL`.
+
+**Tally**: a one-shot timer at `endsAt` + 10s dials its own relay
+connection (the registering connection may be replaced by a reconnect
+first). Eligible = admins + members as of the proposal's `created_at`,
+so members added mid-vote don't count. Only votes with the group's `h`
+tag count (those are the ones the relay gated). The latest vote per
+eligible member with `created_at <= endsAt` counts, using its first
+`response` naming a real option. Quorum is a minimum; threshold must be
+*exceeded* (threshold 1 = unanimous). The result is a `passed`/
+`rejected` label whose JSON content carries all the counts, so anyone
+can recount. **Restarts**: every (re)connect rescans for `open` labels
+with no result and re-arms their timers, derived purely from relay
+data, with a mutex-guarded set preventing double timers. Advertised as
+`k=5909` in the NIP-89 announcement when the community key is set.
+
+**Convention tightened, relay and DVM together**: DAO proposals must be
+single-choice and carry `["approve", <optionId>]` naming a real option.
+NIP-88 options are otherwise generic, so the threshold had nothing to
+measure against (`server/nip29.go`'s `validateProposalTags`).
+
+**New dev-safety guard found while setting up the test**: any env var a
+local run doesn't set is filled from `.nostras.env`, likely including
+the real `NOSTRAS_DVM_IDENTITY_KEY`, and the DVM publishes its profile
+and NIP-89 handler to public discovery relays on every boot. So a local
+test run could have republished the real DVM identity's public
+announcement from a test build. Now `runDVM` skips the
+discovery-relay publish when its relay URL is loopback
+(`isLoopbackRelayURL`); production uses Fly's private hostname and is
+unaffected. The test run also used its own throwaway identity,
+community and article keys, so no real key was ever loaded.
+
+**Verified, not just built clean**: `go build`/`go vet` clean. 10
+`go test` cases for `tallyVotes` (majority, exact tie fails, quorum
+miss, non-member ignored, latest vote wins, post-deadline vote ignored,
+invalid option skipped, unanimity pass/fail, zero votes). End-to-end
+against an isolated local relay (scratchpad, :7790) and a local DVM in
+free mode: member registration refused, admin registration → `open` +
+`registered`, duplicate refused; the relay refused a member proposal,
+an `approve` naming no option, and a multiple-choice proposal. A
+proposal whose votes all arrived after `endsAt` → `rejected (0/5)`. A
+live proposal with M1 yes, M2 no→yes, M3 no, a member added mid-vote
+voting no, and a stranger voting without the `h` tag → `passed`,
+eligible 6, voted 3, yes 2 / no 1. The DVM was killed with 82s left
+and restarted; it re-armed the tally from relay data and published on
+time. **Payment-gated registration was not re-exercised**: it's the
+unchanged `requirePayment` path every other job uses. Not yet deployed
+as of this entry; Piece 3 (client UI) is next.
 
 ## Architecture
 
