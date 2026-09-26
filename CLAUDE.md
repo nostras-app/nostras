@@ -10663,8 +10663,12 @@ overflow at 582px; the 64-char proof wraps. The first `resize_window`
 didn't apply (innerWidth unchanged), and the documented fresh-tab
 workaround fixed it. **Not live-tested**: registration's
 payment-required step (free mode skips it); it's the same
-`requirePayment` path and the same panel shape as paid joining. Not yet
-deployed as of this entry.
+`requirePayment` path and the same panel shape as paid joining.
+**Deployed 2026-09-26** (`f97830d`): `deploy-client.yml` succeeded, and
+the live `app.nostras.app` bundle contains the commit SHA, the new DAO
+strings and the `dao-status-*` CSS. All three pieces are now in
+production. Not yet exercised on production with a real DAO or a real
+paid registration.
 
 ## Architecture
 
