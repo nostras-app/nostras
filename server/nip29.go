@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/fiatjaf/eventstore/badger"
@@ -138,6 +139,13 @@ type cachedGroup struct {
 	admins     map[string]bool
 	members    map[string]bool
 	restricted bool
+	// dao (Community DAOs, 2026-09-26): governance mode. Sourced exactly
+	// like restricted — a bare ["dao"] tag's presence on the most recent
+	// kind:9002 — for the same staleness reason. Independent of
+	// restricted: a DAO group gates proposals (kind:1068) to admins and
+	// votes (kind:1018) to admins/members, whether or not chat itself is
+	// restricted. See daoGovernanceCheck below.
+	dao bool
 }
 
 // groupCache is an in-memory, mutex-guarded cache of per-group admin
@@ -195,6 +203,13 @@ func (c *groupCache) isRestricted(id string) bool {
 	defer c.mu.RUnlock()
 	g := c.groups[id]
 	return g != nil && g.restricted
+}
+
+func (c *groupCache) isDao(id string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	g := c.groups[id]
+	return g != nil && g.dao
 }
 
 // createGroup seeds a brand-new group with its creator as sole admin, the
@@ -289,7 +304,16 @@ func (c *groupCache) applyEditMetadata(id string, evt *nostr.Event) {
 	if !ok {
 		return
 	}
+	// Full-state semantics, per NIP-29's own description of 9002 as
+	// carrying "all the fields of group-metadata": a flag absent from the
+	// newest 9002 is OFF. That makes it the *client's* job to republish
+	// every current flag on every 9002 — a real bug found while building
+	// Community DAOs (2026-09-26): the client's plain rename action sent a
+	// 9002 with only the h tag, which silently un-restricted a paid group.
+	// Reproduced live against a local relay; fixed client-side by routing
+	// every 9002 through one helper that always carries the full state.
 	g.restricted = hasTag(evt, "restricted")
+	g.dao = hasTag(evt, "dao")
 }
 
 // loadFromStore populates the cache once at boot by replaying every
@@ -363,6 +387,9 @@ func hasTag(evt *nostr.Event, name string) bool {
 
 func newNip29RejectEventHook(cache *groupCache) func(ctx context.Context, evt *nostr.Event) (bool, string) {
 	return func(ctx context.Context, evt *nostr.Event) (bool, string) {
+		if evt.Kind == kindPoll || evt.Kind == kindPollResponse {
+			return daoGovernanceCheck(cache, evt)
+		}
 		if !isNip29Kind(evt.Kind) {
 			return false, ""
 		}
@@ -421,6 +448,77 @@ func newNip29RejectEventHook(cache *groupCache) func(ctx context.Context, evt *n
 		}
 		return false, ""
 	}
+}
+
+// NIP-88 poll/response kinds. go-nostr v0.52.3 has no constants for
+// these (same gap NDK has on the client, see client/src/lib/poll.ts).
+const (
+	kindPoll         = 1068
+	kindPollResponse = 1018
+)
+
+// daoGovernanceCheck enforces Community DAO governance (2026-09-26) —
+// NIP-88 polls/votes scoped to a NIP-29 group via an "h" tag. Deliberately
+// narrow so ordinary polls are untouched:
+//   - no "h" tag at all: an ordinary public poll/vote, accepted exactly as
+//     before this feature existed.
+//   - "h" tag naming a group that doesn't exist or isn't in DAO mode:
+//     also accepted unchanged (h-tagged polls were never gated before, and
+//     a non-DAO group has no governance rules to apply).
+//   - DAO group: proposals (1068) are admin-only and must carry valid
+//     quorum/threshold/endsAt tags; votes (1018) are admins/members only.
+//
+// Tallying (membership snapshot at the proposal's created_at, one vote per
+// member, quorum/threshold) is NOT done here — that's the DVM's job
+// (kind:5909), since a RejectEvent hook must stay a cheap map lookup.
+func daoGovernanceCheck(cache *groupCache, evt *nostr.Event) (bool, string) {
+	if !hasTag(evt, "h") {
+		return false, ""
+	}
+	id, ok := groupIDFromEvent(evt)
+	if !ok {
+		return true, "invalid: missing or ambiguous group tag"
+	}
+	if !cache.isDao(id) {
+		return false, ""
+	}
+	if evt.Kind == kindPoll {
+		if !cache.isAdmin(id, evt.PubKey) {
+			return true, "blocked: only DAO admins can open proposals"
+		}
+		if reason := validateProposalTags(evt); reason != "" {
+			return true, "invalid: " + reason
+		}
+		return false, ""
+	}
+	if !cache.isAdmin(id, evt.PubKey) && !cache.isMember(id, evt.PubKey) {
+		return true, "blocked: only DAO members can vote"
+	}
+	return false, ""
+}
+
+// validateProposalTags checks the NOSTRAS governance convention on top of
+// NIP-88: quorum and threshold are fractions in (0, 1], endsAt is required
+// (a proposal with no end can never be tallied).
+func validateProposalTags(evt *nostr.Event) string {
+	for _, name := range []string{"quorum", "threshold"} {
+		tag := evt.Tags.GetFirst([]string{name, ""})
+		if tag == nil || len(*tag) < 2 {
+			return "proposal missing " + name + " tag"
+		}
+		f, err := strconv.ParseFloat((*tag)[1], 64)
+		if err != nil || f <= 0 || f > 1 {
+			return name + " must be a fraction in (0, 1]"
+		}
+	}
+	endsAt := evt.Tags.GetFirst([]string{"endsAt", ""})
+	if endsAt == nil || len(*endsAt) < 2 {
+		return "proposal missing endsAt tag"
+	}
+	if t, err := strconv.ParseInt((*endsAt)[1], 10, 64); err != nil || t <= int64(evt.CreatedAt) {
+		return "endsAt must be a timestamp after the proposal's created_at"
+	}
+	return ""
 }
 
 // newNip29CacheUpdateHook is appended to relay.OnEventSaved, keeping the

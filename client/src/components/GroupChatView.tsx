@@ -340,9 +340,9 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
           error={membership.error}
           onPromote={membership.promote}
           onDemote={membership.demote}
-          onEditMetadata={membership.editMetadata}
+          onEditMetadata={(name, about, picture) => membership.editMetadata(group, name, about, picture)}
           onSetPaidJoining={(restricted, priceSats, payoutLud16) =>
-            membership.setPaidJoining(group.name, group.about, group.picture, restricted, priceSats, payoutLud16)
+            membership.setPaidJoining(group, restricted, priceSats, payoutLud16)
           }
           onDeleteGroup={membership.deleteGroup}
         />

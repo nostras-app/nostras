@@ -10471,6 +10471,75 @@ only), `vite build` clean.
 (2026-09-26)**: after reload, the real "Brasil" badge shows on their
 profile.
 
+## Community DAOs, Piece 1 — relay governance gating, plus a real
+paywall-lost-on-rename bug fixed first (2026-09-26)
+
+Community DAOs are a feature any NIP-29 group can turn on: members vote
+on proposals (NIP-88 polls), the owner's own wallet is the treasury
+(NOSTRAS never holds DAO funds, per the standing custody decision), and
+NOSTRAS charges a per-proposal fee via a new DVM job (5909→6909,
+registry-checked free). Full brainstorm, decisions (per-proposal fee,
+one member one vote, admin-only proposals, DVM community key signs
+results), the Cashu correction (a Cashu mint is custodial, so it was
+dropped), and the three-piece build plan live in
+`nostr-client-node-strategy.md`'s "Community DAOs" section. This entry
+covers Piece 1 only.
+
+**Server** (`server/nip29.go`): `cachedGroup` gained a `dao` flag, set
+from a bare `["dao"]` tag on the newest kind:9002 and replayed exactly
+like `restricted` (never from kind:39000, for the documented staleness
+reason). The reject hook now sends kind:1068/1018 to a new
+`daoGovernanceCheck`. With no `h` tag, or an `h` tag naming a non-DAO
+group, events are accepted exactly as before. In a DAO group, proposals
+are admin-only and must carry `quorum`/`threshold` fractions in (0, 1]
+and an `endsAt` after `created_at`; votes are admin/member only.
+Tallying (membership snapshot, quorum, threshold) is deliberately not
+done here: a RejectEvent hook must stay a cheap map lookup. That's
+Piece 2's DVM job.
+
+**Real bug found and fixed before building on it**: the admin panel's
+rename (`editMetadata`) published a kind:9002 with only the `h` tag.
+The relay reads a missing `["restricted"]` as "open", so renaming a
+paid group silently removed its paywall, and the replacement kind:39000
+dropped `price`/`payout` too. Reproduced live against a local relay
+(non-member blocked, then allowed after a plain rename). No production
+group was affected: the only three kind:9002s on `nostras.app` belong
+to groups that were never paid. Fixed by routing every 9002/39000 pair
+through one `publishGroupState` helper in `useGroupMembership.ts` that
+always carries the full state (`restricted`, price, payout, `dao`),
+matching NIP-29's own description of 9002 as carrying all
+group-metadata fields. `Group` (`useGroupList.ts`) now extends a shared
+`GroupState` type; `editMetadata`/`setPaidJoining` take the current
+group instead of loose name/about/picture args.
+
+**Verified for real, not just built clean**: `go build`/`go vet` clean
+(`gofmt -l` flags only the pre-existing `outboxcache_test.go`
+alignment, untouched); `tsc -b`, `vite build` clean, `oxlint` only the
+pre-existing `useNoteFeed.ts` warnings. 18 `nak` cases against an
+isolated local relay (scratchpad data dir, port 7790): ordinary polls
+and h-tagged polls in non-DAO groups unchanged; stranger proposal,
+missing quorum, threshold 1.5, past `endsAt`, and duplicate `h` tags
+rejected; a valid admin proposal stored; stranger and not-yet-added
+member votes rejected; member (after a kind:9000 `member` grant) and
+admin votes accepted; DAO state survives a relay restart; a 9002
+without `dao` turns DAO off; DAO + restricted work together. The rename
+fix was verified through the real admin panel in a browser (dev build
+pointed at the test relay, a test admin key generated this session):
+the published 9002 kept `["restricted"]`, the 39000 kept price/payout,
+and a non-member was still blocked afterwards. **One test-harness
+mistake caught, not an app bug**: the first relay restart left the old
+process running (a `pkill -f` on the full path didn't match
+`./nostras-relay`), so the new one crashed on the badger lock; stopped
+the old one by exact PID and re-ran everything against the new build.
+
+**Known and accepted**: a vote with no `h` tag is an ordinary NIP-88
+response the relay can't gate, so Piece 2's tally must only count
+`h`-tagged votes from snapshot members. Two kind:9002s in the same
+second replay in undefined order at boot (pre-existing, rare). A
+non-paid DAO group currently has no UI to add plain members (the admin
+panel only promotes to admin); Piece 3 needs an "Add member" action.
+Not yet deployed as of this entry.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

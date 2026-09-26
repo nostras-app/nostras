@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NDKKind, type NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk, localRelaySet } from '../lib/ndk'
 import { useRelayStatus } from './useRelayStatus'
-import { deriveIsDeleted, type HistoryEvent } from './useGroupMembership'
+import { deriveIsDeleted, type GroupState, type HistoryEvent } from './useGroupMembership'
 
 // NDK's NDKKind enum doesn't include NIP-29's delete-group (9008) — a
 // real, ratified NIP-29 kind NDK just hasn't added a constant for (same
@@ -13,25 +13,20 @@ const KIND_GROUP_DELETE_GROUP = 9008 as NDKKind
 // across every long-lived subscription hook in this codebase.
 const EOSE_FALLBACK_MS = 12000
 
-export type Group = {
+// Paid Communities (2026-08-15) — parsed straight from this same
+// kind:39000 event's own ["restricted"]/["price"]/["payout"] tags,
+// the same fields server/cmd/dvm/main.go's handleGroupJoinJob reads
+// for pricing. Deliberately NOT the source of truth for whether
+// posting is actually gated — that's server/nip29.go's own kind:9002-
+// derived cache, reached via useGroupMembership's setPaidJoining,
+// which always publishes both events together so the two can't drift
+// apart in this app's own client (see nip29.go's own comment on why
+// kind:39000 alone isn't trusted for enforcement).
+// Community DAOs (2026-09-26) added `dao` the same way (via GroupState).
+export type Group = GroupState & {
   id: string
-  name: string
-  about: string
-  picture: string
   createdAt: number
   hostPubkey: string
-  // Paid Communities (2026-08-15) — parsed straight from this same
-  // kind:39000 event's own ["restricted"]/["price"]/["payout"] tags,
-  // the same fields server/cmd/dvm/main.go's handleGroupJoinJob reads
-  // for pricing. Deliberately NOT the source of truth for whether
-  // posting is actually gated — that's server/nip29.go's own kind:9002-
-  // derived cache, reached via useGroupMembership's setPaidJoining,
-  // which always publishes both events together so the two can't drift
-  // apart in this app's own client (see nip29.go's own comment on why
-  // kind:39000 alone isn't trusted for enforcement).
-  restricted: boolean
-  priceSats: number
-  payoutLud16: string
 }
 
 function parseGroupMetadata(evt: NDKEvent): Group | null {
@@ -48,6 +43,7 @@ function parseGroupMetadata(evt: NDKEvent): Group | null {
     restricted,
     priceSats: restricted ? Number(evt.tags.find((t) => t[0] === 'price')?.[1] ?? 0) : 0,
     payoutLud16: restricted ? evt.tags.find((t) => t[0] === 'payout')?.[1] || '' : '',
+    dao: evt.tags.some((t) => t[0] === 'dao'),
   }
 }
 

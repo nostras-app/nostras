@@ -17,6 +17,22 @@ const EOSE_FALLBACK_MS = 12000
 // hide deleted groups from the discovery list — see its own comment for
 // why this needs a real subscription across every group, not just the
 // one this hook already scopes to via #h.
+// The group's full current state, as every kind:9002/39000 pair must
+// carry it — see publishGroupState below. Defined here (not in
+// useGroupList.ts, whose Group type extends it) because useGroupList
+// already imports from this file.
+export type GroupState = {
+  name: string
+  about: string
+  picture: string
+  restricted: boolean
+  priceSats: number
+  payoutLud16: string
+  // Community DAOs (2026-09-26): governance mode, enforced by
+  // server/nip29.go (admin-only proposals, member-only votes).
+  dao: boolean
+}
+
 export type HistoryEvent = { kind: number; pubkey: string; createdAt: number; tags: string[][] }
 
 // Deliberately mirrors server/nip29.go's applyNip29CacheEvent exactly —
@@ -191,83 +207,77 @@ export function useGroupMembership(groupId: string | null) {
     [groupId, busy, loading],
   )
 
-  // Publishes both the 9002 moderation-intent event and the actual
-  // replacement 39000 metadata — the client is the one that signs group
-  // metadata in this design (server/nip29.go's create-group comment), so
-  // 9002 alone wouldn't change anything a reader could see without this.
+  // Every kind:9002 this app publishes goes through here, always carrying
+  // the group's FULL current state. server/nip29.go treats 9002 as a
+  // full-state directive (per NIP-29, 9002 carries "all the fields of
+  // group-metadata"): a flag missing from the newest 9002 means OFF. Real
+  // bug found while building Community DAOs (2026-09-26), reproduced live
+  // against a local relay: the old editMetadata published a 9002 with only
+  // the h tag, so renaming a paid group silently un-restricted it (a
+  // non-member could post straight afterwards), and its replacement 39000
+  // also dropped price/payout. No production group was affected (checked:
+  // no restricted group had ever been renamed). Also publishes the
+  // matching kind:39000 display copy, which the client signs in this
+  // design (server/nip29.go's create-group comment).
+  const publishGroupState = useCallback(
+    async (state: GroupState) => {
+      if (!groupId) return
+      const intentTags: string[][] = [['h', groupId]]
+      if (state.restricted) intentTags.push(['restricted'])
+      if (state.dao) intentTags.push(['dao'])
+      const intent = new NDKEvent(ndk, { kind: 9002, tags: intentTags })
+      await intent.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
+
+      const tags: string[][] = [['d', groupId]]
+      if (state.name.trim()) tags.push(['name', state.name.trim()])
+      if (state.about.trim()) tags.push(['about', state.about.trim()])
+      if (state.picture.trim()) tags.push(['picture', state.picture.trim()])
+      if (state.restricted) {
+        tags.push(['restricted'])
+        tags.push(['price', String(Math.max(1, Math.round(state.priceSats)))])
+        tags.push(['payout', state.payoutLud16.trim()])
+      }
+      if (state.dao) tags.push(['dao'])
+      const meta = new NDKEvent(ndk, { kind: 39000, tags })
+      await meta.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
+    },
+    [groupId],
+  )
+
   const editMetadata = useCallback(
-    async (name: string, about: string, picture: string) => {
+    async (current: GroupState, name: string, about: string, picture: string) => {
       if (!groupId || busy || loading) return
       setBusy('metadata')
       setError(null)
       try {
-        const intent = new NDKEvent(ndk, { kind: 9002, tags: [['h', groupId]] })
-        await intent.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
-
-        const tags: string[][] = [['d', groupId]]
-        if (name.trim()) tags.push(['name', name.trim()])
-        if (about.trim()) tags.push(['about', about.trim()])
-        if (picture.trim()) tags.push(['picture', picture.trim()])
-        const meta = new NDKEvent(ndk, { kind: 39000, tags })
-        await meta.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
+        await publishGroupState({ ...current, name, about, picture })
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to update metadata')
       } finally {
         setBusy(null)
       }
     },
-    [groupId, busy, loading],
+    [groupId, busy, loading, publishGroupState],
   )
 
-  // Enables or disables paid joining for a group — publishes both the
-  // kind:9002 moderation directive (the ["restricted"] tag is what
-  // server/nip29.go's enforcement actually trusts, see its own comment
-  // on why 9002 and not 39000) and a replacement kind:39000 metadata
-  // event carrying ["restricted"]/["price", sats]/["payout", lud16] —
-  // the display/pricing copy both this client and the DVM's own
-  // handleGroupJoinJob read. Takes the group's *current* name/about/
-  // picture as plain args (not a Group object, to avoid a circular
-  // import with useGroupList.ts, which already imports from this file)
-  // so they're preserved rather than wiped, same "spread, don't
-  // replace" discipline as editMetadata above. Disabling paid joining
-  // (restricted=false) omits restricted/price/payout entirely — the
-  // group becomes open again, same as one that never had this set.
+  // Enables or disables paid joining. Disabling (restricted=false) drops
+  // restricted/price/payout entirely — the group is open again, same as
+  // one that never had this set. Every other field (name/about/picture,
+  // dao) is preserved from `current`.
   const setPaidJoining = useCallback(
-    async (
-      currentName: string,
-      currentAbout: string,
-      currentPicture: string,
-      restricted: boolean,
-      priceSats: number,
-      payoutLud16: string,
-    ) => {
+    async (current: GroupState, restricted: boolean, priceSats: number, payoutLud16: string) => {
       if (!groupId || busy || loading) return
       setBusy('paid-joining')
       setError(null)
       try {
-        const intentTags: string[][] = [['h', groupId]]
-        if (restricted) intentTags.push(['restricted'])
-        const intent = new NDKEvent(ndk, { kind: 9002, tags: intentTags })
-        await intent.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
-
-        const tags: string[][] = [['d', groupId]]
-        if (currentName.trim()) tags.push(['name', currentName.trim()])
-        if (currentAbout.trim()) tags.push(['about', currentAbout.trim()])
-        if (currentPicture.trim()) tags.push(['picture', currentPicture.trim()])
-        if (restricted) {
-          tags.push(['restricted'])
-          tags.push(['price', String(Math.max(1, Math.round(priceSats)))])
-          tags.push(['payout', payoutLud16.trim()])
-        }
-        const meta = new NDKEvent(ndk, { kind: 39000, tags })
-        await meta.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
+        await publishGroupState({ ...current, restricted, priceSats, payoutLud16 })
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to update paid joining')
       } finally {
         setBusy(null)
       }
     },
-    [groupId, busy, loading],
+    [groupId, busy, loading, publishGroupState],
   )
 
   // Publishes kind:9008 (delete-group). Per server/nip29.go this stops
