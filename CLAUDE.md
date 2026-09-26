@@ -10467,6 +10467,10 @@ award in Settings → profile showed it with no reload; removing it
 emptied the row live too. `tsc -b`, `oxlint` (pre-existing warnings
 only), `vite build` clean.
 
+**Deployed (`d783b74`) and confirmed by the user on production
+(2026-09-26)**: after reload, the real "Brasil" badge shows on their
+profile.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
