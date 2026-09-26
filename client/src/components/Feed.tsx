@@ -18,11 +18,13 @@ import { EngagementBar } from './EngagementBar'
 import { ArticleCard } from './ArticleCard'
 import { ZapGoalCard } from './ZapGoalCard'
 import { PollCard } from './PollCard'
+import { DaoProposalFeedCard } from './DaoProposals'
 import { ThreadCard } from './ThreadCard'
 import { PodcastEpisodeCard } from './PodcastEpisodeCard'
 import { ListingCard } from './ListingCard'
 import { JobOfferCard } from './JobOfferCard'
 import { KIND_POLL } from '../lib/poll'
+import { isDaoProposalEvent } from '../lib/dao'
 import { KIND_FORUM_THREAD } from '../lib/forum'
 import { KIND_PODCAST_EPISODE } from '../lib/podcast'
 import { KIND_LISTING } from '../lib/listing'
@@ -92,6 +94,7 @@ export function FeedItem({ event }: { event: NDKEvent }) {
   }
 
   if (event.kind === KIND_POLL) {
+    if (isDaoProposalEvent(event)) return <DaoProposalFeedCard event={event} />
     return <PollCard event={event} />
   }
 

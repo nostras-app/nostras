@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { nip19 } from '@nostr-dev-kit/ndk'
 import { useProfile } from '../hooks/useProfile'
 import { isSecureImageUrl } from '../lib/parseContent'
+import { DAO_PROPOSAL_FEE_SATS } from '../lib/dao'
 
 function AdminRow({
   pubkey,
@@ -53,6 +54,7 @@ export function GroupAdminPanel({
   picture,
   admins,
   restricted,
+  dao,
   priceSats,
   payoutLud16,
   communityAdminPubkey,
@@ -60,6 +62,8 @@ export function GroupAdminPanel({
   error,
   onPromote,
   onDemote,
+  onAddMember,
+  onSetDaoMode,
   onEditMetadata,
   onSetPaidJoining,
   onDeleteGroup,
@@ -69,6 +73,7 @@ export function GroupAdminPanel({
   picture: string
   admins: string[]
   restricted: boolean
+  dao: boolean
   priceSats: number
   payoutLud16: string
   // The DVM's persisted community-admin pubkey, fetched from its own
@@ -79,6 +84,8 @@ export function GroupAdminPanel({
   error: string | null
   onPromote: (pubkey: string) => void
   onDemote: (pubkey: string) => void
+  onAddMember: (pubkey: string) => void
+  onSetDaoMode: (dao: boolean) => void
   onEditMetadata: (name: string, about: string, picture: string) => void
   onSetPaidJoining: (restricted: boolean, priceSats: number, payoutLud16: string) => void
   onDeleteGroup: () => void
@@ -88,6 +95,9 @@ export function GroupAdminPanel({
   const [editPicture, setEditPicture] = useState(picture)
   const [promoteInput, setPromoteInput] = useState('')
   const [promoteError, setPromoteError] = useState(false)
+  const [memberInput, setMemberInput] = useState('')
+  const [memberError, setMemberError] = useState(false)
+  const [daoEnabled, setDaoEnabled] = useState(dao)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const deletingGroup = busy === 'delete-group'
   const paidJoiningBusy = busy === 'paid-joining'
@@ -100,6 +110,20 @@ export function GroupAdminPanel({
   function handleSavePaidJoining() {
     const parsedPrice = Number(priceInput)
     onSetPaidJoining(paidEnabled, paidEnabled ? parsedPrice : 0, paidEnabled ? payoutInput.trim() : '')
+  }
+
+  function handleAddMember() {
+    const trimmed = memberInput.trim()
+    if (!trimmed) return
+    try {
+      const decoded = nip19.decode(trimmed)
+      if (decoded.type !== 'npub') throw new Error('not an npub')
+      onAddMember(decoded.data)
+      setMemberInput('')
+      setMemberError(false)
+    } catch {
+      setMemberError(true)
+    }
   }
 
   function handlePromote() {
@@ -212,6 +236,51 @@ export function GroupAdminPanel({
           </button>
         </div>
       </div>
+
+      <div className="communities-create-form group-admin-dao">
+        <label className="article-paywall-toggle">
+          <input type="checkbox" checked={daoEnabled} onChange={(e) => setDaoEnabled(e.target.checked)} />
+          DAO mode (members vote on proposals)
+        </label>
+        <p className="field-hint">
+          Admins open proposals; admins and members vote; NOSTRAS's DVM counts each vote and publishes the
+          result publicly ({DAO_PROPOSAL_FEE_SATS} sats per proposal). The group's money stays in your own
+          wallet: a vote is a decision you're trusted to carry out, not an automatic payment. Add voting
+          members below, or turn on paid joining.
+        </p>
+        <div className="btn-row">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => onSetDaoMode(daoEnabled)}
+            disabled={busy === 'dao-mode' || daoEnabled === dao}
+          >
+            {busy === 'dao-mode' ? 'Saving…' : 'Save DAO mode'}
+          </button>
+        </div>
+      </div>
+
+      <div className="field-row">
+        <input
+          className="input"
+          value={memberInput}
+          onChange={(e) => {
+            setMemberInput(e.target.value)
+            setMemberError(false)
+          }}
+          onKeyDown={(e) => e.key === 'Enter' && handleAddMember()}
+          placeholder="npub1… — add as member (can vote, not admin)"
+        />
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={handleAddMember}
+          disabled={!memberInput.trim() || !!busy}
+        >
+          Add member
+        </button>
+      </div>
+      {memberError && <p className="alert-error">That doesn't look like a valid npub.</p>}
 
       <div className="field-row">
         <input

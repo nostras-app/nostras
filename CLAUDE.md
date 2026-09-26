@@ -10607,7 +10607,64 @@ eligible 6, voted 3, yes 2 / no 1. The DVM was killed with 82s left
 and restarted; it re-armed the tally from relay data and published on
 time. **Payment-gated registration was not re-exercised**: it's the
 unchanged `requirePayment` path every other job uses. Not yet deployed
-as of this entry; Piece 3 (client UI) is next.
+as of this entry; Piece 3 (client UI) is next. **Deployed 2026-09-26**
+(`2e144c2`): the current DVM identity's NIP-89 announcement lists
+`k=5909`, and a production probe against a nonexistent proposal got
+the correct error back.
+
+## Community DAOs, Piece 3 — the client UI (2026-09-26)
+
+`lib/dao.ts` is the client half of the convention: a Yes/No proposal
+(`approve=yes`, optional `amount`/`payee`), `publishDaoVote` (always
+with the group's `h` tag), `requestProposalRegistration` (generic
+`requestDvmJob`, `localRelaySet`), and `publishExecuted` (an
+admin-signed `executed` label with the payment proof). Everything is
+scoped to `localRelaySet`, per the standing group-data rule.
+`hooks/useDaoProposals.ts` opens **one** subscription per group for
+proposals, DAO labels and votes together, not one per card (this
+project has hit the per-row subscription bug twice). It only trusts
+open/passed/rejected labels from the DVM's community key and
+`executed` from a current admin, since the relay doesn't gate kind:1985
+and anyone can publish one with the group's `h` tag.
+`components/DaoProposals.tsx` has the composer, cards (live counts
+marked unofficial, official result from the label), voting, a
+pay-to-register panel, and "Mark executed". `GroupChatView` gets a
+"Chat | Proposals" switch for DAO groups. `GroupAdminPanel` gets a DAO
+mode toggle, with plain copy that the treasury is the owner's wallet
+and money votes are a trusted mandate, plus "Add member" (closing the
+gap noted in Piece 1). `useGroupMembership` gained `addMember` and
+`setDaoMode`; the latter goes through `publishGroupState`, so
+paid-joining settings survive.
+
+**Real gap found and closed while building, not after**: the home feed
+already subscribes to kind:1068 on our relay, so DAO proposals would
+have shown up there as ordinary `PollCard`s. Voting from one publishes
+a plain NIP-88 response without the `h` tag, which the relay can't gate
+and the tally ignores, so the vote would silently not count. `Feed.tsx`
+now renders an `h`-tagged poll as a `DaoProposalFeedCard` (not
+votable, with an "Open in its community" link). Also found: the
+community key does **not** need promoting for DAO mode (labels aren't
+gated), so there's one less setup step than paid joining.
+
+**Verified end to end in a real browser, not just built clean**
+(`tsc -b`, `vite build` clean; `oxlint` shows only pre-existing
+warnings in untouched files), against an isolated local relay and a
+free-mode local DVM with throwaway keys. The admin turned DAO mode on
+and added a member through the panel (relay: 9002 `dao`, 9000
+`member`, 39000 keeping name/about). A spending proposal was published
+through the composer and registered (Open). The admin voted Yes and the
+member voted No (1–1; the member saw no gear or composer). A non-member
+saw no vote buttons. The home feed showed "Community proposal" link
+cards and no plain poll cards, and the link opened the group. A 70s
+proposal tallied `passed` (2/2); the UI showed Passed with the official
+result, and "Mark executed" with a proof flipped it to Executed. Forged
+`passed`/`executed` labels from a stranger were ignored. No horizontal
+overflow at 582px; the 64-char proof wraps. The first `resize_window`
+didn't apply (innerWidth unchanged), and the documented fresh-tab
+workaround fixed it. **Not live-tested**: registration's
+payment-required step (free mode skips it); it's the same
+`requirePayment` path and the same panel shape as paid joining. Not yet
+deployed as of this entry.
 
 ## Architecture
 

@@ -12,6 +12,7 @@ import { formatRelativeTime } from '../lib/time'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { GroupAdminPanel } from './GroupAdminPanel'
 import { GroupMemberList, type GroupParticipant } from './GroupMemberList'
+import { DaoProposalsView } from './DaoProposals'
 import { ArrowLeftIcon, UsersIcon, SettingsIcon, LinkIcon, TrashIcon } from './icons'
 
 type JoinState = 'locked' | 'requesting' | 'payment-required' | 'joined' | 'error'
@@ -214,6 +215,9 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
   const [memberListOpen, setMemberListOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
   const [communityAdminPubkey, setCommunityAdminPubkey] = useState<string | null>(null)
+  // Community DAOs: DAO-mode groups get a Chat | Proposals switch.
+  const [tab, setTab] = useState<'chat' | 'proposals'>('chat')
+  const showProposals = group.dao && tab === 'proposals'
 
   const viewerIsAdmin = !!activeUser && membership.isAdmin(activeUser.pubkey)
   const viewerIsMember = !!activeUser && membership.isMember(activeUser.pubkey)
@@ -225,8 +229,11 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
   // Fetched lazily, only once the admin actually opens the panel — most
   // group-chat visits never need this, and it's a real relay round trip
   // (see lib/communities.ts's fetchDvmCommunityAdminPubkey).
+  // Also needed by the Proposals tab: DAO labels are only trusted when
+  // signed by this key (see useDaoProposals).
+  const needsCommunityKey = (viewerIsAdmin && adminPanelOpen) || showProposals
   useEffect(() => {
-    if (!viewerIsAdmin || !adminPanelOpen) return
+    if (!needsCommunityKey) return
     let cancelled = false
     fetchDvmCommunityAdminPubkey().then((pk) => {
       if (!cancelled) setCommunityAdminPubkey(pk)
@@ -234,7 +241,7 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
     return () => {
       cancelled = true
     }
-  }, [viewerIsAdmin, adminPanelOpen])
+  }, [needsCommunityKey])
 
   // The group id alone is enough to deep-link back in — see deeplink.ts's
   // own comment on why this doesn't reuse the `?nostr=` naddr/nevent
@@ -333,6 +340,7 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
           picture={group.picture}
           admins={membership.admins}
           restricted={group.restricted}
+          dao={group.dao}
           priceSats={group.priceSats}
           payoutLud16={group.payoutLud16}
           communityAdminPubkey={communityAdminPubkey}
@@ -340,6 +348,8 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
           error={membership.error}
           onPromote={membership.promote}
           onDemote={membership.demote}
+          onAddMember={membership.addMember}
+          onSetDaoMode={(dao) => membership.setDaoMode(group, dao)}
           onEditMetadata={(name, about, picture) => membership.editMetadata(group, name, about, picture)}
           onSetPaidJoining={(restricted, priceSats, payoutLud16) =>
             membership.setPaidJoining(group, restricted, priceSats, payoutLud16)
@@ -359,6 +369,41 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
         <GroupMemberList participants={participants} onClose={() => setMemberListOpen(false)} />
       )}
 
+      {group.dao && (
+        <div className="feed-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'chat'}
+            className={`feed-tab${tab === 'chat' ? ' feed-tab-active' : ''}`}
+            onClick={() => setTab('chat')}
+          >
+            Chat
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'proposals'}
+            className={`feed-tab${tab === 'proposals' ? ' feed-tab-active' : ''}`}
+            onClick={() => setTab('proposals')}
+          >
+            Proposals
+          </button>
+        </div>
+      )}
+
+      {showProposals ? (
+        <DaoProposalsView
+          groupId={group.id}
+          communityKeyPubkey={communityAdminPubkey}
+          viewerIsAdmin={viewerIsAdmin}
+          viewerCanVote={viewerIsAdmin || viewerIsMember}
+          isAdmin={membership.isAdmin}
+          isEligible={(pk) => membership.isAdmin(pk) || membership.isMember(pk)}
+          myPubkey={activeUser?.pubkey ?? null}
+        />
+      ) : (
+      <>
       <div className="dm-thread-messages">
         {loading && messages.length === 0 && (
           <p className="dm-thread-empty-hint">Loading messages…</p>
@@ -405,6 +450,8 @@ export function GroupChatView({ group, onBack }: { group: Group; onBack: () => v
         {error && <p className="alert-error">{error}</p>}
         {deleteError && <p className="alert-error">{deleteError}</p>}
       </div>
+      )}
+      </>
       )}
     </div>
   )

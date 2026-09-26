@@ -184,6 +184,34 @@ export function useGroupMembership(groupId: string | null) {
     [groupId, busy, loading],
   )
 
+  // Adds a plain voting member (kind:9000 with an explicit "member"
+  // role), not an admin. Community DAOs (2026-09-26) need this: in a DAO
+  // group that isn't paid, there was no other way to add someone who can
+  // vote but not administer. Removal reuses demote() below — a kind:9001
+  // revokes both tiers at once (see deriveMembers).
+  const addMember = useCallback(
+    async (pubkey: string) => {
+      if (!groupId || busy || loading) return
+      setBusy(pubkey)
+      setError(null)
+      try {
+        const event = new NDKEvent(ndk, {
+          kind: 9000,
+          tags: [
+            ['h', groupId],
+            ['p', pubkey, 'member'],
+          ],
+        })
+        await event.publish(localRelaySet, GROUP_ADMIN_PUBLISH_TIMEOUT_MS)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to add member')
+      } finally {
+        setBusy(null)
+      }
+    },
+    [groupId, busy, loading],
+  )
+
   const demote = useCallback(
     async (pubkey: string) => {
       if (!groupId || busy || loading) return
@@ -280,6 +308,25 @@ export function useGroupMembership(groupId: string | null) {
     [groupId, busy, loading, publishGroupState],
   )
 
+  // Turns Community DAO mode on/off (server/nip29.go gates proposals to
+  // admins and votes to members once on). Goes through publishGroupState
+  // like every other 9002, so paid-joining settings are preserved.
+  const setDaoMode = useCallback(
+    async (current: GroupState, dao: boolean) => {
+      if (!groupId || busy || loading) return
+      setBusy('dao-mode')
+      setError(null)
+      try {
+        await publishGroupState({ ...current, dao })
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to update DAO mode')
+      } finally {
+        setBusy(null)
+      }
+    },
+    [groupId, busy, loading, publishGroupState],
+  )
+
   // Publishes kind:9008 (delete-group). Per server/nip29.go this stops
   // the group from accepting any *new* posts/moderation — it does not
   // and cannot bulk-remove already-stored kind:9 messages (badger has no
@@ -307,9 +354,11 @@ export function useGroupMembership(groupId: string | null) {
     isMember,
     isDeleted: deriveIsDeleted(history),
     promote,
+    addMember,
     demote,
     editMetadata,
     setPaidJoining,
+    setDaoMode,
     deleteGroup: deleteGroupAction,
     loading,
     busy,

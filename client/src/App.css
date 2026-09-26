@@ -3348,6 +3348,68 @@ a.profile-external-identity:hover {
   min-width: 160px;
 }
 
+/* ---------- Community DAOs (2026-09-26) ---------- */
+.dao-proposals {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.dao-composer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dao-composer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.dao-composer-field-wide {
+  flex: 2;
+  min-width: 180px;
+}
+
+.dao-proposal-card .feed-item-meta {
+  flex-wrap: wrap;
+}
+
+.dao-status {
+  margin-left: auto;
+}
+
+.dao-status-passed,
+.dao-status-executed {
+  color: var(--success);
+  background: transparent;
+  border: 1px solid var(--success);
+}
+
+.dao-status-rejected,
+.dao-status-unregistered-expired {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.dao-status-awaiting-registration,
+.dao-status-counting {
+  color: var(--text-muted);
+  background: var(--code-bg);
+}
+
+/* A preimage is a 64-char unbroken hex string; without this it widens the
+   card on narrow screens (the recurring overflow class documented in
+   CLAUDE.md). */
+.dao-proof {
+  overflow-wrap: anywhere;
+}
+
 /* ---------- View switching ----------
    Kept last in the file so these always win any equal-specificity tie
    against a component's own `display` rule (e.g. .settings-panel sets
