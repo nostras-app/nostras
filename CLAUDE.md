@@ -10670,6 +10670,39 @@ strings and the `dao-status-*` CSS. All three pieces are now in
 production. Not yet exercised on production with a real DAO or a real
 paid registration.
 
+## Third disk-full outage: relay crash-looped ~30h, volume extended to
+20GB (2026-10-02)
+
+Found by a general health check, not a user report. Uptime checks had
+failed since 2026-10-01 07:17 UTC. The relay crashed on boot every few
+seconds and Fly had stopped retrying (`max restart count of 10`). The
+client stayed up, so the app loaded but couldn't reach its relay.
+
+**Cause**: `/data` full again (boot fsck: about 16MB free of 10GB).
+Badger mmaps a new memtable at startup, the write to an unbackable page
+raises `SIGBUS`, and the relay exits before listening. Same class as
+PQ-058 and PQ-077. Growth since 2026-09-05: badger 2.6 → 5.0GB, bluge
+(search index) 1.9 → 4.8GB. The search index is nearly as big as the
+event store, and badger holds about 837k outbox-cached events, so
+outbox caching and indexing of remote events is the likely driver. Not
+yet confirmed.
+
+**Fix**: volume extended to 20GB (owner-approved, recurring cost), then
+a machine restart, which the extend alone didn't trigger because the
+machine had hit its restart limit. For roughly the first minute after
+boot, publishes were stored but acked in >10s; it settled on its own.
+Verified: publish acks in 0.45s, DVM returns a real `payment-required`
+(not paid), wallet reachable, uptime check green, dashboard auth split
+unchanged. Full record: `NOSTRAS-CSV.md` PQ-093.
+
+**Unexplained**: the `web` machine had been recreated earlier that day
+as `performance-2x:8192MB` on a new 10GB volume carrying the old data.
+Neither this session nor the local nostr-agent (not running since
+2026-09-11) did it.
+
+**Open**: retention/pruning so the disk stops filling. A fourth volume
+bump would only buy weeks.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
