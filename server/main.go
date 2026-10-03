@@ -540,6 +540,11 @@ func main() {
 	// genuinely published here later" edge case.
 	relay.StoreEvent = append(relay.StoreEvent, newOutboxCacheUntrackHook(outboxCache))
 	startOutboxCacheSweeper(relay, &db, outboxCache, outboxCacheRetentionDays)
+	// Storage diagnostic — see storagestats.go. Operator-only, on demand.
+	storageScan := newStorageScanner(&db, outboxCache)
+	relay.Router().HandleFunc("POST /dashboard/storage/start", requireDashboardAuth(dashboardPassword, handleStorageScanStart(storageScan)))
+	relay.Router().HandleFunc("GET /dashboard/storage/status", requireDashboardAuth(dashboardPassword, handleStorageScanStatus(storageScan)))
+
 	if searchNeedsRebuild {
 		fmt.Printf("search index: version %s missing, rebuilding from the event store in the background\n", searchIndexVersion)
 		rebuildSearchIndex(&db, newGroupChatSearchIndexHook(&searchIndex), outboxCache, blugePath)

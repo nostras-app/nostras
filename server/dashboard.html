@@ -254,6 +254,15 @@
     color: var(--text-dim);
     margin: 14px 0 0;
   }
+  .scan-btn {
+    font: inherit; font-weight: 600; color: #fff; background: var(--accent);
+    border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer;
+  }
+  .scan-btn:disabled { opacity: 0.5; cursor: default; }
+  .scan-meta { color: var(--text-dim); font-size: 13px; margin: 10px 0; }
+  .storage-wrap h3 { font-size: 14px; color: var(--text-h); margin: 18px 0 6px; }
+  .storage-wrap table { margin-bottom: 4px; }
+  .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -327,6 +336,13 @@
 <section class="panel">
   <h2>NOSTRAS Node waitlist</h2>
   <div id="waitlist-wrap"></div>
+</section>
+
+<section class="panel">
+  <h2>Event store breakdown — on demand</h2>
+  <p class="scan-meta">Walks the whole event store once in the background (takes a few minutes, paced so live traffic isn't starved) and shows what it's made of: by kind, by source (outbox-cached copies vs. events published to this relay directly), by age and by direct publisher. Results live in memory only and reset on restart.</p>
+  <button class="scan-btn" id="storage-scan-btn" type="button">Run storage scan</button>
+  <div id="storage-wrap" class="storage-wrap"></div>
 </section>
 
 <footer>
@@ -797,12 +813,84 @@ async function loadHealth() {
     `Jobs handled: ${dvm.jobsHandled.toLocaleString()} since this process started — last one ${fmtAgo(dvm.lastJobUnix)}` +
     (dvm.paymentGating ? " — payment gating: ON" : " — payment gating: OFF");
 }
+function fmtBytes(n) {
+  if (n >= 1 << 30) return (n / (1 << 30)).toFixed(2) + " GB";
+  if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + " MB";
+  if (n >= 1 << 10) return (n / (1 << 10)).toFixed(0) + " KB";
+  return n + " B";
+}
+function pct(a, b) { return b ? Math.round((a / b) * 100) + "%" : "—"; }
+
+const AGE_LABELS = [["under1d", "< 1 day"], ["1to7d", "1–7 days"], ["7to30d", "7–30 days"], ["30dto1y", "30 days – 1 year"], ["over1y", "> 1 year"]];
+
+let storagePoll = null;
+async function loadStorage() {
+  const wrap = document.getElementById("storage-wrap");
+  const btn = document.getElementById("storage-scan-btn");
+  let r;
+  try {
+    const res = await fetch("/dashboard/storage/status");
+    if (!res.ok) throw new Error();
+    r = await res.json();
+  } catch {
+    wrap.innerHTML = '<div class="empty">Failed to load scan status.</div>';
+    return;
+  }
+  btn.disabled = r.running;
+  btn.textContent = r.running ? "Scanning…" : "Run storage scan";
+  if (r.running) {
+    wrap.innerHTML = `<p class="scan-meta">Scanning… ${(r.total.count || 0).toLocaleString()} events so far (${fmtBytes(r.total.bytes || 0)}).</p>`;
+    if (!storagePoll) storagePoll = setInterval(loadStorage, 3000);
+    return;
+  }
+  if (storagePoll) { clearInterval(storagePoll); storagePoll = null; }
+  if (!r.finishedAt) {
+    wrap.innerHTML = '<p class="scan-meta">No scan run since the last restart.</p>';
+    return;
+  }
+  const t = r.total;
+  let html = `<p class="scan-meta">Finished ${fmtAgo(r.finishedAt)}, took ${r.finishedAt - r.startedAt}s.${r.error ? " Error: " + escapeHtml(r.error) : ""}</p>`;
+  html += `<table><thead><tr><th></th><th class="num">Events</th><th class="num">Size</th><th class="num">Share of size</th></tr></thead><tbody>`;
+  html += `<tr><td>Total</td><td class="num">${t.count.toLocaleString()}</td><td class="num">${fmtBytes(t.bytes)}</td><td class="num">100%</td></tr>`;
+  html += `<tr><td>Outbox-cached copies</td><td class="num">${t.outboxCount.toLocaleString()}</td><td class="num">${fmtBytes(t.outboxBytes)}</td><td class="num">${pct(t.outboxBytes, t.bytes)}</td></tr>`;
+  html += `<tr><td>Published here directly</td><td class="num">${(t.count - t.outboxCount).toLocaleString()}</td><td class="num">${fmtBytes(t.bytes - t.outboxBytes)}</td><td class="num">${pct(t.bytes - t.outboxBytes, t.bytes)}</td></tr>`;
+  html += `</tbody></table>`;
+  html += `<p class="scan-meta">Distinct authors — direct: ${r.distinctDirectAuthors.toLocaleString()}, outbox-cached: ${r.distinctOutboxAuthors.toLocaleString()}. Size is the stored event only; badger's indexes add overhead on top.</p>`;
+
+  html += `<h3>By age (event's own timestamp)</h3><table><thead><tr><th>Age</th><th class="num">Events</th><th class="num">Size</th><th class="num">Of which outbox</th></tr></thead><tbody>`;
+  for (const [k, label] of AGE_LABELS) {
+    const b = (r.age || {})[k] || { count: 0, bytes: 0, outboxBytes: 0 };
+    html += `<tr><td>${label}</td><td class="num">${b.count.toLocaleString()}</td><td class="num">${fmtBytes(b.bytes)}</td><td class="num">${pct(b.outboxBytes, b.bytes)}</td></tr>`;
+  }
+  html += `</tbody></table>`;
+
+  html += `<h3>By kind (largest 40)</h3><table><thead><tr><th>Kind</th><th class="num">Events</th><th class="num">Size</th><th class="num">Of which outbox</th></tr></thead><tbody>`;
+  for (const k of r.kinds || []) {
+    html += `<tr><td>${k.kind}</td><td class="num">${k.count.toLocaleString()}</td><td class="num">${fmtBytes(k.bytes)}</td><td class="num">${pct(k.outboxBytes, k.bytes)}</td></tr>`;
+  }
+  html += `</tbody></table>`;
+
+  html += `<h3>Largest direct publishers (top 25)</h3><table><thead><tr><th>Pubkey</th><th>Main kinds</th><th class="num">Events</th><th class="num">Size</th></tr></thead><tbody>`;
+  for (const a of r.topDirectAuthors || []) {
+    html += `<tr><td class="mono">${escapeHtml(a.pubkey)}</td><td>${(a.topKinds || []).join(", ")}</td><td class="num">${a.count.toLocaleString()}</td><td class="num">${fmtBytes(a.bytes)}</td></tr>`;
+  }
+  html += `</tbody></table>`;
+  wrap.innerHTML = html;
+}
+
+document.getElementById("storage-scan-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("storage-scan-btn");
+  btn.disabled = true;
+  try { await fetch("/dashboard/storage/start", { method: "POST" }); } catch {}
+  loadStorage();
+});
 
 load();
 loadHealth();
 loadWaitlist();
 loadPageViews();
 loadHeartbeats();
+loadStorage();
 setInterval(load, 60000);
 setInterval(loadHeartbeats, 60000);
 setInterval(loadHealth, 3000);
