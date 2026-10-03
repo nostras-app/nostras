@@ -10703,6 +10703,23 @@ Neither this session nor the local nostr-agent (not running since
 **Open**: retention/pruning so the disk stops filling. A fourth volume
 bump would only buy weeks.
 
+**Follow-up (2026-10-03), search index fixed**: the search index
+full-text indexed every directly stored event of any kind, including
+gift wraps, DMs, other apps' kind:30078 blobs and DVM traffic. All of
+that is ciphertext or JSON nobody can search, and it was most of the
+index's 4.8GB. `6c36ec5` indexes only the kinds `SearchView` queries (1,
+30023, 9041, 1068, 11, 54), skips `["encrypted"]` paid content, and on
+the first boot of a new `searchIndexVersion` wipes the old index and
+rebuilds it from badger in the background, skipping outbox-cached events
+(marker file `<bluge path>.version`; an interrupted rebuild reruns next
+boot). If the kinds `SearchView` searches ever change, update
+`searchableKinds` in `server/search.go` and bump `searchIndexVersion`.
+Deployed: the index went from 4.8G to 1.1G and disk from 9.8G (52%) to
+6.2G (33%). Search works for both live and rebuilt content, and the
+relay stayed responsive during the rebuild. **Still open**: badger
+(5.0G); measuring what's in it needs an in-process diagnostic, because
+whole-store COUNT and kind-less time-window REQs time out in production.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
