@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fiatjaf/eventstore"
 	"github.com/fiatjaf/eventstore/badger"
 	"github.com/fiatjaf/khatru"
 	"github.com/nbd-wtf/go-nostr"
@@ -240,4 +241,64 @@ func runOutboxCacheSweep(relay *khatru.Relay, db *badger.BadgerBackend, store *o
 
 	fmt.Printf("outbox cache sweep: evicted %d/%d stale outbox-cached events (still tracking %d)\n",
 		deleted, len(due), store.size())
+}
+
+// outboxTrackingStore is the store handed to the go-nostr SDK
+// (sdk.WithStore). The SDK saves every event it fetches into its store,
+// not just the ones FetchFeedPage returns: events at or after the query's
+// `until` are stored but not returned, a FetchFeedPage that hits its
+// timeout has already stored whatever arrived before erroring (and
+// outbox.go then tracks nothing), and relay-list lookups (kind:10002) are
+// stored too. Tracking only what outbox.go returns therefore missed most
+// of the cache: a storage scan (2026-10-03) found 3.96GB of the 4.56GB
+// store untracked, from 412k distinct authors, so the 30-day sweeper
+// never saw it (PQ-093 follow-up).
+//
+// Tracking at the store boundary catches every SDK write, whatever path
+// it came through. Client publishes never pass through here (they go via
+// relay.StoreEvent straight to db), and an event that already exists
+// locally is never tracked, so genuinely local data can't be marked for
+// eviction.
+type outboxTrackingStore struct {
+	eventstore.Store
+	db    *badger.BadgerBackend
+	cache *outboxCacheStore
+}
+
+func newOutboxTrackingStore(db *badger.BadgerBackend, cache *outboxCacheStore) *outboxTrackingStore {
+	return &outboxTrackingStore{Store: db, db: db, cache: cache}
+}
+
+func (s *outboxTrackingStore) has(ctx context.Context, id string) bool {
+	ch, err := s.db.QueryEvents(ctx, nostr.Filter{IDs: []string{id}})
+	if err != nil {
+		return false
+	}
+	found := false
+	for range ch {
+		found = true
+	}
+	return found
+}
+
+func (s *outboxTrackingStore) SaveEvent(ctx context.Context, evt *nostr.Event) error {
+	if s.has(ctx, evt.ID) {
+		return s.Store.SaveEvent(ctx, evt)
+	}
+	err := s.Store.SaveEvent(ctx, evt)
+	if err == nil {
+		s.cache.track(evt.ID, int64(nostr.Now()))
+	}
+	return err
+}
+
+// ReplaceEvent can be a no-op (an older version than what's stored), so
+// only track when the event is actually present afterwards.
+func (s *outboxTrackingStore) ReplaceEvent(ctx context.Context, evt *nostr.Event) error {
+	existed := s.has(ctx, evt.ID)
+	err := s.Store.ReplaceEvent(ctx, evt)
+	if err == nil && !existed && s.has(ctx, evt.ID) {
+		s.cache.track(evt.ID, int64(nostr.Now()))
+	}
+	return err
 }

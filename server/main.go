@@ -474,16 +474,6 @@ func main() {
 	// error) instead of either a real count or an honest "unsupported."
 	relay.CountEventsHLL = append(relay.CountEventsHLL, db.CountEventsHLL)
 
-	// NIP-65 outbox aggregation: resolve each queried author's write relays
-	// and fan out to them too, caching results back into db. See outbox.go.
-	sys := sdk.NewSystem(
-		sdk.WithStore(&db),
-		sdk.WithRelayListRelays([]string{
-			"wss://relay.damus.io",
-			"wss://relay.primal.net",
-			"wss://purplepag.es",
-		}),
-	)
 	// Real production incident (2026-09-04, see NOSTRAS-CSV.md's
 	// PQ-067/PQ-069): a live heap-profile investigation confirmed the
 	// outbox aggregation above — a deliberate, undocumented-until-now
@@ -503,6 +493,18 @@ func main() {
 	if err != nil || outboxCacheRetentionDays <= 0 {
 		outboxCacheRetentionDays = 30
 	}
+	// NIP-65 outbox aggregation: resolve each queried author's write relays
+	// and fan out to them too, caching results back into db. See outbox.go.
+	// The SDK gets a tracking wrapper around db, not db itself, so every
+	// event it caches is recorded for eviction (see outboxTrackingStore).
+	sys := sdk.NewSystem(
+		sdk.WithStore(newOutboxTrackingStore(&db, outboxCache)),
+		sdk.WithRelayListRelays([]string{
+			"wss://relay.damus.io",
+			"wss://relay.primal.net",
+			"wss://purplepag.es",
+		}),
+	)
 	aggregatedQuery := newAggregatedQuery(&db, sys, outboxCache)
 	relay.QueryEvents = append(relay.QueryEvents, newSearchAwareQuery(&searchIndex, aggregatedQuery))
 

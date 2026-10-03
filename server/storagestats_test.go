@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/fiatjaf/eventstore"
 	"github.com/fiatjaf/eventstore/badger"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -107,5 +108,57 @@ func TestStorageScannerSplit(t *testing.T) {
 	}
 	if len(r.Kinds) != 2 || r.DistinctDirectAuthors != 1 || len(r.TopDirectAuthors) != 1 || r.TopDirectAuthors[0].Count != 7 {
 		t.Errorf("unexpected breakdown: kinds=%d directAuthors=%d top=%+v", len(r.Kinds), r.DistinctDirectAuthors, r.TopDirectAuthors)
+	}
+}
+
+// Every event the SDK caches must be tracked for eviction, but an event
+// already stored (e.g. a real client's direct publish) must never be.
+// Driven through eventstore.RelayWrapper.Publish, the exact call the SDK
+// makes for every event it fetches.
+func TestOutboxTrackingStore(t *testing.T) {
+	db := &badger.BadgerBackend{Path: t.TempDir()}
+	if err := db.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cache, _ := newOutboxCacheStore(t.TempDir() + "/oc.json")
+	w := eventstore.RelayWrapper{Store: newOutboxTrackingStore(db, cache)}
+	ctx := context.Background()
+	sk := nostr.GeneratePrivateKey()
+	mk := func(kind int, content string, ts int64) nostr.Event {
+		e := nostr.Event{Kind: kind, Content: content, CreatedAt: nostr.Timestamp(ts)}
+		e.Sign(sk)
+		return e
+	}
+
+	// 1. New regular event fetched by the SDK: tracked.
+	fetched := mk(1, "fetched", 1700000000)
+	w.Publish(ctx, fetched)
+	if !cache.isTracked(fetched.ID) {
+		t.Error("new SDK-fetched event not tracked")
+	}
+
+	// 2. Event a client already published directly: SDK re-fetch must not track it.
+	direct := mk(1, "direct", 1700000001)
+	db.SaveEvent(ctx, &direct)
+	w.Publish(ctx, direct)
+	if cache.isTracked(direct.ID) {
+		t.Error("pre-existing direct event got tracked")
+	}
+
+	// 3. Newer replaceable (kind 10002) fetched by the SDK: tracked.
+	oldList := mk(10002, "", 1700000100)
+	db.SaveEvent(ctx, &oldList)
+	newList := mk(10002, "", 1700000200)
+	w.Publish(ctx, newList)
+	if !cache.isTracked(newList.ID) {
+		t.Error("newer replaceable from SDK not tracked")
+	}
+
+	// 4. Older replaceable than what's stored: replace is a no-op, not tracked.
+	older := mk(10002, "", 1700000150)
+	w.Publish(ctx, older)
+	if cache.isTracked(older.ID) {
+		t.Error("stale replaceable that wasn't stored got tracked")
 	}
 }
