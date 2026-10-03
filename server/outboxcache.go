@@ -139,6 +139,15 @@ func (s *outboxCacheStore) flushIfDirty() error {
 	return s.saveLocked()
 }
 
+// isTracked reports whether an event reached the store only via outbox
+// aggregation (used by the search-index rebuild to skip it).
+func (s *outboxCacheStore) isTracked(eventID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.data[eventID]
+	return ok
+}
+
 func (s *outboxCacheStore) size() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

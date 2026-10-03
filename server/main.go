@@ -202,6 +202,10 @@ func main() {
 
 	// NIP-50 full-text search index (pure Go, no cgo — stores only IDs,
 	// fetches actual events from db). See search.go.
+	searchNeedsRebuild, err := prepareSearchIndex(blugePath)
+	if err != nil {
+		panic(err)
+	}
 	searchIndex := bluge.BlugeBackend{Path: blugePath, RawEventStore: &db}
 	if err := searchIndex.Init(); err != nil {
 		panic(err)
@@ -536,6 +540,10 @@ func main() {
 	// genuinely published here later" edge case.
 	relay.StoreEvent = append(relay.StoreEvent, newOutboxCacheUntrackHook(outboxCache))
 	startOutboxCacheSweeper(relay, &db, outboxCache, outboxCacheRetentionDays)
+	if searchNeedsRebuild {
+		fmt.Printf("search index: version %s missing, rebuilding from the event store in the background\n", searchIndexVersion)
+		rebuildSearchIndex(&db, newGroupChatSearchIndexHook(&searchIndex), outboxCache, blugePath)
+	}
 	fmt.Printf("outbox cache: tracking %d cached events, %d-day retention\n", outboxCache.size(), outboxCacheRetentionDays)
 
 	// NIP-43 Relay Access Metadata and Requests — see nip43.go. Does NOT

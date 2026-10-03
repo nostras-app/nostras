@@ -576,6 +576,9 @@ func newGroupChatSearchIndexHook(searchIndex *bluge.BlugeBackend) func(ctx conte
 		if groupChatKinds[evt.Kind] && hasTag(evt, "h") {
 			return nil
 		}
+		if !isSearchable(evt) {
+			return nil
+		}
 		return searchIndex.SaveEvent(ctx, evt)
 	}
 }
