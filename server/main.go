@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -548,6 +549,13 @@ func main() {
 	relay.StoreEvent = append(relay.StoreEvent, newOutboxCacheUntrackHook(outboxCache))
 	startOutboxCacheSweeper(relay, &db, outboxCache, outboxCacheRetentionDays)
 	startOutboxBackfill(&db, outboxCache, outboxCachePath)
+
+	// Nymchat sync slots: keep the newest copies per slot, trim the rest
+	// (new writes as they arrive, plus a one-time pass over the backlog).
+	// See nymsync.go.
+	nymSync := newNymSyncPruner(&db, relay)
+	relay.StoreEvent = append(relay.StoreEvent, nymSync.storeHook)
+	startNymSyncBackfill(&db, relay, filepath.Dir(outboxCachePath))
 	// Storage diagnostic — see storagestats.go. Operator-only, on demand.
 	storageScan := newStorageScanner(&db, outboxCache)
 	relay.Router().HandleFunc("POST /dashboard/storage/start", requireDashboardAuth(dashboardPassword, handleStorageScanStart(storageScan)))
