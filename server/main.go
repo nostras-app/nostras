@@ -497,15 +497,20 @@ func main() {
 	// and fan out to them too, caching results back into db. See outbox.go.
 	// The SDK gets a tracking wrapper around db, not db itself, so every
 	// event it caches is recorded for eviction (see outboxTrackingStore).
+	outboxTracking := newOutboxTrackingStore(&db, outboxCache)
 	sys := sdk.NewSystem(
-		sdk.WithStore(newOutboxTrackingStore(&db, outboxCache)),
+		sdk.WithStore(outboxTracking),
 		sdk.WithRelayListRelays([]string{
 			"wss://relay.damus.io",
 			"wss://relay.primal.net",
 			"wss://purplepag.es",
 		}),
 	)
-	aggregatedQuery := newAggregatedQuery(&db, sys, outboxCache)
+	// Author fetches use their own relay connections, not the SDK's pool
+	// (see outboxfetch.go for the pool bug this avoids).
+	outboxConns := newOutboxRelays(isSafeRelayURLForScan)
+	outboxConns.startJanitor()
+	aggregatedQuery := newAggregatedQuery(&db, sys, outboxCache, outboxConns, outboxTracking)
 	relay.QueryEvents = append(relay.QueryEvents, newSearchAwareQuery(&searchIndex, aggregatedQuery))
 
 	// Real, live production incident (2026-09-08): a client-side feature

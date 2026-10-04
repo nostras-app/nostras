@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/fiatjaf/eventstore"
 	"github.com/fiatjaf/eventstore/badger"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/sdk"
@@ -53,15 +54,8 @@ var authorFetchSem = make(chan struct{}, maxConcurrentAuthorFetches)
 const maxOutboxAuthors = 20
 
 // authorFetcher fetches up to `limit` events by one author. In production
-// it wraps sys.FetchFeedPage; tests substitute fakes.
+// it's newOutboxAuthorFetcher (outboxfetch.go); tests substitute fakes.
 type authorFetcher func(ctx context.Context, pubkey string, limit int) []*nostr.Event
-
-func sdkAuthorFetcher(sys *sdk.System, kinds []int, until nostr.Timestamp) authorFetcher {
-	return func(ctx context.Context, pubkey string, limit int) []*nostr.Event {
-		evs, _ := sys.FetchFeedPage(ctx, []string{pubkey}, kinds, until, limit)
-		return evs
-	}
-}
 
 // fetchOutboxAuthors fetches each author in parallel (bounded by sem) and
 // returns whatever arrived before ctx's deadline. It never waits past the
@@ -135,6 +129,8 @@ func newAggregatedQuery(
 	db *badger.BadgerBackend,
 	sys *sdk.System,
 	cacheStore *outboxCacheStore,
+	relays *outboxRelays,
+	trackingStore eventstore.Store,
 ) func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
 	return func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
 		if len(filter.Authors) == 0 || len(filter.Tags) > 0 {
@@ -175,7 +171,7 @@ func newAggregatedQuery(
 			perAuthor := sdk.PerQueryLimitInBatch(limit, len(filter.Authors))
 			fetchCtx, cancel := context.WithTimeout(ctx, outboxFetchTimeout)
 			fetched := fetchOutboxAuthors(fetchCtx, authorFetchSem, filter.Authors, perAuthor,
-				sdkAuthorFetcher(sys, filter.Kinds, until))
+				newOutboxAuthorFetcher(sys, relays, trackingStore, filter.Kinds, until))
 			cancel()
 			now := int64(nostr.Now())
 			for _, evt := range fetched {
