@@ -10772,6 +10772,22 @@ down from 215). Publish 0.48s, DVM `payment-required`, disk 33%.
 **Still open**: the untracked ~3.9GB backlog (cleanup rule needs a
 decision).
 
+**Pre-launch backfill (2026-10-04, `2edf15d`)**: per the owner's call,
+every untracked event created before 2026-08-01 is now marked as outbox
+cache (it can't have been published to this relay, which didn't exist
+yet). Cached-at = time of marking, so normal 30-day retention applies:
+eviction is due on the first sweep after **~2026-11-03**, and until then
+the marking can still be undone. Events created on or after 2026-08-01
+were left alone. A one-time job with a marker file
+(`/data/outbox-cache.json.backfill`) ran 2 min after boot: scanned
+1,777,821 events, marked 501,953 (tracking 1,353,549 total; tracking
+file 105MB). The sweeper now pauses 20ms between 200-event delete
+batches, so that first large sweep doesn't monopolize badger. Health
+after: publish 0.46s, DVM `payment-required`, author fetches working.
+**Follow-up**: after ~2026-11-03, check that the sweep ran
+(`outbox cache sweep: evicted` in the logs), then rerun the storage scan
+and check disk usage.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
