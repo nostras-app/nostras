@@ -10747,6 +10747,31 @@ context doesn't free the slot. Later author queries give up at the 2s
 semaphore wait and get local results only. Only 6 new events were
 tracked in the 4 hours after deploy. Not fixed yet.
 
+**Outbox stall fixed (2026-10-04)**: two changes. `6256120` fetches each
+author with its own call, under a shared limit of 12 concurrent author
+fetches. A query stops launching authors at its 8s deadline and returns
+what it has; queries over 20 authors skip aggregation. That alone wasn't
+enough. The real cause is a go-nostr v0.52.3 bug: `SimplePool.EnsureRelay`
+never records a failed connection, so its penalty box never applies.
+Every fetch re-dials dead relays with its own 15s timeout under a lock,
+ignoring our context (a dump showed 15 fetches queued behind one dial).
+`ca86c4c` (`server/outboxfetch.go`) gives author fetches their own
+connections. Dials run on a 5s timeout detached from the caller,
+concurrent dials to one relay collapse into one, failed relays are
+skipped for 5 minutes, and idle connections close after 5 minutes.
+Author relay URLs pass `isSafeRelayURLForScan` (the SDK path had no
+address check). Fetched events are saved through the tracking store.
+The SDK is still used for relay-list lookups (bootstrap relays only).
+Tests use in-process khatru relays plus a TCP black hole.
+`TestOutboxRelaysReuseAndIdle` is excluded under `-race` because of a
+race inside go-nostr's `Relay.Close`, not in our code. Verified on
+production (v99): author queries that returned 0 now return real events
+in 0.5–2.5s; tracked outbox entries rose 851,204 → 851,443 in 5 minutes
+(versus 6 in 4 hours before); no stuck fetch goroutines (158 total,
+down from 215). Publish 0.48s, DVM `payment-required`, disk 33%.
+**Still open**: the untracked ~3.9GB backlog (cleanup rule needs a
+decision).
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
