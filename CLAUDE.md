@@ -10788,6 +10788,30 @@ after: publish 0.46s, DVM `payment-required`, author fetches working.
 (`outbox cache sweep: evicted` in the logs), then rerun the storage scan
 and check disk usage.
 
+**Biggest consumer was Nymchat sync data, now trimmed (2026-10-04,
+`daf8249`)**: a rerun of the storage scan showed kind 1059 gift wraps at
+354,865 events / 3.34GB, 73% of the store, all published directly.
+Sampling 331 of them over a single connection (per-connection reconnects
+from this sandbox kept timing out) showed about 90% of the bytes were
+Nymchat.app's sync data: wraps tagged `["k","nym-sync"]` plus a `["d",
+slot]`, averaging ~22KB, mostly addressed to Luxas (`d49a9023…`, the
+Nymchat developer). Slots are rewritten on every sync and kind 1059 is
+never replaced, so old copies piled up (one slot appeared 14 times in a
+sparse month-long sample). Correction to earlier analysis: the 412k
+"distinct direct authors" was mostly gift wraps' random signing keys,
+not untracked outbox cache; and the pre-launch backfill frees ~480MB,
+not 1–2GB. Per the owner's decision, `server/nymsync.go` keeps the
+newest 3 copies per (recipient, d) slot. It's 3 because NIP-59
+timestamps may be randomized up to two days. New writes enqueue their
+slot for a background worker; a one-time backlog pass runs 3 min after
+boot (marker `/data/nym-sync-prune.done`). Only kind 1059 with
+k=nym-sync, exactly one p and one d qualify; ordinary DM wraps are
+never touched. Result: gift wraps 3.34GB → 590.4MB, whole store 4.58GB
+→ 1.82GB of event data (238,398 wraps left). The relay stayed
+responsive during the pass (publish 0.52s, load 0.25). **Disk not yet
+reclaimed**: `/data` still showed 6.2G / badger 5.0G right after,
+because badger only frees space when compaction rewrites tables.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
