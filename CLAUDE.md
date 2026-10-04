@@ -10812,6 +10812,25 @@ responsive during the pass (publish 0.52s, load 0.25). **Disk not yet
 reclaimed**: `/data` still showed 6.2G / badger 5.0G right after,
 because badger only frees space when compaction rewrites tables.
 
+## Full health check after the PQ-093 work: all healthy (2026-10-04)
+
+A full `health-check` skill run (Sections 0–5), user-requested. Section
+0: the static checks flagged a few call sites, and all were confirmed
+false positives on reading (a comment, a relay set on the next line,
+images guarded upstream, the user's own uploads); server tests pass.
+Live: relay and DVM v101 (`daf8249`) started; publish 0.43s with
+read-back; a real DVM job got `payment-required` (not paid); DVM
+`/health` shows relay connected, payment gating on, wallet 320 sats;
+outbox author fetches return events (the stall fix holds); search works
+for existing and freshly published content; client bundle current
+(`f97830d`); dashboard auth split correct, including the new storage
+routes; uptime runs green. The only marginal item is expected: disk
+6.3G (33% of 20GB) with badger at 5.1G for 1.82GB of event data,
+pending compaction, already in the November follow-up. Some rapid
+successive WebSocket connects from this sandbox timed out and succeeded
+on retry; that's the test environment, not production. Full row in
+`NOSTRAS-CSV.md` Section 5.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
