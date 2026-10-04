@@ -10720,6 +10720,33 @@ relay stayed responsive during the rebuild. **Still open**: badger
 (5.0G); measuring what's in it needs an in-process diagnostic, because
 whole-store COUNT and kind-less time-window REQs time out in production.
 
+**Follow-up (2026-10-03/04), what the event store is made of**: a new
+operator-only storage scan (`/dashboard` > "Event store breakdown",
+`server/storagestats.go`, `0fcccd5`) found 4.56GB / 1.78M events, of
+which only 622MB was tracked outbox cache; 3.96GB from 412k distinct
+authors was untracked. Cause: the go-nostr SDK stores every event it
+fetches, including events past the query's `until`, everything that
+arrived before a `FetchFeedPage` timeout, and kind:10002 relay lists.
+`outbox.go` only tracked what `FetchFeedPage` returned, so the 30-day
+sweeper never saw most of the cache. Fixed (`a162a94`): the SDK now gets
+`outboxTrackingStore`, a wrapper around db that tracks every
+`SaveEvent`/`ReplaceEvent`, except for events already present locally.
+Unit-tested through `eventstore.RelayWrapper.Publish`, the SDK's own
+call. **Not yet observed tracking on production**, because of the next
+finding. **Open**: the existing untracked ~3.9GB backlog (proposed
+cleanup rule: mark everything created before 2026-08-01 as cache; needs
+a decision).
+
+**Found while verifying: outbox aggregation is effectively stalled.**
+Goroutine dumps (2026-10-02, before any of today's changes, and
+2026-10-04) show all 6 `outboxSem` slots held by `FetchFeedPage` calls
+blocked inside the SDK's `SimplePool`. Every new relay connection takes
+one pool-wide mutex (`pool.go:167`), which is held while dialing
+(`pool.go:194`), so fetches queue behind slow or dead relays, and the 8s
+context doesn't free the slot. Later author queries give up at the 2s
+semaphore wait and get local results only. Only 6 new events were
+tracked in the 4 hours after deploy. Not fixed yet.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
