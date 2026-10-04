@@ -42,7 +42,7 @@ var (
 // (305 connections) before a manual restart relieved it — roughly 1MB/
 // connection, consistent with WS buffers + goroutine stacks + khatru/NDK
 // overhead. Capped well below the observed failure point, same
-// bound-it-and-degrade-gracefully approach as outboxSem/broadcastSem
+// bound-it-and-degrade-gracefully approach as authorFetchSem/broadcastSem
 // elsewhere in this codebase: past this many concurrent connections, new
 // ones are refused with a clean 429 (via khatru's RejectConnection hook,
 // which runs before the WebSocket upgrade) rather than accepted and left

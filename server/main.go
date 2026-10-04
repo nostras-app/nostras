@@ -526,7 +526,7 @@ func main() {
 	// Silently clamps rather than rejecting outright (OverwriteFilter, not
 	// RejectFilter) — degrades a query to "fewer results than asked for"
 	// instead of an error, the same graceful-degrade posture as every
-	// other resource guard in this file (outboxSem, broadcastSem,
+	// other resource guard in this file (authorFetchSem, broadcastSem,
 	// maxLiveConnections). Catches the explicit-large-limit case;
 	// BadgerBackend.MaxLimit (set on the `db` literal above) catches the
 	// omitted-limit case this hook alone can't — see maxFilterLimit's own
