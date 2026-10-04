@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/fiatjaf/eventstore"
@@ -160,5 +161,62 @@ func TestOutboxTrackingStore(t *testing.T) {
 	w.Publish(ctx, older)
 	if cache.isTracked(older.ID) {
 		t.Error("stale replaceable that wasn't stored got tracked")
+	}
+}
+
+// Pre-launch backfill: untracked events older than the cutoff become
+// cache; newer events are never touched; already-tracked events keep
+// their original cached-at; the marker file stops a second run.
+func TestOutboxBackfill(t *testing.T) {
+	db := &badger.BadgerBackend{Path: t.TempDir()}
+	if err := db.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dir := t.TempDir()
+	cache, _ := newOutboxCacheStore(dir + "/oc.json")
+	ctx := context.Background()
+	sk := nostr.GeneratePrivateKey()
+	save := func(content string, ts int64) nostr.Event {
+		e := nostr.Event{Kind: 1, Content: content, CreatedAt: nostr.Timestamp(ts)}
+		e.Sign(sk)
+		db.SaveEvent(ctx, &e)
+		return e
+	}
+	const cutoff = 1785542400
+	oldA := save("old a", cutoff-86400*400)
+	oldB := save("old b", cutoff-1)
+	atCutoff := save("at cutoff", cutoff)
+	recent := save("recent", cutoff+86400*30)
+	oldTracked := save("old tracked", cutoff-100)
+	cache.track(oldTracked.ID, 12345)
+
+	marked, scanned := runOutboxBackfill(ctx, db, cache, cutoff)
+	if scanned != 5 || marked != 2 {
+		t.Fatalf("scanned=%d marked=%d, want 5 and 2", scanned, marked)
+	}
+	for _, e := range []nostr.Event{oldA, oldB} {
+		if !cache.isTracked(e.ID) {
+			t.Errorf("%q not marked", e.Content)
+		}
+	}
+	for _, e := range []nostr.Event{atCutoff, recent} {
+		if cache.isTracked(e.ID) {
+			t.Errorf("%q marked, but it's not before the cutoff", e.Content)
+		}
+	}
+	cache.mu.Lock()
+	kept := cache.data[oldTracked.ID]
+	cache.mu.Unlock()
+	if kept != 12345 {
+		t.Errorf("already-tracked cached-at changed to %d", kept)
+	}
+
+	// Marker present: startOutboxBackfill must not schedule anything.
+	os.WriteFile(outboxBackfillMarkerPath(dir+"/oc.json"), []byte(outboxBackfillVersion+"\n"), 0600)
+	before := cache.size()
+	startOutboxBackfill(db, cache, dir+"/oc.json") // returns immediately
+	if cache.size() != before {
+		t.Error("backfill ran despite marker")
 	}
 }

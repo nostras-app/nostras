@@ -547,6 +547,7 @@ func main() {
 	// genuinely published here later" edge case.
 	relay.StoreEvent = append(relay.StoreEvent, newOutboxCacheUntrackHook(outboxCache))
 	startOutboxCacheSweeper(relay, &db, outboxCache, outboxCacheRetentionDays)
+	startOutboxBackfill(&db, outboxCache, outboxCachePath)
 	// Storage diagnostic — see storagestats.go. Operator-only, on demand.
 	storageScan := newStorageScanner(&db, outboxCache)
 	relay.Router().HandleFunc("POST /dashboard/storage/start", requireDashboardAuth(dashboardPassword, handleStorageScanStart(storageScan)))

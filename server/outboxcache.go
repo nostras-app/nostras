@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -233,6 +234,10 @@ func runOutboxCacheSweep(relay *khatru.Relay, db *badger.BadgerBackend, store *o
 			}
 			deleted++
 		}
+		// Pace large sweeps (the one after the pre-launch backfill
+		// below covers hundreds of thousands of events) so deletes
+		// don't monopolize badger while live traffic is served.
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	if err := store.evicted(due); err != nil {
@@ -301,4 +306,62 @@ func (s *outboxTrackingStore) ReplaceEvent(ctx context.Context, evt *nostr.Event
 		s.cache.track(evt.ID, int64(nostr.Now()))
 	}
 	return err
+}
+
+// Pre-launch backfill (2026-10-04, PQ-093 follow-up). Until a162a94 most
+// SDK-cached events were never tracked, so the sweeper never evicted
+// them: a storage scan found 3.96GB of the 4.56GB store untracked. After
+// the fact an untracked cached copy can't always be told apart from a
+// genuine direct publish, but anything created before this relay existed
+// can't have been published to it by its author. Every untracked event
+// created before outboxBackfillCutoff is therefore marked as cache, with
+// the current time as its cached-at, so the normal retention window
+// applies before it's evicted (and the marking can still be undone in
+// that window). Events created on or after the cutoff are left alone.
+// Runs once; a marker file next to the tracking file records completion,
+// and an interrupted run simply runs again on the next boot.
+const outboxBackfillCutoff = 1785542400 // 2026-08-01T00:00:00Z
+const outboxBackfillVersion = "1"
+
+func outboxBackfillMarkerPath(trackingPath string) string {
+	return trackingPath + ".backfill"
+}
+
+func startOutboxBackfill(db *badger.BadgerBackend, store *outboxCacheStore, trackingPath string) {
+	marker := outboxBackfillMarkerPath(trackingPath)
+	if raw, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(raw)) == outboxBackfillVersion {
+		return
+	}
+	go func() {
+		// Let boot-time badger work settle first, as the sweeper does.
+		time.Sleep(2 * time.Minute)
+		marked, scanned := runOutboxBackfill(context.Background(), db, store, outboxBackfillCutoff)
+		if err := store.flushIfDirty(); err != nil {
+			fmt.Println("outbox backfill: flush failed, will rerun next boot:", err)
+			return
+		}
+		if err := os.WriteFile(marker, []byte(outboxBackfillVersion+"\n"), 0600); err != nil {
+			fmt.Println("outbox backfill: could not write marker:", err)
+		}
+		fmt.Printf("outbox backfill: scanned %d events, marked %d created before 2026-08-01 as cache (now tracking %d)\n",
+			scanned, marked, store.size())
+	}()
+}
+
+// runOutboxBackfill marks every untracked event created before cutoff.
+// Paced like the storage scan so it doesn't starve live queries.
+func runOutboxBackfill(ctx context.Context, db *badger.BadgerBackend, store *outboxCacheStore, cutoff int64) (marked, scanned int) {
+	now := int64(nostr.Now())
+	db.ScanRawEvents(ctx, 5000, func(evt *nostr.Event, _ int) bool {
+		scanned++
+		if int64(evt.CreatedAt) < cutoff && !store.isTracked(evt.ID) {
+			store.track(evt.ID, now)
+			marked++
+		}
+		if scanned%5000 == 0 {
+			time.Sleep(20 * time.Millisecond)
+		}
+		return true
+	})
+	return marked, scanned
 }
