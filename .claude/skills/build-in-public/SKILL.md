@@ -61,7 +61,15 @@ Content log says we are:
   narrative arc — root cause, what was tried, what didn't work, what
   actually fixed it. Draft via the Compose > Article tab.
 - **Usage invite**: low-stakes, specific ("try X for N sats"), not a
-  generic call to action.
+  generic call to action. **Default the link to `https://nostras.app/tools`
+  (2026-09-16, direct user instruction, same reasoning as `/engage`'s
+  own step 4 update the same day)** whenever the invite is about a DVM/
+  AI job (translate, summarize, spam-check, ask) — it's a real, lower-
+  friction ask than "switch clients," confirmed live to work from any
+  Nostr client, not just NOSTRAS. Link the app root instead only when
+  the invite is genuinely about the client itself (a UI feature, an
+  onboarding flow) — same "which real thing does this citation serve"
+  judgment call as `/engage`'s, not a blanket replacement.
 - **A code-snippet image**, if it adds real information (actual current
   code pulled fresh from the repo, not recreated from memory) rather
   than decoration — see the khatru post for the pattern: a local HTML

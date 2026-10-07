@@ -11,6 +11,7 @@ NOSTRAS-CSV.md
 nostras-exclusive-features.md
 nostras-production-scale-infrastructure.md
 nostras-foss-migration-strategy.md
+ARK-WALLET-BUG-REPORT.md
 
 # Local relay runtime data (this machine's own dev instance)
 server/outbox-cache.json

@@ -60,6 +60,17 @@ shipped and verified — not from the strategy doc's aspirational roadmap
 sections. A listing that oversells gets caught by exactly the audience
 it's trying to reach.
 
+**Lead with `https://nostras.app/tools`, not just the app root, where
+the target format allows a second link (2026-09-16, direct user
+instruction — same reasoning as `/engage` and `/build-in-public`'s own
+updates the same day)**: a directory visitor's lowest-friction real
+action is trying one DVM job, not installing a new Nostr client — `/tools`
+works from any client, confirmed live. Keep the main app link too
+(`/tools` doesn't replace it, most directories expect the actual
+product URL as primary) — add `/tools` alongside it as the "try it
+without switching clients" option wherever the submission format has
+room for one, per the target's own real conventions from step 2.
+
 ## 4. Get explicit sign-off before anything goes public
 
 Drafting is free; submitting is not. Present the draft (exact text,

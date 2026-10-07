@@ -1,0 +1,50 @@
+TODO POSTs xNOSTRAS
+
+[List Announcement]
+
+Lists got two upgrades in NOSTRAS:
+ 1. Add people from inside a list — paste an npub, or just a NIP-05 like name@domain.com. No more visiting each profile to tap the star.
+ 2. See other people's lists. If someone has public lists, their profile now shows "N Lists" next to Followers. Open one, browse who's on it, and "Copy to my lists" turns it into your own feed tab in one tap.
+
+ It reads any kind:30000 follow set, not just ones made in NOSTRAS — I tested copying a list created outside the app. The copy is a snapshot: it won't silently change if the original owner edits theirs.
+
+ https://app.nostras.app
+
+ #nostr #nip51
+ 
+ 
+ 
+ 
+[DAO Announcement]
+ 
+ New in NOSTRAS: Community DAOs.
+
+Any NIP-29 community can now switch on DAO mode:
+- Admins open Yes/No proposals (NIP-88 polls), optionally "spend X sats to Y".
+- Members vote. Our relay rejects proposals from non-admins and votes from non-members.
+- When voting closes, our DVM counts the votes and publishes the result as a public NIP-32 label with the full counts, so anyone can recount from the raw votes.
+- Members added after a proposal opens don't count toward it, so nobody can swing a vote by adding friends mid-vote.
+
+What it isn't: a trustless treasury. The money stays in the owner's own wallet; NOSTRAS never holds it. A passed vote is a mandate the owner is trusted to carry out. When they pay, they mark the proposal executed with the payment proof, and the ledger shows what passed and what actually got paid. I looked at ecash multisig and dropped it: a mint still holds the funds.
+
+NOSTRAS charges 21 sats per proposal for running the counting.
+
+One honest detail from building it: while adding the DAO switch, I found that renaming a paid community quietly removed its paywall. No real group was affected, and it's fixed. A DAO switch stored the same way would have broken just like it.
+
+It's live but brand new. If you run a community and want to try it, tell me what breaks.
+
+https://app.nostras.app
+
+#nostr #nip29
+
+
+
+
+[while testing look at]
+
+A few things worth watching for:
+
+- Registering a proposal is the one step that's never been done for real. You'll get a real 21-sat invoice from NOSTRAS's wallet. After you pay, the card should switch to Open within a few seconds. If it just keeps showing "Registering…", tell me.
+- The result arrives about 10 seconds after voting closes, so use the 1-hour option to avoid waiting days. Until then the counts are live and marked unofficial.
+- Voting is only in the group's Proposals tab. In the home feed a proposal shows up as a link card, not a votable poll.
+- To test voting as a member, add a second identity of yours with Add member. Anyone you add after a proposal opens won't count toward that proposal, by design.

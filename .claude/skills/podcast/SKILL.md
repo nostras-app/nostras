@@ -4,10 +4,17 @@ A weekly (manually-triggered, not scheduled) episode narrating what's
 actually happened on NOSTRAS — sourced from this project's own real,
 accumulated history (`CLAUDE.md`'s dated entries, same sourcing
 discipline as `/build-in-public`), turned into a real spoken-word
-script, synthesized into real audio with a local TTS engine (no
-external API, no per-episode cost), uploaded to Blossom, and handed to
-the user as a ready-to-review package for NOSTRAS's own real Podcast
-composer (Compose → Podcast, kind:54/NIP-F4).
+script, synthesized into real audio via the Gemini TTS API (the Sulafat
+voice, chosen 2026-09-06 by listening to real generated samples against
+three other candidates — see `gemini-tts.sh`), uploaded to Blossom, and
+handed to the user as a ready-to-review package for **both** NOSTRAS's
+own real Podcast composer (Compose → Podcast, kind:54/NIP-F4) **and** a
+plain kind:1 note (see step 5) — the latter exists because kind:54 is a
+NOSTRAS-exclusive format no other Nostr client renders, so it's
+currently invisible to anyone not already using NOSTRAS; the plain-note
+version is a real workaround for that, not a lesser afterthought, until
+NOSTRAS has enough real reach that kind:54-only distribution stops being
+a liability.
 
 **Never publishes anything itself.** Same standing rule as every other
 publish-shaped action in this project — this skill prepares an episode
@@ -21,15 +28,28 @@ real identity).
 ## 0. One-time setup (already done for this project, described here for
 reference / recovery)
 
-- `venv/` — a dedicated Python virtualenv with `piper-tts` installed
-  (`python3 -m venv venv && venv/bin/pip install piper-tts`). Gitignored
-  — machine-local, not something to commit or expect to survive a fresh
-  checkout.
-- `voices/en_US-lessac-medium.onnx` (+ `.onnx.json`) — a real neural TTS
-  voice model, downloaded once via
-  `venv/bin/python -m piper.download_voices --download-dir voices
-  en_US-lessac-medium`. Gitignored (63MB, a binary model file, not
-  source).
+- `NOSTRAS_GEMINI_API_KEY` in the project root's `.nostras.env` — a real
+  Gemini API key (Google AI Studio), same shared-secrets convention as
+  `NOSTRAS_ANTHROPIC_API_KEY`/`NOSTRAS_DVM_NWC_URI`. Never typed into
+  chat or read by Claude directly; the user sets it themselves.
+- `gemini-tts.sh <voice-name> <output-wav-path> [model]` — calls the
+  Gemini TTS API (`generateContent` with `responseModalities:["AUDIO"]`,
+  `speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName`), reads the
+  text to speak from stdin. Returns raw 16-bit PCM at 24kHz mono
+  (confirmed live via the response's own `mimeType` field, not assumed),
+  wrapped into a real WAV via `sox -t raw -r 24000 -e signed -b 16 -c 1`.
+  Defaults to `gemini-2.5-flash-preview-tts`; a `pro` variant of the same
+  model exists if quality ever needs to go up.
+- **Voice: `Sulafat`** (*Warm*, per Gemini's own style descriptor) —
+  chosen 2026-09-06 by generating real ~20s samples in four candidates
+  (Charon/Informative, Sulafat/Warm, Sadaltager/Knowledgeable,
+  Achird/Friendly) from an actual Episode 1 excerpt and having the user
+  listen and pick, not chosen from text descriptors alone. Prefix the
+  text sent to `gemini-tts.sh` with a real style instruction every time
+  (e.g. `"Say this in a natural, warm, informative podcast-host tone,
+  conversational pacing, not rushed: <script text>"`) — this is what
+  Piper's flat neural voice couldn't do at all, and is the entire reason
+  this project moved off it.
 - `uploader-key.txt` — a dedicated, purpose-built Nostr keypair used
   *only* to sign Blossom upload-authorization events (BUD-11 kind
   24242). Zero real value or reputation attached — a technical utility
@@ -105,7 +125,8 @@ a real, worthwhile checkpoint, not bureaucracy. Get explicit approval
 
 ```
 cd .claude/skills/podcast
-printf '%s' "$SCRIPT_TEXT" | venv/bin/piper -m voices/en_US-lessac-medium.onnx -f scratch/episode.wav
+printf 'Say this in a natural, warm, informative podcast-host tone, conversational pacing, not rushed: %s' "$SCRIPT_TEXT" \
+  | ./gemini-tts.sh Sulafat scratch/episode.wav
 sox scratch/episode.wav scratch/episode.mp3
 ```
 
@@ -113,16 +134,16 @@ Verify before trusting it, the same discipline this project applies
 everywhere else — don't assume a zero exit code means real audio:
 
 ```
-python3 -c "
-import wave
-w = wave.open('scratch/episode.wav', 'rb')
-print('duration_s:', w.getnframes()/w.getframerate())
-"
+soxi scratch/episode.wav | grep Duration
 ```
 
-A duration wildly shorter than the script's expected reading time (or
-zero) means something truncated silently — re-check the script text for
-stray characters piper's tokenizer choked on, don't just re-run and hope.
+Sanity-check the duration against the script's own word count at natural
+reading pace (~150-200 wpm) — confirmed live for a real 632-word episode
+that a single `generateContent` call renders the *entire* script with no
+truncation (3:05 actual vs. ~3.1min expected), so a duration wildly off
+from that estimate means something genuinely went wrong (an API error
+swallowed silently, a stray character breaking the request), not a
+per-call length limit to route around.
 
 ## 4. Upload to Blossom
 
@@ -137,9 +158,12 @@ matching the local file, not just trust the upload call's own "success."
 
 ## 5. Hand off the finished package — never publish it yourself
 
-Present, for the user to paste into NOSTRAS's own Compose → Podcast tab
-and publish themselves:
+Present **two** ready-to-use outputs, both for the user to paste and
+publish themselves — never imply either is already live:
 
+**A. NOSTRAS's own Compose → Podcast tab** (kind:54/NIP-F4) — the
+real, structured version, worth keeping even though it's currently
+NOSTRAS-only:
 - **Episode title** (e.g. "NOSTRAS Podcast #1 — Own Your Keys, Own Your
   Voice, Own Your Money" for episode 1; "NOSTRAS Weekly #N — <one real
   highlight>" pattern for later ones)
@@ -149,16 +173,32 @@ and publish themselves:
   script: real links, real NIP numbers, real technical detail the audio
   itself simplified for listenability)
 
-Say plainly that this is ready to review and publish — never imply it's
-already live. If the user wants a companion announcement note/thread
-cross-posted alongside the episode, that's a separate, explicit ask
-(this skill's job ends at hand-off), not something to draft
-unprompted.
+**B. A plain kind:1 note** (paste straight into the regular Composer) —
+**the real distribution workaround, added 2026-09-06 at the user's own
+request**, since kind:54 doesn't render in any other Nostr client and a
+podcast nobody outside NOSTRAS can even see isn't reaching anyone.
+NOSTRAS's own `parseContent.ts` (and most other clients' equivalent
+extension-sniffing) renders a plain `.mp3` URL in note content as a real
+inline `<audio>` player, no NIP-92 `imeta` tag or special kind required
+— so the same real Blossom URL from step 4, dropped into an ordinary
+note, plays back almost everywhere on the network, not just in NOSTRAS.
+Compose this as: the episode title as a short opening line, the brief
+description (not the full markdown show notes — this is a note, not an
+article), then the bare audio URL on its own line so it's unambiguous
+to any client's extension-sniffing. Explicitly temporary, not a
+replacement for A — re-evaluate once NOSTRAS has enough real reach that
+kind:54 alone would actually work.
+
+If the user wants a companion announcement note/thread beyond this
+(cross-posted to other platforms via `/distribute`, for instance),
+that's a separate, explicit ask — this skill's job ends at handing off
+A and B.
 
 ## 6. Log it
 
 A one-line note in `nostr-client-node-strategy.md`'s Content log once
 the user confirms it's actually published (episode number, title, real
-Blossom URL, one sentence on what the episode covered) — same
-verify-before-logging discipline as everywhere else in this project.
-Don't log it as done until the user has actually confirmed the publish.
+Blossom URL, which of A/B were actually posted, one sentence on what the
+episode covered) — same verify-before-logging discipline as everywhere
+else in this project. Don't log it as done until the user has actually
+confirmed the publish.
