@@ -50,7 +50,7 @@ DM that npub from your own NOSTRAS session (as MMO) to talk to it.
 
 3. **Dispatches your message to headless Claude Code, in this repo.**
    Once a message is verified as yours, the daemon runs
-   `claude -p` against this exact directory (`/home/user/Documents/NOSTR`)
+   `claude -p` against this exact directory (`/home/user/Documents-LENOVO/LLMOps.Pro/NOSTR/NOSTRAS`)
    — the same CLAUDE.md, the same skills, the same memory, the same
    tools (Bash, Edit, Read, Write, git) you already get in an interactive
    session here. **It runs with full autonomy** — no permission prompts,
@@ -138,14 +138,14 @@ via the saved session id), but nothing happens automatically either.
 
 To check whether it's running:
 ```sh
-cd /home/user/Documents/NOSTR/agent
+cd /home/user/Documents-LENOVO/LLMOps.Pro/NOSTR/NOSTRAS/agent
 [ -f state/agent.pid ] && ps -p "$(cat state/agent.pid)" > /dev/null 2>&1 \
   && echo "running, pid $(cat state/agent.pid)" || echo "not running"
 ```
 
 To start (or restart) it:
 ```sh
-cd /home/user/Documents/NOSTR/agent
+cd /home/user/Documents-LENOVO/LLMOps.Pro/NOSTR/NOSTRAS/agent
 nohup node src/index.js > state/agent.log 2>&1 &
 echo $! > state/agent.pid
 disown
@@ -159,7 +159,7 @@ how many other `node` processes happen to be running on this machine.
 
 To stop it cleanly:
 ```sh
-cd /home/user/Documents/NOSTR/agent
+cd /home/user/Documents-LENOVO/LLMOps.Pro/NOSTR/NOSTRAS/agent
 [ -f state/agent.pid ] && kill "$(cat state/agent.pid)" && rm state/agent.pid
 ```
 
