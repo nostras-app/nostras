@@ -313,6 +313,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     checkCancelRef.current = requestDvmJob({
       requestKind: KIND_JOB_REQUEST_MODERATE,
       resultKind: KIND_JOB_RESULT_MODERATE,
+      encrypt: true,
       inputText: event.content,
       // NIP-32: lets the DVM publish a real kind:1985 label pointing at
       // this actual event (server/cmd/dvm/main.go's
@@ -393,6 +394,7 @@ export function NoteMenu({ event }: { event: NDKEventType }) {
     summarizeCancelRef.current = requestDvmJob({
       requestKind: KIND_JOB_REQUEST_SUMMARIZE,
       resultKind: KIND_JOB_RESULT_SUMMARIZE,
+      encrypt: true,
       inputText: event.content,
       onUpdate: (update: DvmJobUpdate) => {
         if (update.status === 'processing') {

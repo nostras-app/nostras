@@ -36,6 +36,7 @@ export function TranslateButton({ event }: { event: NDKEvent }) {
     cancelRef.current = requestDvmJob({
       requestKind: KIND_JOB_REQUEST_TRANSLATE,
       resultKind: KIND_JOB_RESULT_TRANSLATE,
+      encrypt: true,
       inputText: event.content,
       params: [['language', langCode]],
       onUpdate: (update: DvmJobUpdate) => {

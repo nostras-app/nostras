@@ -31,6 +31,7 @@ export function AskClaudeCard() {
     cancelRef.current = requestDvmJob({
       requestKind: KIND_JOB_REQUEST_GENERATE,
       resultKind: KIND_JOB_RESULT_GENERATE,
+      encrypt: true,
       inputText: prompt,
       onUpdate: (update: DvmJobUpdate) => {
         if (update.status === 'processing') {

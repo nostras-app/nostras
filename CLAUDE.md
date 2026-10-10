@@ -10846,6 +10846,40 @@ claude.ai doc with a drawn lifecycle diagram; the markdown export renders
 that diagram as a text flow. If the DAO convention changes (fee, kinds,
 tags, composer defaults), update this file too.
 
+## Open-source prep + encrypted AI jobs (2026-10-10)
+
+**Open source, option C (decided):** HRF's Alex Li said FOSS is "highly
+preferable and prioritized" (not required), and HRF's AI for Individual
+Rights program funds open-source privacy-preserving AI. NOSTRAS goes
+AGPL-3.0-only plus a commercial license (copyright Mauro Moro). Commit
+`7f4b47d` adds LICENSE, LICENSING.md, CONTRIBUTING.md (inbound license
+grant + sign-off, so dual licensing keeps working), SECURITY.md,
+README.md and the khatru fork's Unlicense; untracks session transcripts;
+redacts third-party names and the personal email here. Pre-release audit:
+gitleaks + trufflehog clean over all 398 commits. Not yet released:
+the landing page's "closed source" section, /why, the public docs repo
+and the repo visibility change ship together. Full record:
+`nostras-foss-migration-strategy.md` (local).
+
+**Encrypted AI jobs (Phase 1 of the pluggable-model DVM):** the text of
+Ask/translate/summarize/spam-check jobs used to sit in plain tags on
+public kind:5xxx events. Now the client sends NIP-90 encrypted requests
+(tags JSON + NIP-44 to the DVM identity key, `["p", dvm]` +
+`["encrypted"]`) and the DVM encrypts results back
+(`requestDvmJob({encrypt: true})`, `jobRequestTags` + `publishResult` in
+`server/cmd/dvm/main.go`). The DVM key comes from the newest kind:31990
+`d=nostras-dvm` announcement (old identities' announcements linger).
+Plaintext requests still work for other clients; requests encrypted to
+another provider are ignored. The spam-check NIP-32 label stays public
+by design. **Deploy order matters:** the DVM must be live before the
+client, since an old DVM can't read encrypted requests. Verified against
+an isolated local relay + free-mode DVM with throwaway keys: nak tests
+(encrypted, plaintext, other-provider), then Ask, Translate and spam
+check through the real UI; no prompt text in plaintext on the relay; no
+console errors. Summarize wasn't clicked in the UI (same code path).
+Next phases: model backend interface (anthropic + OpenAI-compatible for
+Ollama/Maple), per-job model choice advertised via NIP-89, Node docs.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

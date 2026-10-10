@@ -1,7 +1,37 @@
-import { NDKEvent, type NDKRelaySet, type NDKSubscription } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet, localRelayUrl } from './ndk'
+import { NDKEvent, NDKUser, type NDKRelaySet, type NDKSubscription } from '@nostr-dev-kit/ndk'
+import { ndk, devPublishRelaySet, localRelaySet, localRelayUrl } from './ndk'
+import { withTimeout } from './podcast'
 
 const KIND_JOB_FEEDBACK = 7000
+const KIND_HANDLER_ANNOUNCEMENT = 31990
+const DVM_HANDLER_D_TAG = 'nostras-dvm'
+const DVM_LOOKUP_TIMEOUT_MS = 8000
+const DVM_PUBKEY_CACHE_MS = 10 * 60 * 1000
+
+let cachedDvmPubkey: { pubkey: string; at: number } | null = null
+
+// The NOSTRAS DVM's current identity pubkey, read from its kind:31990
+// NIP-89 announcement (the announcement is signed by that identity).
+// Encrypted job requests are encrypted to this key. Announcements from
+// older DVM identities stay on the relay, so this takes the newest one:
+// the DVM republishes on every (re)connect, so newest = current.
+export async function fetchDvmIdentityPubkey(): Promise<string> {
+  if (cachedDvmPubkey && Date.now() - cachedDvmPubkey.at < DVM_PUBKEY_CACHE_MS) {
+    return cachedDvmPubkey.pubkey
+  }
+  const events = await withTimeout(
+    ndk.fetchEvents({ kinds: [KIND_HANDLER_ANNOUNCEMENT], '#d': [DVM_HANDLER_D_TAG] }, undefined, localRelaySet),
+    DVM_LOOKUP_TIMEOUT_MS,
+    'Timed out looking up the DVM',
+  )
+  let newest: NDKEvent | null = null
+  for (const e of events) {
+    if (!newest || (e.created_at ?? 0) > (newest.created_at ?? 0)) newest = e
+  }
+  if (!newest) throw new Error('Could not find the DVM')
+  cachedDvmPubkey = { pubkey: newest.pubkey, at: Date.now() }
+  return newest.pubkey
+}
 
 export type DvmJobUpdate =
   | { status: 'processing' }
@@ -40,31 +70,54 @@ export function requestDvmJob(opts: {
   // whose data is meant to stay on NOSTRAS's own relay only, e.g. group
   // joins (see lib/communities.ts).
   relaySet?: NDKRelaySet
+  // NIP-90 encrypted request: the input and params are NIP-44-encrypted
+  // to the DVM's identity key instead of sitting in plain tags on a
+  // public event, and the DVM encrypts the result back to us. Use it for
+  // anything carrying the user's own text (Ask, translate, summarize,
+  // spam check). If the DVM's key can't be found, the job fails rather
+  // than falling back to plaintext.
+  encrypt?: boolean
 }): () => void {
-  const { requestKind, resultKind, inputText, params = [], onUpdate, relaySet } = opts
+  const { requestKind, resultKind, inputText, params = [], onUpdate, relaySet, encrypt = false } = opts
 
   let stopped = false
   let sub: NDKSubscription | null = null
 
-  const request = new NDKEvent(ndk, {
-    kind: requestKind,
-    content: '',
-    tags: [
-      ['i', inputText, 'text'],
-      ['relays', localRelayUrl],
-      ...params.map(([key, value]) => ['param', key, value]),
-    ],
-  })
+  const jobTags = [['i', inputText, 'text'], ...params.map(([key, value]) => ['param', key, value])]
+  const request = new NDKEvent(ndk, { kind: requestKind, content: '', tags: [] })
 
-  request
-    .sign()
+  const prepare = async () => {
+    if (!encrypt) {
+      request.tags = [...jobTags, ['relays', localRelayUrl]]
+      return
+    }
+    if (!ndk.signer) throw new Error('No signer available to encrypt the request')
+    const dvmPubkey = await fetchDvmIdentityPubkey()
+    request.content = await ndk.signer.encrypt(new NDKUser({ pubkey: dvmPubkey }), JSON.stringify(jobTags), 'nip44')
+    request.tags = [['p', dvmPubkey], ['encrypted'], ['relays', localRelayUrl]]
+  }
+
+  prepare()
+    .then(() => request.sign())
     .then(async () => {
       if (stopped) return
 
       sub = ndk.subscribe({ kinds: [KIND_JOB_FEEDBACK, resultKind], '#e': [request.id] })
       sub.on('event', (event: NDKEvent) => {
         if (event.kind === resultKind) {
-          onUpdate({ status: 'done', result: event.content })
+          if (!event.tags.some((t) => t[0] === 'encrypted')) {
+            onUpdate({ status: 'done', result: event.content })
+            return
+          }
+          const signer = ndk.signer
+          if (!signer) {
+            onUpdate({ status: 'error', message: 'No signer available to decrypt the result' })
+            return
+          }
+          signer
+            .decrypt(new NDKUser({ pubkey: event.pubkey }), event.content, 'nip44')
+            .then((result) => onUpdate({ status: 'done', result }))
+            .catch(() => onUpdate({ status: 'error', message: 'Could not decrypt the result' }))
           return
         }
         const status = event.tags.find((t) => t[0] === 'status')?.[1]

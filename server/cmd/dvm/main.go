@@ -526,7 +526,23 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 		return
 	}
 
+	// NIP-90 encrypted requests: the AI job kinds below carry the user's
+	// own text (a question, a note to translate), so the client sends
+	// their tags NIP-44-encrypted to this DVM's identity key instead of
+	// in the clear. A request encrypted to a different provider (its p
+	// tag names someone else) isn't ours to answer, so it's ignored
+	// silently, before anything is counted or published.
+	tags, encrypted, ok := jobRequestTags(req, sk)
+	if !ok {
+		return
+	}
+
 	markJobReceived()
+
+	if tags == nil {
+		publishFeedback(ctx, relay, sk, req, "error", "could not decrypt job request")
+		return
+	}
 
 	var resultKind int
 	var systemPrompt string
@@ -537,7 +553,7 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 		systemPrompt = summarizeSystemPrompt
 	case kindJobRequestTranslate:
 		resultKind = kindJobResultTranslate
-		langTag := req.Tags.Find("param")
+		langTag := tags.Find("param")
 		if len(langTag) < 3 || langTag[1] != "language" || strings.TrimSpace(langTag[2]) == "" {
 			publishFeedback(ctx, relay, sk, req, "error", `missing required param tag ["param","language",<code>]`)
 			return
@@ -559,7 +575,7 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 		return
 	}
 
-	iTag := req.Tags.Find("i")
+	iTag := tags.Find("i")
 	if len(iTag) < 2 {
 		publishFeedback(ctx, relay, sk, req, "error", "missing required i tag (input)")
 		return
@@ -607,10 +623,10 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 		return
 	}
 
-	publishResult(ctx, relay, sk, req, resultKind, result)
+	publishResult(ctx, relay, sk, req, resultKind, result, encrypted)
 
 	if req.Kind == kindJobRequestModerate {
-		publishModerationLabel(ctx, relay, sk, req, result)
+		publishModerationLabel(ctx, relay, sk, tags, result)
 	}
 }
 
@@ -1652,19 +1668,69 @@ func publishPaymentRequiredFor(ctx context.Context, relay *nostr.Relay, sk strin
 	signAndPublish(ctx, relay, sk, evt)
 }
 
-func publishResult(ctx context.Context, relay *nostr.Relay, sk string, req *nostr.Event, resultKind int, result string) {
+// publishResult publishes a job's kind:6xxx result. For an encrypted
+// request the result is NIP-44-encrypted back to the requester and
+// tagged ["encrypted"] (NIP-90), so only they can read it; the embedded
+// "request" tag is then just the request's own ciphertext, nothing new.
+func publishResult(ctx context.Context, relay *nostr.Relay, sk string, req *nostr.Event, resultKind int, result string, encrypted bool) {
 	reqJSON, _ := json.Marshal(req)
+	tags := nostr.Tags{
+		{"e", req.ID},
+		{"p", req.PubKey},
+		{"request", string(reqJSON)},
+	}
+	if encrypted {
+		convKey, err := nip44.GenerateConversationKey(req.PubKey, sk)
+		if err == nil {
+			result, err = nip44.Encrypt(result, convKey)
+		}
+		if err != nil {
+			publishFeedback(ctx, relay, sk, req, "error", "could not encrypt result")
+			return
+		}
+		tags = append(tags, nostr.Tag{"encrypted"})
+	}
 	evt := nostr.Event{
 		Kind:      resultKind,
 		CreatedAt: nostr.Now(),
 		Content:   result,
-		Tags: nostr.Tags{
-			{"e", req.ID},
-			{"p", req.PubKey},
-			{"request", string(reqJSON)},
-		},
+		Tags:      tags,
 	}
 	signAndPublish(ctx, relay, sk, evt)
+}
+
+// jobRequestTags returns the tags to read a job's parameters from. A
+// plain request's are its own tags. An encrypted one (["encrypted"] plus
+// a p tag naming the provider, per NIP-90) carries them as NIP-44
+// ciphertext in content, JSON-encoded, the same wire format
+// handleArticleUnlockJob already accepts. ok is false when the request
+// is encrypted to some other provider; tags is nil when it's addressed to
+// us but won't decrypt or parse.
+func jobRequestTags(req *nostr.Event, sk string) (tags nostr.Tags, encrypted bool, ok bool) {
+	if !hasTag(req.Tags, "encrypted") {
+		return req.Tags, false, true
+	}
+	pk, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return nil, true, false
+	}
+	pTag := req.Tags.Find("p")
+	if len(pTag) < 2 || pTag[1] != pk {
+		return nil, true, false
+	}
+	convKey, err := nip44.GenerateConversationKey(req.PubKey, sk)
+	if err != nil {
+		return nil, true, true
+	}
+	decrypted, err := nip44.Decrypt(req.Content, convKey)
+	if err != nil {
+		return nil, true, true
+	}
+	var restored nostr.Tags
+	if err := json.Unmarshal([]byte(decrypted), &restored); err != nil {
+		return nil, true, true
+	}
+	return restored, true, true
 }
 
 type moderateVerdict struct {
@@ -1682,9 +1748,9 @@ type moderateVerdict struct {
 // real label published; missing or malformed input here just means no
 // label gets published, not an error — the kind:6501 result itself is
 // unaffected either way.
-func publishModerationLabel(ctx context.Context, relay *nostr.Relay, sk string, req *nostr.Event, result string) {
+func publishModerationLabel(ctx context.Context, relay *nostr.Relay, sk string, tags nostr.Tags, result string) {
 	eventID := ""
-	for _, t := range req.Tags {
+	for _, t := range tags {
 		if len(t) >= 3 && t[0] == "param" && t[1] == "event_id" {
 			eventID = t[2]
 			break
