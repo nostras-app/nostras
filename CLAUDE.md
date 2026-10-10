@@ -10914,6 +10914,45 @@ behaves as before. Next: Phase 3 (advertise models with privacy level via
 NIP-89, per-job choice, client shows the real model instead of the
 hardcoded "claude-opus-5").
 
+## Pluggable model backend, Phase 3: several models, per-job choice (2026-10-10)
+
+The DVM can run several models at once. The Phase 2 backend
+(`NOSTRAS_LLM_BACKEND` and friends) is the default; `NOSTRAS_LLM_EXTRA_BACKENDS`
+adds OpenAI-compatible ones as a JSON array, e.g.
+`[{"base_url":"http://localhost:11434/v1","model":"gemma4:latest","reasoning_effort":"none"}]`
+(fields: base_url, model, api_key_env, privacy, max_tokens,
+timeout_seconds, reasoning_effort, input_usd_per_m, output_usd_per_m;
+keys are referenced by env var name, never inlined). Model ids are the
+model names and must be unique. A job picks one with
+`["param","model",<id>]` (inside the encrypted tags); unknown ids get an
+error listing what's available; no param = default. The kind:31990
+announcement's content now has `"models": [{id, backend, privacy,
+default}]`, and its about text names the models and describes encryption.
+Translate now finds its language with `paramValue` instead of assuming the
+first param tag.
+
+Client: `fetchDvmInfo()` (lib/dvm.ts) returns the DVM pubkey and models;
+the user's choice is a per-device `nostras:dvm-model` localStorage
+preference, added to encrypted jobs only when the DVM still advertises
+it (otherwise the default runs silently). The Ask card (now "Ask AI")
+shows a model picker when there's more than one model, plus a plain note
+on who can see the question (local / confidential / sent to the
+provider). With one model the picker is hidden. The old "nothing retained
+beyond your prompt" claim was removed: under the Claude model the
+provider's retention policy applies.
+
+Verified against an isolated relay + free-mode DVM running Claude
+(default) and local gemma4: the announcement listed both; nak jobs routed
+correctly ("Claude, made by Anthropic" vs "trained by Google"), unknown
+model errored; in the UI, picking gemma4 answered via gemma4, the choice
+persisted across reload and was sent with Translate (confirmed by
+decrypting the request with the test DVM key); with Claude only, the
+picker hid and the stale gemma4 preference fell back to the default with
+no model param. No overflow at 390px (checked in a 390px iframe since
+resize_window didn't apply). Production advertises one model (Claude), so
+users see "Model: claude-opus-5. Sent to Anthropic…" until another backend
+is configured there.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

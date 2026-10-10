@@ -8,16 +8,31 @@ const DVM_HANDLER_D_TAG = 'nostras-dvm'
 const DVM_LOOKUP_TIMEOUT_MS = 8000
 const DVM_PUBKEY_CACHE_MS = 10 * 60 * 1000
 
-let cachedDvmPubkey: { pubkey: string; at: number } | null = null
+const PREFERRED_MODEL_KEY = 'nostras:dvm-model'
 
-// The NOSTRAS DVM's current identity pubkey, read from its kind:31990
-// NIP-89 announcement (the announcement is signed by that identity).
-// Encrypted job requests are encrypted to this key. Announcements from
-// older DVM identities stay on the relay, so this takes the newest one:
-// the DVM republishes on every (re)connect, so newest = current.
-export async function fetchDvmIdentityPubkey(): Promise<string> {
-  if (cachedDvmPubkey && Date.now() - cachedDvmPubkey.at < DVM_PUBKEY_CACHE_MS) {
-    return cachedDvmPubkey.pubkey
+export type DvmModelPrivacy = 'local' | 'confidential' | 'third-party'
+
+// One entry of the announcement's "models" list
+// (server/cmd/dvm/llm.go, advertisedModel).
+export type DvmModel = {
+  id: string
+  backend: string
+  privacy: DvmModelPrivacy
+  default?: boolean
+}
+
+export type DvmInfo = { pubkey: string; models: DvmModel[] }
+
+let cachedDvmInfo: { info: DvmInfo; at: number } | null = null
+
+// The NOSTRAS DVM's current identity pubkey and model list, read from its
+// kind:31990 NIP-89 announcement (signed by that identity). Encrypted job
+// requests are encrypted to this key. Announcements from older DVM
+// identities stay on the relay, so this takes the newest one: the DVM
+// republishes on every (re)connect, so newest = current.
+export async function fetchDvmInfo(): Promise<DvmInfo> {
+  if (cachedDvmInfo && Date.now() - cachedDvmInfo.at < DVM_PUBKEY_CACHE_MS) {
+    return cachedDvmInfo.info
   }
   const events = await withTimeout(
     ndk.fetchEvents({ kinds: [KIND_HANDLER_ANNOUNCEMENT], '#d': [DVM_HANDLER_D_TAG] }, undefined, localRelaySet),
@@ -29,8 +44,41 @@ export async function fetchDvmIdentityPubkey(): Promise<string> {
     if (!newest || (e.created_at ?? 0) > (newest.created_at ?? 0)) newest = e
   }
   if (!newest) throw new Error('Could not find the DVM')
-  cachedDvmPubkey = { pubkey: newest.pubkey, at: Date.now() }
-  return newest.pubkey
+  let models: DvmModel[] = []
+  try {
+    const content = JSON.parse(newest.content) as { models?: DvmModel[] }
+    if (Array.isArray(content.models)) {
+      models = content.models.filter((m) => typeof m?.id === 'string' && m.id !== '')
+    }
+  } catch {
+    // An announcement without a readable model list still gives us the key.
+  }
+  const info = { pubkey: newest.pubkey, models }
+  cachedDvmInfo = { info, at: Date.now() }
+  return info
+}
+
+export async function fetchDvmIdentityPubkey(): Promise<string> {
+  return (await fetchDvmInfo()).pubkey
+}
+
+// The model the user picked for AI jobs (Ask, translate, summarize, spam
+// check), or null for the DVM's default. A per-device preference only.
+export function getPreferredDvmModel(): string | null {
+  try {
+    return localStorage.getItem(PREFERRED_MODEL_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setPreferredDvmModel(id: string | null) {
+  try {
+    if (id) localStorage.setItem(PREFERRED_MODEL_KEY, id)
+    else localStorage.removeItem(PREFERRED_MODEL_KEY)
+  } catch {
+    // Storage unavailable (private mode): the choice just won't persist.
+  }
 }
 
 export type DvmJobUpdate =
@@ -75,7 +123,9 @@ export function requestDvmJob(opts: {
   // public event, and the DVM encrypts the result back to us. Use it for
   // anything carrying the user's own text (Ask, translate, summarize,
   // spam check). If the DVM's key can't be found, the job fails rather
-  // than falling back to plaintext.
+  // than falling back to plaintext. Encrypted jobs also carry the user's
+  // preferred model (getPreferredDvmModel) when the DVM advertises it and
+  // the caller didn't pass a model param itself.
   encrypt?: boolean
 }): () => void {
   const { requestKind, resultKind, inputText, params = [], onUpdate, relaySet, encrypt = false } = opts
@@ -92,7 +142,11 @@ export function requestDvmJob(opts: {
       return
     }
     if (!ndk.signer) throw new Error('No signer available to encrypt the request')
-    const dvmPubkey = await fetchDvmIdentityPubkey()
+    const { pubkey: dvmPubkey, models } = await fetchDvmInfo()
+    const preferred = getPreferredDvmModel()
+    if (preferred && !params.some(([key]) => key === 'model') && models.some((m) => m.id === preferred)) {
+      jobTags.push(['param', 'model', preferred])
+    }
     request.content = await ndk.signer.encrypt(new NDKUser({ pubkey: dvmPubkey }), JSON.stringify(jobTags), 'nip44')
     request.tags = [['p', dvmPubkey], ['encrypted'], ['relays', localRelayUrl]]
   }

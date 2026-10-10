@@ -192,6 +192,12 @@ type dvmHealthSnapshot struct {
 	ModelBackend   string  `json:"modelBackend,omitempty"`
 	Model          string  `json:"model,omitempty"`
 	ModelPrivacy   string  `json:"modelPrivacy,omitempty"`
+	Models         []struct {
+		ID      string `json:"id"`
+		Backend string `json:"backend"`
+		Privacy string `json:"privacy"`
+		Default bool   `json:"default,omitempty"`
+	} `json:"models,omitempty"`
 	// Cached on the DVM side (server/cmd/dvm/health.go), never fetched live
 	// here — same reasoning as everywhere else in this file, a slow/blocked
 	// external call must never make a health check itself look unhealthy.

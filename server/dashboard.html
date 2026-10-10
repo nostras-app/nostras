@@ -812,7 +812,9 @@ async function loadHealth() {
   document.getElementById("dvm-health-caption").textContent =
     `Jobs handled: ${dvm.jobsHandled.toLocaleString()} since this process started — last one ${fmtAgo(dvm.lastJobUnix)}` +
     (dvm.paymentGating ? " — payment gating: ON" : " — payment gating: OFF") +
-    (dvm.model ? ` — model: ${dvm.model} (${dvm.modelBackend}, ${dvm.modelPrivacy})` : "");
+    (dvm.models && dvm.models.length
+      ? " — models: " + dvm.models.map(m => `${m.id} (${m.backend}, ${m.privacy}${m.default ? ", default" : ""})`).join(", ")
+      : dvm.model ? ` — model: ${dvm.model} (${dvm.modelBackend}, ${dvm.modelPrivacy})` : "");
 }
 function fmtBytes(n) {
   if (n >= 1 << 30) return (n / (1 << 30)).toFixed(2) + " GB";

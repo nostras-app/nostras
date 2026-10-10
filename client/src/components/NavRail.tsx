@@ -177,7 +177,7 @@ export function NavRail({
         type="button"
         className={`nav-rail-btn nav-rail-btn-anthropic${activeClass('ask-claude')}`}
         onClick={() => onSelect('ask-claude')}
-        title="Ask Claude"
+        title="Ask AI"
       >
         <SparklesIcon />
       </button>

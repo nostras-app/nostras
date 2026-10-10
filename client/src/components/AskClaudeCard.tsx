@@ -1,13 +1,38 @@
 import { useEffect, useRef, useState } from 'react'
-import { requestDvmJob, type DvmJobUpdate } from '../lib/dvm'
+import {
+  requestDvmJob,
+  getPreferredDvmModel,
+  setPreferredDvmModel,
+  type DvmJobUpdate,
+  type DvmModel,
+} from '../lib/dvm'
 import { getSavedNwcUri, payInvoiceWithNwc } from '../lib/nwc'
+import { useDvmModels } from '../hooks/useDvmModels'
 
 const KIND_JOB_REQUEST_GENERATE = 5050
 const KIND_JOB_RESULT_GENERATE = 6050
 
-// Must match dvmModel in server/cmd/dvm/main.go — purely a display label
-// here, the server alone decides which model it actually calls.
-const DVM_MODEL = 'claude-opus-5'
+const BACKEND_NAMES: Record<string, string> = { anthropic: 'Anthropic' }
+
+// What the chosen model means for who can see the user's text. The DVM
+// itself always decrypts the job to run it; this is about where it goes
+// next.
+function privacyNote(m: DvmModel): string {
+  if (m.privacy === 'local') {
+    return 'Runs on the DVM operator’s own hardware. Your question isn’t sent to any AI company.'
+  }
+  if (m.privacy === 'confidential') {
+    return 'Runs in confidential compute: the provider can’t read your question.'
+  }
+  const provider = BACKEND_NAMES[m.backend] ?? 'the model provider'
+  return `Sent to ${provider}, which can see your question under its own data policy.`
+}
+
+function privacyLabel(m: DvmModel): string {
+  if (m.privacy === 'local') return 'local'
+  if (m.privacy === 'confidential') return 'confidential'
+  return BACKEND_NAMES[m.backend] ?? 'third-party'
+}
 
 type State = 'idle' | 'requesting' | 'payment-required' | 'done' | 'error'
 
@@ -20,6 +45,20 @@ export function AskClaudeCard() {
   const [amountSats, setAmountSats] = useState(0)
   const [paying, setPaying] = useState(false)
   const cancelRef = useRef<(() => void) | null>(null)
+  const { models } = useDvmModels()
+  const [preferred, setPreferred] = useState<string | null>(() => getPreferredDvmModel())
+
+  // The model that will actually run: the saved choice if the DVM still
+  // offers it, otherwise the DVM's default.
+  const selected =
+    models.find((m) => m.id === preferred) ?? models.find((m) => m.default) ?? models[0]
+
+  function handlePickModel(id: string) {
+    const isDefault = models.find((m) => m.id === id)?.default
+    // Store nothing for the default, so a future default change applies.
+    setPreferredDvmModel(isDefault ? null : id)
+    setPreferred(isDefault ? null : id)
+  }
 
   useEffect(() => () => cancelRef.current?.(), [])
 
@@ -82,10 +121,10 @@ export function AskClaudeCard() {
     <div className="ask-claude">
       <div className="composer-body">
         <p className="field-hint">
-          Powered by a NIP-90 Data Vending Machine — a Claude worker that
-          takes jobs over Nostr and gets paid in sats, per question. No
-          account, no subscription, nothing retained beyond your prompt.
-          Job doesn't finish, you don't pay.
+          Powered by a NIP-90 Data Vending Machine: an AI worker that takes
+          jobs over Nostr and gets paid in sats, per question. Your question
+          and the answer are encrypted between you and the DVM. No account,
+          no subscription. Job doesn't finish, you don't pay.
         </p>
         <textarea
           className="textarea"
@@ -95,7 +134,30 @@ export function AskClaudeCard() {
           rows={3}
           disabled={busy}
         />
-        <p className="field-hint ask-claude-model">Model: {DVM_MODEL}</p>
+        {models.length > 1 && (
+          <label className="ask-claude-model-picker">
+            <span className="field-hint">Model</span>
+            <select
+              className="input"
+              value={selected?.id ?? ''}
+              onChange={(e) => handlePickModel(e.target.value)}
+              disabled={busy}
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id} ({privacyLabel(m)})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {selected && (
+          <p className="field-hint ask-claude-model">
+            {models.length <= 1 && <>Model: {selected.id}. </>}
+            {privacyNote(selected)}
+            {models.length > 1 && ' Also used for translate, summarize and spam check.'}
+          </p>
+        )}
 
         {(state === 'idle' || state === 'requesting') && (
           <div className="btn-row">
@@ -105,7 +167,7 @@ export function AskClaudeCard() {
               onClick={handleAsk}
               disabled={!prompt.trim() || state === 'requesting'}
             >
-              {state === 'requesting' ? 'Asking…' : 'Ask Claude'}
+              {state === 'requesting' ? 'Asking…' : 'Ask AI'}
             </button>
           </div>
         )}

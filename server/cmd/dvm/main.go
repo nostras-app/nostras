@@ -250,12 +250,18 @@ type paymentConfig struct {
 func main() {
 	loadEnvFile("../.nostras.env")
 
-	llm, err := loadLLMBackend()
+	llms, err := loadLLMRegistry()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	fmt.Printf("model backend: %s, model %s, privacy %s\n", llm.Name(), llm.Model(), llm.Privacy())
+	for i, m := range llms.Advertised() {
+		def := ""
+		if i == 0 {
+			def = " (default)"
+		}
+		fmt.Printf("model: %s via %s, privacy %s%s\n", m.ID, m.Backend, m.Privacy, def)
+	}
 
 	// Defaults to localhost for local dev; the Fly deployment sets this to
 	// the relay's address on Fly's private network (see server/fly.toml)
@@ -366,7 +372,7 @@ func main() {
 	if healthPort == "" {
 		healthPort = "7778"
 	}
-	startHealthServer(healthPort, payment, llm)
+	startHealthServer(healthPort, payment, llms)
 	fmt.Println("health endpoint: private network only, :" + healthPort + "/health")
 
 	// Reconnection loop. Previously a single dropped connection (network
@@ -386,7 +392,7 @@ func main() {
 	for {
 		fmt.Println("listening on", relayURL)
 		connectedAt := time.Now()
-		err := runDVM(ctx, relayURL, llm, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk, payment)
+		err := runDVM(ctx, relayURL, llms, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk, payment)
 		if err != nil {
 			fmt.Println("relay connection lost, reconnecting:", err)
 		} else {
@@ -407,7 +413,7 @@ func main() {
 // channel closes. Returns nil for a clean subscription end, or the error
 // that caused the disconnect — either way, the caller's reconnection loop
 // decides what happens next, this function never terminates the process.
-func runDVM(ctx context.Context, relayURL string, llm llmBackend, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk string, payment *paymentConfig) error {
+func runDVM(ctx context.Context, relayURL string, llms *llmRegistry, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk string, payment *paymentConfig) error {
 	relay, err := nostr.RelayConnect(ctx, relayURL)
 	if err != nil {
 		return err
@@ -416,9 +422,9 @@ func runDVM(ctx context.Context, relayURL string, llm llmBackend, sk, articleKey
 	markRelayConnected(true)
 	defer markRelayConnected(false)
 
-	handlerEvt := publishHandlerAnnouncement(ctx, relay, sk, articleKeyPk, communityKeyPk)
+	handlerEvt := publishHandlerAnnouncement(ctx, relay, sk, articleKeyPk, communityKeyPk, llms)
 	clientHandlerEvt := publishClientHandlerAnnouncement(ctx, relay, sk)
-	dvmAbout, _ := dvmAboutAndTags(articleKeyPk, communityKeyPk)
+	dvmAbout, _ := dvmAboutAndTags(articleKeyPk, communityKeyPk, llms)
 	profileEvt := publishDvmProfile(ctx, relay, sk, dvmAbout)
 
 	var discoveryEvts []nostr.Event
@@ -466,7 +472,7 @@ func runDVM(ctx context.Context, relayURL string, llm llmBackend, sk, articleKey
 			go handleDaoProposalJob(ctx, relay, relayURL, sk, communityKeySk, payment, evt)
 			continue
 		}
-		go handleJob(ctx, relay, llm, sk, articleKeySk, communityKeySk, payment, evt)
+		go handleJob(ctx, relay, llms, sk, articleKeySk, communityKeySk, payment, evt)
 	}
 	return nil
 }
@@ -498,7 +504,7 @@ func loadPaymentConfig(ctx context.Context) *paymentConfig {
 	return &paymentConfig{nwc: client, priceSats: price}
 }
 
-func handleJob(ctx context.Context, relay *nostr.Relay, llm llmBackend, sk, articleKeySk, communityKeySk string, payment *paymentConfig, req *nostr.Event) {
+func handleJob(ctx context.Context, relay *nostr.Relay, llms *llmRegistry, sk, articleKeySk, communityKeySk string, payment *paymentConfig, req *nostr.Event) {
 	// Structurally separate paths, not cases in the switch below:
 	// neither decrypting a paid article nor admitting someone to a paid
 	// group bears any resemblance to "prompt Claude with some text,"
@@ -550,14 +556,14 @@ func handleJob(ctx context.Context, relay *nostr.Relay, llm llmBackend, sk, arti
 		systemPrompt = summarizeSystemPrompt
 	case kindJobRequestTranslate:
 		resultKind = kindJobResultTranslate
-		langTag := tags.Find("param")
-		if len(langTag) < 3 || langTag[1] != "language" || strings.TrimSpace(langTag[2]) == "" {
+		langCode, _ := paramValue(tags, "language")
+		if strings.TrimSpace(langCode) == "" {
 			publishFeedback(ctx, relay, sk, req, "error", `missing required param tag ["param","language",<code>]`)
 			return
 		}
-		langName, ok := languageNames[langTag[2]]
+		langName, ok := languageNames[langCode]
 		if !ok {
-			publishFeedback(ctx, relay, sk, req, "error", "unsupported language code "+langTag[2])
+			publishFeedback(ctx, relay, sk, req, "error", "unsupported language code "+langCode)
 			return
 		}
 		systemPrompt = translateSystemPrompt(langName)
@@ -570,6 +576,18 @@ func handleJob(ctx context.Context, relay *nostr.Relay, llm llmBackend, sk, arti
 	default:
 		publishFeedback(ctx, relay, sk, req, "error", "unsupported job kind")
 		return
+	}
+
+	// Which model runs the job: ["param","model",<id>] from the
+	// announcement's "models" list, or the default.
+	llm := llms.Default()
+	if id, ok := paramValue(tags, "model"); ok && id != "" {
+		b, found := llms.Get(id)
+		if !found {
+			publishFeedback(ctx, relay, sk, req, "error", "unknown model "+id+"; available: "+strings.Join(llms.IDs(), ", "))
+			return
+		}
+		llm = b
 	}
 
 	iTag := tags.Find("i")
@@ -1440,8 +1458,8 @@ func requirePayment(ctx context.Context, relay *nostr.Relay, sk string, payment 
 // tags — factored out so publishDvmProfile's real kind:0 event can reuse
 // the exact same about text as the handler announcement, rather than a
 // second, driftable copy.
-func dvmAboutAndTags(articleKeyPk, communityKeyPk string) (string, nostr.Tags) {
-	about := fmt.Sprintf("Claude-powered NIP-90 jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501). Priced per job from real token cost — typically a few dozen sats — and you only pay if the job completes. Marketplace purchase confirmation (5907) — pay a NIP-99 listing's own seller directly via their real Lightning address, and get back a public, independently-verifiable NIP-32 receipt; NOSTRAS keeps a flat %d-sat fee for the confirmation service. Job board completion payment (5908) — only the job's own poster can trigger it, pays whichever applicant they name directly, same public-receipt pattern; NOSTRAS keeps a flat %d-sat fee.", marketplacePurchaseFeeSats, jobCompletionFeeSats)
+func dvmAboutAndTags(articleKeyPk, communityKeyPk string, llms *llmRegistry) (string, nostr.Tags) {
+	about := fmt.Sprintf("NIP-90 AI jobs: summarize (5001), translate (5002), free-form ask (5050), spam/scam classification (5501), on "+modelsSummary(llms)+". Requests and results can be NIP-44 encrypted (send [\"encrypted\"] + a p tag naming this DVM); pick a model with [\"param\",\"model\",<id>]. Priced per job — typically a few dozen sats — and you only pay if the job completes. Marketplace purchase confirmation (5907) — pay a NIP-99 listing's own seller directly via their real Lightning address, and get back a public, independently-verifiable NIP-32 receipt; NOSTRAS keeps a flat %d-sat fee for the confirmation service. Job board completion payment (5908) — only the job's own poster can trigger it, pays whichever applicant they name directly, same public-receipt pattern; NOSTRAS keeps a flat %d-sat fee.", marketplacePurchaseFeeSats, jobCompletionFeeSats)
 	tags := nostr.Tags{
 		{"d", dvmHandlerDTag},
 		{"k", strconv.Itoa(kindJobRequestSummarize)},
@@ -1464,6 +1482,28 @@ func dvmAboutAndTags(articleKeyPk, communityKeyPk string) (string, nostr.Tags) {
 	return about, tags
 }
 
+// modelsSummary renders the model list for the human-readable about text,
+// e.g. "claude-opus-5 (third-party API, default) and gemma4 (runs locally)".
+func modelsSummary(llms *llmRegistry) string {
+	labels := map[string]string{
+		privacyLocal:        "runs locally",
+		privacyConfidential: "confidential compute",
+		privacyThirdParty:   "third-party API",
+	}
+	parts := []string{}
+	for _, m := range llms.Advertised() {
+		desc := labels[m.Privacy]
+		if m.Default {
+			desc += ", default"
+		}
+		parts = append(parts, m.ID+" ("+desc+")")
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
 // publishHandlerAnnouncement advertises this DVM per NIP-89/NIP-90's
 // service-provider-discoverability appendix: a single kind:31990 event
 // listing every job kind this DVM handles, so a generic NIP-90-aware
@@ -1471,8 +1511,8 @@ func dvmAboutAndTags(articleKeyPk, communityKeyPk string) (string, nostr.Tags) {
 // (kind:0-style JSON), deliberately not a live price — the actual price
 // is dynamic per job (see estimateJobCostSats), so the description gives
 // a representative price band instead of a number that would go stale.
-func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, articleKeyPk, communityKeyPk string) nostr.Event {
-	about, tags := dvmAboutAndTags(articleKeyPk, communityKeyPk)
+func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, articleKeyPk, communityKeyPk string, llms *llmRegistry) nostr.Event {
+	about, tags := dvmAboutAndTags(articleKeyPk, communityKeyPk, llms)
 
 	// articleEncryptionPubkey/communityAdminPubkey, each present only
 	// when its own feature is enabled, are *separate* fields from this
@@ -1486,12 +1526,13 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, art
 	// DVM restarts — kept separate so a bug in either feature's own key
 	// handling can't touch the DVM's core identity.
 	content, err := json.Marshal(struct {
-		Name                    string `json:"name"`
-		About                   string `json:"about"`
-		Picture                 string `json:"picture"`
-		Website                 string `json:"website"`
-		ArticleEncryptionPubkey string `json:"articleEncryptionPubkey,omitempty"`
-		CommunityAdminPubkey    string `json:"communityAdminPubkey,omitempty"`
+		Name                    string            `json:"name"`
+		About                   string            `json:"about"`
+		Picture                 string            `json:"picture"`
+		Website                 string            `json:"website"`
+		ArticleEncryptionPubkey string            `json:"articleEncryptionPubkey,omitempty"`
+		CommunityAdminPubkey    string            `json:"communityAdminPubkey,omitempty"`
+		Models                  []advertisedModel `json:"models"`
 	}{
 		Name:                    "NOSTRAS DVM",
 		About:                   about,
@@ -1499,6 +1540,7 @@ func publishHandlerAnnouncement(ctx context.Context, relay *nostr.Relay, sk, art
 		Website:                 "https://nostras.app",
 		ArticleEncryptionPubkey: articleKeyPk,
 		CommunityAdminPubkey:    communityKeyPk,
+		Models:                  llms.Advertised(),
 	})
 	if err != nil {
 		fmt.Println("handler announcement marshal error:", err)

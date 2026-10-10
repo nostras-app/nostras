@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/nbd-wtf/go-nostr"
 )
 
 func setOpenAIEnv(t *testing.T, kv map[string]string) {
@@ -188,5 +190,64 @@ func TestOpenAIPricing(t *testing.T) {
 	llm, _ = loadLLMBackend()
 	if in, out, ok := llm.PricePerMillionUSD(); !ok || in != 0.5 || out != 1.5 {
 		t.Fatalf("prices: %v %v %v", in, out, ok)
+	}
+}
+
+func TestLLMRegistry(t *testing.T) {
+	setOpenAIEnv(t, map[string]string{"NOSTRAS_LLM_BASE_URL": "https://api.example.com/v1", "NOSTRAS_LLM_MODEL": "big"})
+	t.Setenv("MAPLE_KEY", "k123")
+	t.Setenv("NOSTRAS_LLM_EXTRA_BACKENDS", `[
+		{"base_url":"http://localhost:11434/v1","model":"gemma4:latest","reasoning_effort":"none"},
+		{"base_url":"https://maple.example/v1","model":"llama-enclave","privacy":"confidential","api_key_env":"MAPLE_KEY"}
+	]`)
+	reg, err := loadLLMRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reg.Advertised()
+	if len(got) != 3 || got[0].ID != "big" || !got[0].Default || got[0].Privacy != privacyThirdParty ||
+		got[1].ID != "gemma4:latest" || got[1].Privacy != privacyLocal || got[1].Default ||
+		got[2].Privacy != privacyConfidential {
+		t.Fatalf("unexpected models: %+v", got)
+	}
+	if b, ok := reg.Get("llama-enclave"); !ok || b.(*openAIBackend).apiKey != "k123" {
+		t.Fatal("extra backend key not loaded from api_key_env")
+	}
+	if _, ok := reg.Get("nope"); ok {
+		t.Fatal("unknown model should not resolve")
+	}
+	if reg.Default().Model() != "big" {
+		t.Fatal("wrong default")
+	}
+	want := "big (third-party API, default), gemma4:latest (runs locally) and llama-enclave (confidential compute)"
+	if s := modelsSummary(reg); s != want {
+		t.Fatalf("summary:\n got %q\nwant %q", s, want)
+	}
+
+	bad := []string{
+		`not json`,
+		`[{"base_url":"http://localhost/v1","model":"big"}]`,                           // duplicate of default
+		`[{"base_url":"http://localhost/v1","model":"x","api_key_env":"UNSET_VAR_1"}]`, // key var empty
+		`[{"base_url":"http://localhost/v1"}]`,                                         // no model
+		`[{"base_url":"http://localhost/v1","model":"x","privacy":"magic"}]`,
+	}
+	for _, b := range bad {
+		t.Setenv("NOSTRAS_LLM_EXTRA_BACKENDS", b)
+		if _, err := loadLLMRegistry(); err == nil {
+			t.Fatalf("expected error for %s", b)
+		}
+	}
+}
+
+func TestParamValue(t *testing.T) {
+	tags := nostr.Tags{{"i", "x", "text"}, {"param", "model", "gemma4"}, {"param", "language", "es"}, {"param", "short"}}
+	if v, ok := paramValue(tags, "language"); !ok || v != "es" {
+		t.Fatalf("language: %q %v", v, ok)
+	}
+	if v, ok := paramValue(tags, "model"); !ok || v != "gemma4" {
+		t.Fatalf("model: %q %v", v, ok)
+	}
+	if _, ok := paramValue(tags, "short"); ok {
+		t.Fatal("2-element param tag should not match")
 	}
 }
