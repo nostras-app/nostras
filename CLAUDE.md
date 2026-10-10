@@ -5942,7 +5942,7 @@ DM in this project.
 fixed mid-implementation, not just a feature add (2026-08-12)
 
 Direct follow-up, same day: with the feature live, the user pointed out
-the obvious next question before pinging timosolo — the article's
+the obvious next question before pinging the requester — the article's
 author-set price was, by design, 100% kept by the NOSTRAS operator
 wallet, same as every other DVM job. Real V4V meant the author needed
 to actually get paid, with NOSTRAS taking a small cut to help fund the
@@ -6105,11 +6105,11 @@ initiating real payments during verification.
 found and fixed, plus a real NDK bug found along the way (2026-08-12)
 
 The user held the "paid articles are live" follow-up DM to a real
-`#asknostr` contact (timosolo) until his original message got any
-reaction, and asked whether it even reached him in the first place —
+`#asknostr` contact until their original message got any
+reaction, and asked whether it even reached them in the first place —
 worth checking directly rather than assuming disinterest. Investigated
-with his real npub: his kind:0 profile is real (a real Bitcoin/Nostr
-developer), and he has a real, deliberately narrow NIP-17 DM relay list
+with their real npub: their kind:0 profile is real (a real Bitcoin/Nostr
+developer), and they have a real, deliberately narrow NIP-17 DM relay list
 (kind:10050) naming exactly **one** relay: `wss://auth.nostr1.com`.
 That relay requires **NIP-42 authentication for both reads and
 writes** — confirmed directly, not assumed: a plain `nak` publish
@@ -6118,8 +6118,8 @@ NDK instance had no NIP-42 auth policy configured anywhere (grepped the
 whole `lib/` tree — the only auth-related code was passive UI status
 display in `relayList.ts`, never an actual challenge-response
 handshake). `discoverRecipientDmRelays` (`lib/dm.ts`) correctly found
-and targeted his relay, but the publish there almost certainly got
-rejected — a real, concrete, verifiable explanation, not just "he's not
+and targeted their relay, but the publish there almost certainly got
+rejected — a real, concrete, verifiable explanation, not just "they're not
 interested."
 
 **Fixed**: `client/src/lib/ndk.ts` now sets
@@ -6166,13 +6166,13 @@ inline variant, before treating this as done. Debugged via a temporary
 `window.__ndk` hook in `main.tsx` (same established pattern as prior
 debugging sessions in this file), removed before finalizing.
 
-**Not yet done, deliberately**: no test DM was (re-)sent to timosolo as
+**Not yet done, deliberately**: no test DM was (re-)sent to that contact as
 part of this fix — the user is explicitly holding all further contact
-until his original message gets a reaction, and testing the fix live
-against his real relay would mean sending him a real message, which
+until their original message gets a reaction, and testing the fix live
+against their real relay would mean sending them a real message, which
 needs the same explicit go-ahead as any other DM in this project. The
-fix is verified against his real, actual declared relay directly
-(`auth.nostr1.com`), just not by sending him anything.
+fix is verified against their real, actual declared relay directly
+(`auth.nostr1.com`), just not by sending them anything.
 
 ## NIP-45 HyperLogLog counting fixed — a real bug found via the NIP gap
 analysis, not just a documentation gap (2026-08-12)
@@ -10213,7 +10213,7 @@ window explains the empty state without indicating any new problem.
 submitted a genuine fresh test signup through the real `/node` page;
 independently verified via `flyctl ssh console` that
 `/data/node-waitlist.json` on the live machine now contains that exact
-entry (`mauromoro@msn.com`, `"this is a test"`) — real persistence,
+entry (the operator's own address, `"this is a test"`) — real persistence,
 confirmed on disk, not just trusted from the dashboard UI.
 
 `go build`/`go vet`/`gofmt -l` all clean. Not yet deployed as of this
@@ -10794,8 +10794,8 @@ and check disk usage.
 Sampling 331 of them over a single connection (per-connection reconnects
 from this sandbox kept timing out) showed about 90% of the bytes were
 Nymchat.app's sync data: wraps tagged `["k","nym-sync"]` plus a `["d",
-slot]`, averaging ~22KB, mostly addressed to Luxas (`d49a9023…`, the
-Nymchat developer). Slots are rewritten on every sync and kind 1059 is
+slot]`, averaging ~22KB, mostly addressed to a single account (the app
+developer's own). Slots are rewritten on every sync and kind 1059 is
 never replaced, so old copies piled up (one slot appeared 14 times in a
 sparse month-long sample). Correction to earlier analysis: the 412k
 "distinct direct authors" was mostly gift wraps' random signing keys,

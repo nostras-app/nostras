@@ -12,5 +12,6 @@
   "dependencies": {
     "@nostr-dev-kit/ndk": "^3.0.3",
     "ws": "^8.21.2"
-  }
+  },
+  "license": "AGPL-3.0-only"
 }

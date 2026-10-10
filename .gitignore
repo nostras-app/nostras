@@ -20,3 +20,8 @@ server/outbox-cache.json
 *.swp
 *.swo
 content-assets/
+
+# Local notes and session transcripts, kept out of the public repo
+last-claude-sessions-about-NOSTR.txt
+latest-claude-session-*.txt
+to-do-posts-for-nostras.txt
