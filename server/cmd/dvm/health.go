@@ -103,6 +103,11 @@ type dvmHealthSnapshot struct {
 	Goroutines     int     `json:"goroutines"`
 	MemAllocMB     float64 `json:"memAllocMB"`
 	MemSysMB       float64 `json:"memSysMB"`
+	// Which model backend answers text jobs (see llm.go), and who can
+	// see the job text once forwarded to it.
+	ModelBackend string `json:"modelBackend"`
+	Model        string `json:"model"`
+	ModelPrivacy string `json:"modelPrivacy"`
 	// Wallet* fields are only meaningful when PaymentGating is true —
 	// callers must check that first, same as this struct's own established
 	// pattern elsewhere (see server/health.go's dvmHealthSnapshot comment
@@ -127,7 +132,7 @@ type dvmHealthSnapshot struct {
 // listens on; only Fly's private network (6PN) can reach it, the same
 // path NOSTRAS_RELAY_URL already relies on for the DVM to reach the
 // relay in the other direction.
-func startHealthServer(port string, payment *paymentConfig) {
+func startHealthServer(port string, payment *paymentConfig, llm llmBackend) {
 	paymentGatingOn := payment != nil
 	if payment != nil {
 		startWalletBalancePoller(payment.nwc)
@@ -151,6 +156,9 @@ func startHealthServer(port string, payment *paymentConfig) {
 			Goroutines:     runtime.NumGoroutine(),
 			MemAllocMB:     float64(m.Alloc) / 1024 / 1024,
 			MemSysMB:       float64(m.Sys) / 1024 / 1024,
+			ModelBackend:   llm.Name(),
+			Model:          llm.Model(),
+			ModelPrivacy:   llm.Privacy(),
 		}
 		if paymentGatingOn {
 			snap.WalletBalanceOK = atomic.LoadInt32(&dvmWalletBalanceOK) == 1

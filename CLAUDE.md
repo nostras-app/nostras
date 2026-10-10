@@ -10880,6 +10880,40 @@ console errors. Summarize wasn't clicked in the UI (same code path).
 Next phases: model backend interface (anthropic + OpenAI-compatible for
 Ollama/Maple), per-job model choice advertised via NIP-89, Node docs.
 
+## Pluggable model backend for the DVM, Phase 2 (2026-10-10)
+
+`server/cmd/dvm/llm.go` puts the text jobs (summarize, translate, ask,
+spam check) behind an `llmBackend` interface. `NOSTRAS_LLM_BACKEND`:
+- `anthropic` (default, unchanged): Claude, needs `NOSTRAS_ANTHROPIC_API_KEY`.
+- `openai`: any OpenAI-compatible `/chat/completions` server (Ollama,
+  llama.cpp, vLLM, LM Studio, a confidential-compute proxy). Needs
+  `NOSTRAS_LLM_BASE_URL` (e.g. `http://localhost:11434/v1`) and
+  `NOSTRAS_LLM_MODEL`. Optional: `NOSTRAS_LLM_API_KEY`,
+  `NOSTRAS_LLM_PRIVACY` (local / confidential / third-party; defaults to
+  local for loopback, private and `.internal` hosts, else third-party;
+  confidential must be declared), `NOSTRAS_LLM_MAX_TOKENS`,
+  `NOSTRAS_LLM_TIMEOUT_SECONDS` (default 300), `NOSTRAS_LLM_REASONING_EFFORT`,
+  and `NOSTRAS_LLM_INPUT_USD_PER_M`/`_OUTPUT_USD_PER_M` for per-token pricing
+  (unset = flat `NOSTRAS_DVM_PRICE_SATS`; tokens estimated at 4 chars each).
+The DVM `/health` endpoint and the operator dashboard now show backend,
+model and privacy level.
+
+**Thinking models need `NOSTRAS_LLM_REASONING_EFFORT=none`**: without it,
+gemma4 under Ollama spent all 60 tokens of a test on hidden reasoning and
+returned empty content. With it, 18 tokens took ~9.5s on this desktop
+(i5-6600, CPU only). The backend now reports that case explicitly instead
+of a generic empty-answer error.
+
+Verified: unit tests against a fake server (request shape, auth header,
+error paths, config validation, privacy defaults, pricing). End to end,
+an isolated relay + free-mode DVM on local gemma4 answered encrypted Ask,
+Translate and spam-check jobs correctly (~150s for all three; Ollama
+handles them one at a time). The default Anthropic path was re-checked
+against the same setup. Production sets none of the new variables, so it
+behaves as before. Next: Phase 3 (advertise models with privacy level via
+NIP-89, per-job choice, client shows the real model instead of the
+hardcoded "claude-opus-5").
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

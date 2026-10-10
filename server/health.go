@@ -189,6 +189,9 @@ type dvmHealthSnapshot struct {
 	Goroutines     int     `json:"goroutines,omitempty"`
 	MemAllocMB     float64 `json:"memAllocMB,omitempty"`
 	MemSysMB       float64 `json:"memSysMB,omitempty"`
+	ModelBackend   string  `json:"modelBackend,omitempty"`
+	Model          string  `json:"model,omitempty"`
+	ModelPrivacy   string  `json:"modelPrivacy,omitempty"`
 	// Cached on the DVM side (server/cmd/dvm/health.go), never fetched live
 	// here — same reasoning as everywhere else in this file, a slow/blocked
 	// external call must never make a health check itself look unhealthy.

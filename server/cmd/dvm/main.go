@@ -15,9 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/anthropics/anthropic-sdk-go/packages/param"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip44"
 )
@@ -253,12 +250,12 @@ type paymentConfig struct {
 func main() {
 	loadEnvFile("../.nostras.env")
 
-	apiKey := os.Getenv("NOSTRAS_ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		fmt.Println("NOSTRAS_ANTHROPIC_API_KEY not set (checked environment and ../.nostras.env)")
+	llm, err := loadLLMBackend()
+	if err != nil {
+		fmt.Println(err)
 		os.Exit(1)
 	}
-	claude := anthropic.NewClient(option.WithAPIKey(apiKey))
+	fmt.Printf("model backend: %s, model %s, privacy %s\n", llm.Name(), llm.Model(), llm.Privacy())
 
 	// Defaults to localhost for local dev; the Fly deployment sets this to
 	// the relay's address on Fly's private network (see server/fly.toml)
@@ -369,7 +366,7 @@ func main() {
 	if healthPort == "" {
 		healthPort = "7778"
 	}
-	startHealthServer(healthPort, payment)
+	startHealthServer(healthPort, payment, llm)
 	fmt.Println("health endpoint: private network only, :" + healthPort + "/health")
 
 	// Reconnection loop. Previously a single dropped connection (network
@@ -389,7 +386,7 @@ func main() {
 	for {
 		fmt.Println("listening on", relayURL)
 		connectedAt := time.Now()
-		err := runDVM(ctx, relayURL, claude, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk, payment)
+		err := runDVM(ctx, relayURL, llm, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk, payment)
 		if err != nil {
 			fmt.Println("relay connection lost, reconnecting:", err)
 		} else {
@@ -410,7 +407,7 @@ func main() {
 // channel closes. Returns nil for a clean subscription end, or the error
 // that caused the disconnect — either way, the caller's reconnection loop
 // decides what happens next, this function never terminates the process.
-func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk string, payment *paymentConfig) error {
+func runDVM(ctx context.Context, relayURL string, llm llmBackend, sk, articleKeySk, articleKeyPk, communityKeySk, communityKeyPk string, payment *paymentConfig) error {
 	relay, err := nostr.RelayConnect(ctx, relayURL)
 	if err != nil {
 		return err
@@ -469,7 +466,7 @@ func runDVM(ctx context.Context, relayURL string, claude anthropic.Client, sk, a
 			go handleDaoProposalJob(ctx, relay, relayURL, sk, communityKeySk, payment, evt)
 			continue
 		}
-		go handleJob(ctx, relay, claude, sk, articleKeySk, communityKeySk, payment, evt)
+		go handleJob(ctx, relay, llm, sk, articleKeySk, communityKeySk, payment, evt)
 	}
 	return nil
 }
@@ -501,7 +498,7 @@ func loadPaymentConfig(ctx context.Context) *paymentConfig {
 	return &paymentConfig{nwc: client, priceSats: price}
 }
 
-func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client, sk, articleKeySk, communityKeySk string, payment *paymentConfig, req *nostr.Event) {
+func handleJob(ctx context.Context, relay *nostr.Relay, llm llmBackend, sk, articleKeySk, communityKeySk string, payment *paymentConfig, req *nostr.Event) {
 	// Structurally separate paths, not cases in the switch below:
 	// neither decrypting a paid article nor admitting someone to a paid
 	// group bears any resemblance to "prompt Claude with some text,"
@@ -602,7 +599,7 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 	}
 
 	if payment != nil {
-		amountSats := estimateJobCostSats(ctx, claude, systemPrompt, text, payment.priceSats)
+		amountSats := estimateJobCostSats(ctx, llm, systemPrompt, text, payment.priceSats)
 		paid, err := requirePayment(ctx, relay, sk, payment, req, amountSats)
 		if err != nil {
 			publishFeedback(ctx, relay, sk, req, "error", err.Error())
@@ -617,7 +614,7 @@ func handleJob(ctx context.Context, relay *nostr.Relay, claude anthropic.Client,
 
 	publishFeedback(ctx, relay, sk, req, "processing", "")
 
-	result, err := callClaude(ctx, claude, systemPrompt, text)
+	result, err := llm.Complete(ctx, systemPrompt, text)
 	if err != nil {
 		publishFeedback(ctx, relay, sk, req, "error", "job failed: "+err.Error())
 		return
@@ -1379,42 +1376,6 @@ func publishMarketplaceLabel(ctx context.Context, relay *nostr.Relay, sk, listin
 	return evt.ID, nil
 }
 
-// estimateJobCostSats prices a job proportionally to its actual expected
-// API cost: exact input tokens via the real count_tokens endpoint (free to
-// call, runs no inference), plus a typical-case assumption for the
-// un-knowable output length. Falls back to the operator's flat default
-// price if token counting or the live BTC/USD rate lookup fails, rather
-// than blocking the job — same degrade-gracefully philosophy as
-// loadPaymentConfig.
-func estimateJobCostSats(ctx context.Context, claude anthropic.Client, systemPrompt, userText string, fallbackSats int64) int64 {
-	count, err := claude.Messages.CountTokens(ctx, anthropic.MessageCountTokensParams{
-		Model:  dvmModel,
-		System: anthropic.MessageCountTokensParamsSystemUnion{OfString: param.NewOpt(systemPrompt)},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(userText)),
-		},
-	})
-	if err != nil {
-		fmt.Println("token count failed, falling back to flat price:", err)
-		return fallbackSats
-	}
-
-	usd := float64(count.InputTokens)/1_000_000*inputPricePerMillionUSD +
-		float64(estimatedOutputTokens)/1_000_000*outputPricePerMillionUSD
-
-	btcUsd, err := fetchBTCUSDRate(ctx)
-	if err != nil {
-		fmt.Println("BTC/USD rate lookup failed, falling back to flat price:", err)
-		return fallbackSats
-	}
-
-	sats := int64(math.Ceil(usd / btcUsd * 100_000_000))
-	if sats < minJobPriceSats {
-		sats = minJobPriceSats
-	}
-	return sats
-}
-
 func fetchBTCUSDRate(ctx context.Context) (float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, rateLookupTimeout)
 	defer cancel()
@@ -1473,31 +1434,6 @@ func requirePayment(ctx context.Context, relay *nostr.Relay, sk string, payment 
 
 	publishFeedback(ctx, relay, sk, req, "error", "payment not received in time")
 	return false, nil
-}
-
-// callClaude is the single place every job kind calls the Claude API —
-// summarization, translation, and text generation only differ by which
-// system prompt they pass in.
-func callClaude(ctx context.Context, claude anthropic.Client, systemPrompt, userText string) (string, error) {
-	resp, err := claude.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     dvmModel,
-		MaxTokens: dvmMaxTokens,
-		System: []anthropic.TextBlockParam{
-			{Text: systemPrompt},
-		},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(userText)),
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	for _, block := range resp.Content {
-		if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
-			return tb.Text, nil
-		}
-	}
-	return "", fmt.Errorf("no text content in response")
 }
 
 // dvmAboutAndTags builds the shared "about" text and kind:31990 job-kind
