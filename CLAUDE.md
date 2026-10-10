@@ -10953,6 +10953,20 @@ resize_window didn't apply). Production advertises one model (Claude), so
 users see "Model: claude-opus-5. Sent to Anthropic…" until another backend
 is configured there.
 
+## Pluggable model backend, Phase 4: operator guide (2026-10-10)
+
+`docs/local-ai.md` (linked from README and CONTRIBUTING) explains running
+the DVM's AI jobs on your own models: the two privacy questions (relay
+observers vs. the model backend; the operator always sees plaintext), a
+fully local Ollama quick start, the `reasoning_effort` tip for thinking
+models, real CPU-only timings from this desktop, remote model servers and
+privacy defaults, offering several models, pricing, and a settings
+table. The quick start was run literally in a clean environment (no
+`.nostras.env`, default ports): the documented startup lines, `/health`
+output and NIP-89 model list all matched, and a real job answered on
+gemma4. Phases 1–4 of the pluggable-model DVM are complete; Phases 1–3
+are deployed.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,

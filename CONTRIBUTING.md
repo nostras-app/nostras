@@ -16,7 +16,8 @@ are all welcome.
 
 - Client: `cd client && npm install && npm run dev`
 - Relay: `cd server && go run .` (listens on `:7777`)
-- DVM: `cd server && go run ./cmd/dvm` (needs `NOSTRAS_ANTHROPIC_API_KEY`)
+- DVM: `cd server && go run ./cmd/dvm` (needs `NOSTRAS_ANTHROPIC_API_KEY`, or a
+  local model; see [`docs/local-ai.md`](docs/local-ai.md))
 
 Before opening a pull request, run `npm run build` and `npx oxlint` in
 `client/`, and `go build ./... && go vet ./... && go test ./...` in
