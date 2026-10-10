@@ -463,7 +463,7 @@
         Open NOSTRAS
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
       </a>
-      <a class="btn btn-ghost" href="#audit">Why closed source, still auditable</a>
+      <a class="btn btn-ghost" href="#audit">Open source, and still verifiable</a>
     </div>
   </div>
 </section>
@@ -497,7 +497,7 @@
       <div class="card">
         <span class="nip-badge">NIP-90</span>
         <h3>Ask an AI, pay per job</h3>
-        <p>Summarize, translate, or ask Claude anything — priced by the actual job, paid over Lightning, no subscription.</p>
+        <p>Summarize, translate or ask anything. Requests are encrypted to our DVM, each model says who can see your text, and you pay per job over Lightning. No subscription.</p>
       </div>
       <div class="card">
         <span class="nip-badge">NIP-50 / NIP-65</span>
@@ -516,20 +516,26 @@
 <section class="block" id="audit">
   <div class="wrap trust">
     <div class="trust-copy">
-      <p class="kicker">The audit surface</p>
-      <h2 class="title">NOSTRAS's source isn't public. The protocol it speaks is.</h2>
+      <p class="kicker">Open source, and still verifiable</p>
+      <h2 class="title">Read the code. Or don't: watch the protocol.</h2>
       <p>
-        <strong>Every action NOSTRAS takes leaves the same signed, public
-        trace any Nostr client would.</strong> A note is a <code>kind 1</code>
-        event. A zap is <code>kind 9735</code>. A signer connection is
-        NIP-46. You don't have to trust our code — you can watch the
-        protocol-level events on the relay directly, with any tool that
-        speaks Nostr, and see exactly what left your device.
+        <strong>NOSTRAS is open source under the AGPL-3.0.</strong> The
+        client, the relay and the DVM live in one
+        <a href="https://github.com/nostras-app/nostras-source">public repository</a>. Read it, build it, run your
+        own copy, or check exactly how keys and payments are handled.
       </p>
       <p>
-        That's a different kind of transparency than reading a repository —
-        closer to how you'd trust a bank not by reading its internal
-        software, but by watching the ledger it's required to publish.
+        You still don't have to take the code on trust. Every action
+        NOSTRAS takes leaves the same signed, public trace any Nostr client
+        would: a note is a <code>kind 1</code> event, a zap is
+        <code>kind 9735</code>, a signer connection is NIP-46. Watch the
+        events on the relay with any tool that speaks Nostr and compare
+        them with what the code says it does.
+      </p>
+      <p>
+        AI jobs are encrypted between you and our DVM, and every model it
+        offers says who can see your text. Prefer your own hardware?
+        <a href="https://github.com/nostras-app/nostras-source/blob/master/docs/local-ai.md">Run the DVM on your own models</a>.
       </p>
     </div>
     <div class="event-panel">
@@ -608,7 +614,7 @@
         <a href="/node">NOSTRAS Node</a>
         <a href="/stats">Stats</a>
         <a href="https://github.com/nostras-app/nostras">Docs &amp; support</a>
-        <a href="#audit">Why closed source</a>
+        <a href="https://github.com/nostras-app/nostras-source">Source code</a>
       </nav>
     </div>
   </div>
