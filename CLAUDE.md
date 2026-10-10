@@ -10967,6 +10967,24 @@ output and NIP-89 model list all matched, and a real job answered on
 gemma4. Phases 1–4 of the pluggable-model DVM are complete; Phases 1–3
 are deployed.
 
+## NOSTRAS is open source (2026-10-10)
+
+The source repo was renamed `nostras-app/nostras-source` ->
+**`nostras-app/nostras-app`** and made public by the user (AGPL-3.0-only +
+commercial license; local `origin` updated). Same day: the site copy went
+live (`ce6bd69`: landing "Open source, and still verifiable" section,
+hero/footer links, AI cards on landing, /why and /tools), the repo got
+the description "NOSTRAS: Nostr PWA client, khatru relay and NIP-90 DVM
+(AGPL-3.0)" and homepage nostras.app, the docs repo README (`c9b7bf3`)
+replaced "Why isn't the source code here?" with a Source code section,
+and the org profile (`nostras-app/.github`) now links the source repo.
+Verified: anonymous access to the repo and LICENSE returns 200; no
+"closed source" left on /, /why or /tools; relay at `ce6bd69`; DVM
+answered an encrypted job after the deploy. Older entries in this file
+that mention `nostras-source` or the closed-source stance are historical.
+Still to do: reply to Alex Li (HRF); optionally enable branch protection
+(free now that the repo is public).
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
