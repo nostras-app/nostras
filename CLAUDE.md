@@ -10831,6 +10831,21 @@ successive WebSocket connects from this sandbox timed out and succeeded
 on retry; that's the test environment, not production. Full row in
 `NOSTRAS-CSV.md` Section 5.
 
+## Community DAOs feature guide written (2026-10-10)
+
+`nostras-dao-how-to.md` (repo root, committed `369926c`) explains the
+Community DAO feature for readers: the design decisions
+(non-custodial treasury, one member one vote, admins propose, 21-sat
+registration), enabling DAO mode and adding members, proposal fields and
+defaults, voting and tally rules, DVM registration/tally (5909→6909),
+manual execution and the trust model, relay/DVM/client protections, a
+protocol kind/tag reference, and known limitations. It was written from
+the real code (`client/src/lib/dao.ts`, `components/DaoProposals.tsx`,
+`server/nip29.go`, `server/cmd/dvm/dao.go`), not from memory. It's also a
+claude.ai doc with a drawn lifecycle diagram; the markdown export renders
+that diagram as a text flow. If the DAO convention changes (fee, kinds,
+tags, composer defaults), update this file too.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
