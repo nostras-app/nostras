@@ -113,6 +113,12 @@ func TestRunOutboxCacheSweep_OnlyEvictsStaleTrackedEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// D: a stale-tracked profile (kind 0). Profiles are never evicted.
+	evtD := signedTestEvent(t, sk, 0, "{}")
+	if err := db.SaveEvent(ctx, evtD); err != nil {
+		t.Fatal(err)
+	}
+
 	cachePath := filepath.Join(t.TempDir(), "cache.json")
 	cache, err := newOutboxCacheStore(cachePath)
 	if err != nil {
@@ -121,6 +127,7 @@ func TestRunOutboxCacheSweep_OnlyEvictsStaleTrackedEvents(t *testing.T) {
 	now := time.Now().Unix()
 	cache.track(evtB.ID, now-3600)                // 1 hour ago — fresh
 	cache.track(evtC.ID, now-31*24*60*60)          // 31 days ago — stale under a 30-day retention
+	cache.track(evtD.ID, now-31*24*60*60)
 
 	runOutboxCacheSweep(relay, &db, cache, 30 /* retentionDays */)
 
@@ -141,6 +148,7 @@ func TestRunOutboxCacheSweep_OnlyEvictsStaleTrackedEvents(t *testing.T) {
 	assertExists(evtA.ID, true, "A (never tracked)")
 	assertExists(evtB.ID, true, "B (fresh, within retention)")
 	assertExists(evtC.ID, false, "C (stale, past retention)")
+	assertExists(evtD.ID, true, "D (stale profile, kept)")
 
 	if cache.size() != 1 {
 		t.Fatalf("expected tracking store to retain only the still-fresh entry, got size %d", cache.size())

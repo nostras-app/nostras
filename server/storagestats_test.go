@@ -147,20 +147,29 @@ func TestOutboxTrackingStore(t *testing.T) {
 		t.Error("pre-existing direct event got tracked")
 	}
 
-	// 3. Newer replaceable (kind 10002) fetched by the SDK: tracked.
-	oldList := mk(10002, "", 1700000100)
+	// 3. Newer replaceable (kind 10003) fetched by the SDK: tracked.
+	oldList := mk(10003, "", 1700000100)
 	db.SaveEvent(ctx, &oldList)
-	newList := mk(10002, "", 1700000200)
+	newList := mk(10003, "", 1700000200)
 	w.Publish(ctx, newList)
 	if !cache.isTracked(newList.ID) {
 		t.Error("newer replaceable from SDK not tracked")
 	}
 
 	// 4. Older replaceable than what's stored: replace is a no-op, not tracked.
-	older := mk(10002, "", 1700000150)
+	older := mk(10003, "", 1700000150)
 	w.Publish(ctx, older)
 	if cache.isTracked(older.ID) {
 		t.Error("stale replaceable that wasn't stored got tracked")
+	}
+
+	// 5. Profiles, follow lists and relay lists are never treated as cache.
+	for _, kind := range []int{0, 3, 10002} {
+		e := mk(kind, "{}", 1700000300)
+		w.Publish(ctx, e)
+		if cache.isTracked(e.ID) {
+			t.Errorf("kind %d got tracked for eviction", kind)
+		}
 	}
 }
 

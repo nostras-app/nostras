@@ -227,6 +227,9 @@ func runOutboxCacheSweep(relay *khatru.Relay, db *badger.BadgerBackend, store *o
 			continue
 		}
 		for target := range ch {
+			if neverEvictKind(target.Kind) {
+				continue // dropped from tracking below, i.e. kept
+			}
 			for _, del := range relay.DeleteEvent {
 				if err := del(bg, target); err != nil {
 					fmt.Println("outbox cache sweep: delete failed:", err)
@@ -286,8 +289,16 @@ func (s *outboxTrackingStore) has(ctx context.Context, id string) bool {
 	return found
 }
 
+// neverEvictKind: profiles, follow lists and relay lists are small and
+// are what makes other people's names, avatars and outbox relays resolve,
+// so they're kept rather than treated as expiring cache (2026-10-11: the
+// operator's own profile went missing from this relay).
+func neverEvictKind(kind int) bool {
+	return kind == 0 || kind == 3 || kind == 10002
+}
+
 func (s *outboxTrackingStore) SaveEvent(ctx context.Context, evt *nostr.Event) error {
-	if s.has(ctx, evt.ID) {
+	if neverEvictKind(evt.Kind) || s.has(ctx, evt.ID) {
 		return s.Store.SaveEvent(ctx, evt)
 	}
 	err := s.Store.SaveEvent(ctx, evt)
@@ -302,7 +313,7 @@ func (s *outboxTrackingStore) SaveEvent(ctx context.Context, evt *nostr.Event) e
 func (s *outboxTrackingStore) ReplaceEvent(ctx context.Context, evt *nostr.Event) error {
 	existed := s.has(ctx, evt.ID)
 	err := s.Store.ReplaceEvent(ctx, evt)
-	if err == nil && !existed && s.has(ctx, evt.ID) {
+	if err == nil && !existed && !neverEvictKind(evt.Kind) && s.has(ctx, evt.ID) {
 		s.cache.track(evt.ID, int64(nostr.Now()))
 	}
 	return err

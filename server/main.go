@@ -278,6 +278,8 @@ func main() {
 	applyNip86RelayInfoOverrides(relay, nip86Store)
 	relay.ManagementAPI = buildNip86ManagementAPI(relay, &db, nip86Store, adminPubkey)
 	relay.RejectEvent = append(relay.RejectEvent, newNip86RejectEventHook(nip86Store))
+	// What this relay stores from anyone (Nymchat sync data, event size) — see storagepolicy.go.
+	relay.RejectEvent = append(relay.RejectEvent, newStoragePolicyRejectHook())
 	relay.RejectConnection = append(relay.RejectConnection, newNip86RejectConnectionHook(nip86Store))
 	relay.OnEventSaved = append(relay.OnEventSaved, newNip86ReportObserverHook(nip86Store))
 
@@ -483,14 +485,14 @@ func main() {
 	// incidents, not this project's own real user base. outboxcache.go
 	// tracks exactly which stored events arrived ONLY via this path
 	// (never a real client's own direct publish) and ages them out after
-	// NOSTRAS_OUTBOX_CACHE_RETENTION_DAYS (default 30) — bounding growth
+	// NOSTRAS_OUTBOX_CACHE_RETENTION_DAYS (default 7, was 30 until 2026-10-11) — bounding growth
 	// instead of another reactive memory-tier bump.
 	outboxCachePath := envOr("NOSTRAS_OUTBOX_CACHE_PATH", "./outbox-cache.json")
 	outboxCache, err := newOutboxCacheStore(outboxCachePath)
 	if err != nil {
 		panic(err)
 	}
-	outboxCacheRetentionDays, err := strconv.Atoi(envOr("NOSTRAS_OUTBOX_CACHE_RETENTION_DAYS", "30"))
+	outboxCacheRetentionDays, err := strconv.Atoi(envOr("NOSTRAS_OUTBOX_CACHE_RETENTION_DAYS", "7"))
 	if err != nil || outboxCacheRetentionDays <= 0 {
 		outboxCacheRetentionDays = 30
 	}
