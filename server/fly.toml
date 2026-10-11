@@ -202,7 +202,15 @@ primary_region = "fra"
 # (search-index scope, outbox-aggregation cache growth, data retention)
 # as a parallel, non-urgent investigation, not assumed solved by RAM
 # alone going forward.
+#
+# Downsized 2x/8gb -> 1x/4gb (2026-10-11), owner-approved to cut cost.
+# The pressures behind the bumps above have since been fixed (query limit
+# clamp PQ-085, outbox fetch stall and search-index scope PQ-093, nym-sync
+# trim). Measured before the change: relay CPU ~2.4% of one core, load
+# 0.04, RssAnon 1.44GB, RssFile 2.52GB (reclaimable mmap), VmHWM 4.3GB,
+# /data 3.7GB. If OOM kills or sustained CPU saturation come back, go to
+# performance-1x/8gb or back to 2x before tuning anything else.
 [[vm]]
-  size      = "performance-2x"
-  memory    = "8gb"
+  size      = "performance-1x"
+  memory    = "4gb"
   processes = ["web"]
