@@ -11021,6 +11021,12 @@ after voting closed the DVM published `passed` with eligible 2, voted 2,
 yes 2. Claude checked each step on the relay and paid nothing. No defects
 found. NOSTRAS-CSV.md has the full record.
 
+The spending path was tested the same day. Proposal 4 asked to spend 21
+sats to `nostras@getalby.com` and passed 2/2. MMO paid it from his own
+wallet and clicked "Mark executed". The relay holds an `executed` label
+signed by MMO, and the card shows Executed. No proof was entered. The full
+lifecycle now works on production: register, vote, tally, execute.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
