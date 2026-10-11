@@ -11027,6 +11027,24 @@ wallet and clicked "Mark executed". The relay holds an `executed` label
 signed by MMO, and the card shows Executed. No proof was entered. The full
 lifecycle now works on production: register, vote, tally, execute.
 
+## Users' own posts were being deleted as "cache" (2026-10-11)
+
+Reported as missing early posts and a profile card stuck on "Anonymous".
+`newAggregatedQuery` (server/outbox.go) marked every event it fetched from
+other relays as outbox cache unless it was in its own limited local result
+page, so posts published directly to this relay got marked too, and the
+30-day sweep deleted them. Nothing of MMO's before 2026-09-09 was left;
+all remaining NOSTRAS posts were marked. Done: eviction paused
+(`NOSTRAS_OUTBOX_CACHE_RETENTION_DAYS=3650` secret, still in place), the
+marking removed (`6175ec2`; tracking now only in `outboxTrackingStore`,
+which skips events already stored), a one-time pass un-marked 277 events
+by the 8 authors with a client=Nostras event, and MMO's profile, 35 MMO
+posts and 81 SC posts re-sent from other relays. Client (`da80349`):
+profiles also read from purplepag.es, and the profile editor won't save
+until the existing kind:0 has loaded or the user confirms they have none.
+Open: re-enable eviction (remove the secret) once the owner decides; the
+pre-launch backfill marking is unaffected. NOSTRAS-CSV.md PQ-094.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
