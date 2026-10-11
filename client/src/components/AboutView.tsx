@@ -38,10 +38,6 @@ export function AboutView() {
 
       <div className="about-links">
         <a href="https://github.com/nostras-app/nostras" target="_blank" rel="noopener noreferrer">
-          Docs &amp; Support
-        </a>
-        <span aria-hidden="true">·</span>
-        <a href="https://github.com/nostras-app/nostras-app" target="_blank" rel="noopener noreferrer">
           Source code
         </a>
         <span aria-hidden="true">·</span>
@@ -213,7 +209,7 @@ export function AboutView() {
           <li>
             <strong>Open source, and still verifiable.</strong> The code is{' '}
             <a
-              href="https://github.com/nostras-app/nostras-app"
+              href="https://github.com/nostras-app/nostras"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -248,7 +244,7 @@ export function AboutView() {
           <strong>Open source, and still verifiable.</strong> The client,
           relay and DVM are{' '}
           <a
-            href="https://github.com/nostras-app/nostras-app"
+            href="https://github.com/nostras-app/nostras"
             target="_blank"
             rel="noopener noreferrer"
           >
