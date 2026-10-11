@@ -511,7 +511,7 @@ func main() {
 	// (see outboxfetch.go for the pool bug this avoids).
 	outboxConns := newOutboxRelays(isSafeRelayURLForScan)
 	outboxConns.startJanitor()
-	aggregatedQuery := newAggregatedQuery(&db, sys, outboxCache, outboxConns, outboxTracking)
+	aggregatedQuery := newAggregatedQuery(&db, sys, outboxConns, outboxTracking)
 	relay.QueryEvents = append(relay.QueryEvents, newSearchAwareQuery(&searchIndex, aggregatedQuery))
 
 	// Real, live production incident (2026-09-08): a client-side feature
@@ -549,6 +549,7 @@ func main() {
 	relay.StoreEvent = append(relay.StoreEvent, newOutboxCacheUntrackHook(outboxCache))
 	startOutboxCacheSweeper(relay, &db, outboxCache, outboxCacheRetentionDays)
 	startOutboxBackfill(&db, outboxCache, outboxCachePath)
+	startOutboxUnmark(&db, outboxCache, outboxCachePath)
 
 	// Nymchat sync slots: keep the newest copies per slot, trim the rest
 	// (new writes as they arrive, plus a one-time pass over the backlog).

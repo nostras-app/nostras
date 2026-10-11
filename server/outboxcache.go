@@ -365,3 +365,76 @@ func runOutboxBackfill(ctx context.Context, db *badger.BadgerBackend, store *out
 	})
 	return marked, scanned
 }
+
+// One-time repair (2026-10-11). Until the fix in outbox.go, the aggregated
+// query marked posts as cache even when users had published them directly
+// to this relay, and the 30-day sweep deleted them. A direct publish can't
+// be told apart from a cached copy after the fact, so this uses the best
+// signal available: anyone with at least one event carrying NOSTRAS's own
+// client tag is a NOSTRAS user, and their events created since launch are
+// un-marked (kept). The client tag only exists since 2026-09-05; going by
+// author instead of by tag also covers their earlier, untagged posts. The
+// cost is keeping those users' posts from other clients too, which is
+// small. Events created before launch keep the pre-launch backfill's
+// marking.
+const nostrasLaunch = 1785801600 // 2026-08-04T00:00:00Z
+const outboxUnmarkVersion = "1"
+
+func isNostrasClientEvent(evt *nostr.Event) bool {
+	for _, t := range evt.Tags {
+		if len(t) >= 2 && t[0] == "client" && strings.EqualFold(t[1], "nostras") {
+			return true
+		}
+	}
+	return false
+}
+
+// runOutboxUnmark does two paced scans: the first finds NOSTRAS users, the
+// second un-marks their tracked events created since launch.
+func runOutboxUnmark(ctx context.Context, db *badger.BadgerBackend, store *outboxCacheStore) (users, unmarked int) {
+	authors := map[string]bool{}
+	n := 0
+	db.ScanRawEvents(ctx, 5000, func(evt *nostr.Event, _ int) bool {
+		n++
+		if isNostrasClientEvent(evt) {
+			authors[evt.PubKey] = true
+		}
+		if n%5000 == 0 {
+			time.Sleep(20 * time.Millisecond)
+		}
+		return true
+	})
+	n = 0
+	db.ScanRawEvents(ctx, 5000, func(evt *nostr.Event, _ int) bool {
+		n++
+		if authors[evt.PubKey] && int64(evt.CreatedAt) >= nostrasLaunch && store.isTracked(evt.ID) {
+			store.untrack(evt.ID)
+			unmarked++
+		}
+		if n%5000 == 0 {
+			time.Sleep(20 * time.Millisecond)
+		}
+		return true
+	})
+	return len(authors), unmarked
+}
+
+func startOutboxUnmark(db *badger.BadgerBackend, store *outboxCacheStore, trackingPath string) {
+	marker := trackingPath + ".unmark"
+	if raw, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(raw)) == outboxUnmarkVersion {
+		return
+	}
+	go func() {
+		time.Sleep(2 * time.Minute)
+		users, unmarked := runOutboxUnmark(context.Background(), db, store)
+		if err := store.flushIfDirty(); err != nil {
+			fmt.Println("outbox unmark: flush failed, will rerun next boot:", err)
+			return
+		}
+		if err := os.WriteFile(marker, []byte(outboxUnmarkVersion+"\n"), 0600); err != nil {
+			fmt.Println("outbox unmark: could not write marker:", err)
+		}
+		fmt.Printf("outbox unmark: %d NOSTRAS users, un-marked %d of their events (now tracking %d)\n",
+			users, unmarked, store.size())
+	}()
+}

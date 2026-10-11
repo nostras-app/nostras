@@ -120,15 +120,16 @@ launch:
 // — skipping aggregation whenever Tags is present is the only generally
 // safe fix, not a badges-specific patch, since FetchFeedPage structurally
 // cannot honor a tag constraint regardless of which caller sent it.
-// cacheStore is optional (nil disables tracking, not the aggregation
-// itself) — see outboxcache.go for what it's for and why the exact
-// events tracked here (only those that pass the !seen check below, i.e.
-// confirmed new-to-local-store by this same function's own local
-// pre-query) are the correct, safe set to ever consider evicting later.
+// Eviction tracking happens only in trackingStore (outboxTrackingStore),
+// which marks an event as cache only if it wasn't already stored. This
+// function used to also mark every fetched event missing from its own
+// local result page as cache. That page is limited, so posts users had
+// published directly to this relay but that fell outside the page got
+// marked and later deleted by the 30-day sweep (2026-10-11: every NOSTRAS
+// post by the operator from before 2026-09-09 was lost this way).
 func newAggregatedQuery(
 	db *badger.BadgerBackend,
 	sys *sdk.System,
-	cacheStore *outboxCacheStore,
 	relays *outboxRelays,
 	trackingStore eventstore.Store,
 ) func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
@@ -173,15 +174,11 @@ func newAggregatedQuery(
 			fetched := fetchOutboxAuthors(fetchCtx, authorFetchSem, filter.Authors, perAuthor,
 				newOutboxAuthorFetcher(sys, relays, trackingStore, filter.Kinds, until))
 			cancel()
-			now := int64(nostr.Now())
 			for _, evt := range fetched {
 				if seen[evt.ID] {
 					continue
 				}
 				seen[evt.ID] = true
-				if cacheStore != nil {
-					cacheStore.track(evt.ID, now)
-				}
 				select {
 				case out <- evt:
 				case <-ctx.Done():
