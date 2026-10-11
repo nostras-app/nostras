@@ -5,6 +5,7 @@ import { publishCreateGroup } from '../lib/groups'
 import { viewGroup, setActiveView } from '../lib/navigation'
 import { isSecureImageUrl } from '../lib/parseContent'
 import { UsersIcon } from './icons'
+import { DAO_PROPOSAL_FEE_SATS } from '../lib/dao'
 
 function GroupCard({ group, onSelect }: { group: Group; onSelect: () => void }) {
   return (
@@ -163,6 +164,13 @@ export function CommunitiesView({ groupTarget }: { groupTarget?: string | null }
         go straight to the owner, plus a small NOSTRAS fee for running
         the payment check. Reading a group's chat is always free; only
         posting can ever be gated.
+      </p>
+      <p className="communities-lede communities-paid-lede">
+        A group can also run as a DAO (Admin tools → "DAO mode"): admins
+        put Yes/No proposals to a vote, members vote, and NOSTRAS's DVM
+        counts the result and publishes it so anyone can check it ({DAO_PROPOSAL_FEE_SATS}
+        sats per proposal). The group's money stays in the owner's own
+        wallet; NOSTRAS never holds it.
       </p>
       <p className="communities-lede communities-cross-link">
         Looking for moderated post communities instead — the kind other
