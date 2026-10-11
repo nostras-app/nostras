@@ -115,6 +115,17 @@ export const authorQueryRelaySet = NDKRelaySet.fromRelayUrls(
   ndk,
 )
 
+// Profile (kind:0) lookups only: authorQueryRelaySet plus purplepag.es,
+// a relay that exists to index kind:0/3/10002 metadata. Real case
+// (2026-10-11): the operator's current kind:0 had dropped off nostras.app,
+// damus and primal and survived only on purplepag.es, so every profile
+// view showed "Anonymous". purplepag.es rejects kind:1, so it's only
+// ever a read source here, never a publish target.
+export const profileQueryRelaySet = NDKRelaySet.fromRelayUrls(
+  [localRelayUrl, ...publicRelayUrls, 'wss://purplepag.es'],
+  ndk,
+)
+
 // A SEPARATE instance from localRelaySet (a distinct Set, never shared) —
 // this one backs actual publishing everywhere in the app
 // (event.publish(devPublishRelaySet), unchanged at every call site). Its

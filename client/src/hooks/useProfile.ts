@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { profileFromEvent, type NDKUserProfile } from '@nostr-dev-kit/ndk'
-import { authorQueryRelaySet } from '../lib/ndk'
+import { profileQueryRelaySet } from '../lib/ndk'
 import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { subscribeRelayStatus, getRelayGeneration } from '../lib/relayStatus'
 
@@ -75,7 +75,7 @@ function ensureFetched(pubkey: string) {
   // all) and parses it with NDK's own exported profileFromEvent() —
   // the exact same parsing fetchProfile() itself uses internally, kept
   // in sync by construction rather than hand-rolled.
-  fetchLatestReplaceableEvent({ kinds: [0], authors: [pubkey] }, authorQueryRelaySet)
+  fetchLatestReplaceableEvent({ kinds: [0], authors: [pubkey] }, profileQueryRelaySet)
     .then((event) => {
       const profile = event ? profileFromEvent(event) : null
       cache.set(pubkey, profile)
