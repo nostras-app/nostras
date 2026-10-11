@@ -10985,6 +10985,29 @@ that mention `nostras-source` or the closed-source stance are historical.
 Still to do: reply to Alex Li (HRF); optionally enable branch protection
 (free now that the repo is public).
 
+## One GitHub repo: source renamed to nostras-app/nostras, docs repo archived (2026-10-11)
+
+With the source public, the docs-only repo had no reason to exist (0
+issues and 0 discussions in two months). Consolidated:
+- `nostras-app/nostras` (docs) renamed to `nostras-app/nostras-docs-archive`,
+  given a "moved" README note, and archived (read-only).
+- `nostras-app/nostras-app` (source) renamed to **`nostras-app/nostras`**;
+  GitHub redirects the old address (checked: repo root and
+  `blob/master/docs/local-ai.md`). Local `origin` updated.
+- `6245fa2`: screenshots/logo moved into `assets/`, issue templates into
+  `.github/ISSUE_TEMPLATE/`, README gained a Support section. All links
+  (About view, six landing pages) point to the renamed repo; footers say
+  "Source & support". `assets/announcement-card.jpg` keeps the path the
+  2026-08-04 announcement note loads its image from (verified resolving).
+- Org profile (`nostras-app/.github` `01de025`): "Where things live" is
+  now three entries (the repo, nostras.app, app.nostras.app). The domains
+  stay as they are: nostras.app = landing pages + relay, app.nostras.app
+  = client.
+Verified: both deploys green, relay and client at `6245fa2`, footers live,
+DVM answered a real job with `payment-required` (not paid). Older entries
+naming `nostras-source`, `nostras-app/nostras-app` or the docs repo are
+historical.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
