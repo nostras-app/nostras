@@ -11008,6 +11008,19 @@ DVM answered a real job with `payment-required` (not paid). Older entries
 naming `nostras-source`, `nostras-app/nostras-app` or the docs repo are
 historical.
 
+## Community DAOs tested on production with real users and a real payment (2026-10-11)
+
+The production test pending since Piece 3 deployed. The user ran it on
+`app.nostras.app` with two real identities: MMO as admin, SC as member.
+Group `dafe6237-d027-4921-a7b6-d3121c1b7090` had DAO mode on and SC added
+as a `member`. The proposal (Yes/No, quorum and threshold 50%, 1 hour) was
+registered with a real 21-sat payment. A first request expired unpaid
+after the 2-minute window; the second was paid and registered. The
+community key published the `open` label. Both members voted Yes, and 9s
+after voting closed the DVM published `passed` with eligible 2, voted 2,
+yes 2. Claude checked each step on the relay and paid nothing. No defects
+found. NOSTRAS-CSV.md has the full record.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
