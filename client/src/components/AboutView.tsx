@@ -41,6 +41,10 @@ export function AboutView() {
           Docs &amp; Support
         </a>
         <span aria-hidden="true">·</span>
+        <a href="https://github.com/nostras-app/nostras-app" target="_blank" rel="noopener noreferrer">
+          Source code
+        </a>
+        <span aria-hidden="true">·</span>
         <a
           href="https://github.com/nostras-app/nostras/issues"
           target="_blank"
@@ -207,16 +211,15 @@ export function AboutView() {
             interoperable with the rest of the network.
           </li>
           <li>
-            <strong>The protocol is the audit surface, not the source.</strong>{' '}
-            See{' '}
+            <strong>Open source, and still verifiable.</strong> The code is{' '}
             <a
-              href="https://github.com/nostras-app/nostras#why-isnt-the-source-code-here"
+              href="https://github.com/nostras-app/nostras-app"
               target="_blank"
               rel="noopener noreferrer"
             >
-              why the implementation isn't public
-            </a>{' '}
-            in the docs repo.
+              public under the AGPL-3.0
+            </a>
+            , and every guarantee is also checkable from outside, on the wire.
           </li>
         </ul>
 
@@ -242,11 +245,19 @@ export function AboutView() {
           if you stay.
         </p>
         <p>
-          <strong>The protocol is the audit surface.</strong> You don't have
-          to trust our source, because the guarantees don't live in it. Every
+          <strong>Open source, and still verifiable.</strong> The client,
+          relay and DVM are{' '}
+          <a
+            href="https://github.com/nostras-app/nostras-app"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            open source under the AGPL-3.0
+          </a>
+          : read them, build them, run your own. But you don't have to take
+          the code on trust, because the guarantees don't live in it. Every
           claim NOSTRAS makes is checkable from outside: signed events, open
-          specs, a relay you can inspect yourself. That reasoning is
-          documented, not asserted.
+          specs, a relay you can inspect yourself.
         </p>
 
         <hr className="about-divider" />
