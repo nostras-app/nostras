@@ -11045,6 +11045,22 @@ until the existing kind:0 has loaded or the user confirms they have none.
 Open: re-enable eviction (remove the secret) once the owner decides; the
 pre-launch backfill marking is unaffected. NOSTRAS-CSV.md PQ-094.
 
+## Relay downsized and storage policy tightened (2026-10-11, PQ-094 follow-up)
+
+Owner-approved. Web went from performance-2x/8GB to performance-1x/4GB
+(`71bd196`); measured load at the time was ~2.4% of one core and a 1.44GB
+heap. `27d8dbc` (`server/storagepolicy.go`) refuses Nymchat sync blobs
+(kind 1059 tagged `k=nym-sync`) and events over 64KB. Follow lists, list
+kinds, long-form articles and paid-unlock results keep khatru's 512KB
+limit. Kinds 0/3/10002 are never treated as expiring cache. Outbox cache
+retention now defaults to 7 days (the 3650-day override secret was
+removed). The first sweep evicted 820,833 events. /data went 3.8GB to
+2.6GB by 2026-10-15 (badger 1.7GB). **Watch**: one OOM kill on the new
+4GB machine (2026-10-12 01:16 UTC), then 3+ days stable at 3.8GB peak. If
+it recurs, use performance-1x/8GB. The unexplained exit-code-2 crashes
+from 2026-10-11 didn't recur. Existing Nymchat data (~590MB at the last
+scan) is still stored; only new uploads are refused.
+
 ## Architecture
 
 - `client/` — the PWA, package name `nostras`. React + Vite + TypeScript,
