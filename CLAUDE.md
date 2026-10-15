@@ -11059,7 +11059,7 @@ removed). The first sweep evicted 820,833 events. /data went 3.8GB to
 4GB machine (2026-10-12 01:16 UTC), then 3+ days stable at 3.8GB peak. If
 it recurs, use performance-1x/8GB. The unexplained exit-code-2 crashes
 from 2026-10-11 didn't recur. Existing Nymchat data (~590MB at the last
-scan) is still stored; only new uploads are refused.
+scan) was deleted 2026-10-15 (`31c4745`, 16,526 wraps; ordinary DMs kept).
 
 ## Architecture
 
