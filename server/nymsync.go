@@ -202,3 +202,42 @@ func runNymSyncBackfill(ctx context.Context, db *badger.BadgerBackend, deleters 
 	}
 	return len(bySlot), deleteByIDs(ctx, db, deleters, drop)
 }
+
+// One-time purge (2026-10-15, owner decision). Since 27d8dbc the relay
+// refuses new nym-sync wraps (storagepolicy.go), so the trimmed copies the
+// backfill above kept are just leftover data. This deletes every stored
+// event isNymSyncWrap matches, the same match the refusal uses. Ordinary
+// DM gift wraps have no k=nym-sync tag and are never touched. A marker
+// file records completion; an interrupted run runs again on next boot.
+func startNymSyncPurge(db *badger.BadgerBackend, relay *khatru.Relay, dataDir string) {
+	marker := filepath.Join(dataDir, "nym-sync-purge.done")
+	if _, err := os.Stat(marker); err == nil {
+		return
+	}
+	go func() {
+		time.Sleep(3 * time.Minute)
+		start := time.Now()
+		deleted := runNymSyncPurge(context.Background(), db, relay.DeleteEvent)
+		if err := os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0600); err != nil {
+			fmt.Println("nym-sync purge: could not write marker:", err)
+		}
+		fmt.Printf("nym-sync purge: deleted %d stored nym-sync wraps in %s\n",
+			deleted, time.Since(start).Round(time.Second))
+	}()
+}
+
+func runNymSyncPurge(ctx context.Context, db *badger.BadgerBackend, deleters []func(context.Context, *nostr.Event) error) int {
+	var ids []string
+	scanned := 0
+	db.ScanRawEvents(ctx, 5000, func(evt *nostr.Event, _ int) bool {
+		scanned++
+		if isNymSyncWrap(evt) {
+			ids = append(ids, evt.ID)
+		}
+		if scanned%5000 == 0 {
+			time.Sleep(20 * time.Millisecond)
+		}
+		return true
+	})
+	return deleteByIDs(ctx, db, deleters, ids)
+}

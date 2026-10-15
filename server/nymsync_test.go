@@ -159,3 +159,28 @@ func TestNymSyncStoreHook(t *testing.T) {
 		t.Errorf("worker deleted %d, want 2", n)
 	}
 }
+
+// Purge: every nym-sync wrap goes, ordinary DM wraps and other kinds stay.
+func TestNymSyncPurge(t *testing.T) {
+	db := nymTestDB(t)
+	p := "8888888888888888888888888888888888888888888888888888888888888888"
+	slot := "9999999999999999999999999999999999999999999999999999999999999999"
+	var syncIDs []string
+	for i := int64(0); i < 4; i++ {
+		syncIDs = append(syncIDs, wrap(t, db, 1790000000+i, syncTags(p, slot)).ID)
+	}
+	plain := wrap(t, db, 1790000000, nostr.Tags{{"p", p}})
+
+	if deleted := runNymSyncPurge(context.Background(), db, deleteOnly(db)); deleted != 4 {
+		t.Fatalf("deleted=%d, want 4", deleted)
+	}
+	got := stillStored(t, db, append(syncIDs, plain.ID)...)
+	for _, id := range syncIDs {
+		if got[id] {
+			t.Errorf("nym-sync wrap %s still stored", id[:8])
+		}
+	}
+	if !got[plain.ID] {
+		t.Error("plain DM wrap deleted")
+	}
+}

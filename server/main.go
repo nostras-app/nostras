@@ -559,6 +559,7 @@ func main() {
 	nymSync := newNymSyncPruner(&db, relay)
 	relay.StoreEvent = append(relay.StoreEvent, nymSync.storeHook)
 	startNymSyncBackfill(&db, relay, filepath.Dir(outboxCachePath))
+	startNymSyncPurge(&db, relay, filepath.Dir(outboxCachePath))
 	// Storage diagnostic — see storagestats.go. Operator-only, on demand.
 	storageScan := newStorageScanner(&db, outboxCache)
 	relay.Router().HandleFunc("POST /dashboard/storage/start", requireDashboardAuth(dashboardPassword, handleStorageScanStart(storageScan)))
