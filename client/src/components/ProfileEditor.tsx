@@ -255,29 +255,38 @@ export function ProfileEditor() {
       {uploadError && <div className="alert-error">{uploadError}</div>}
 
       <div className="stack">
-        <input
-          className="input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Name"
-        />
-        <input
-          className="input"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          placeholder="Display name (optional)"
-        />
+        <label className="profile-field">
+          <span className="profile-field-label">Name</span>
+          <input
+            className="input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name"
+          />
+        </label>
+        <label className="profile-field">
+          <span className="profile-field-label">Display name (optional)</span>
+          <input
+            className="input"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Display name (optional)"
+          />
+        </label>
         <p className="field-hint">
           Many clients show the display name instead of the name when it's set. Leave it empty to
           have them show your name.
         </p>
-        <textarea
-          className="textarea"
-          value={about}
-          onChange={(e) => setAbout(e.target.value)}
-          placeholder="About"
-          rows={3}
-        />
+        <label className="profile-field">
+          <span className="profile-field-label">About</span>
+          <textarea
+            className="textarea"
+            value={about}
+            onChange={(e) => setAbout(e.target.value)}
+            placeholder="About"
+            rows={3}
+          />
+        </label>
       </div>
       {rawState === 'loading' && (
         <p className="field-hint">Loading your current profile before saving is allowed…</p>
