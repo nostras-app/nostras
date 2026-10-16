@@ -6,6 +6,7 @@ import (
 
 	"github.com/fiatjaf/eventstore"
 	"github.com/fiatjaf/eventstore/badger"
+	"github.com/fiatjaf/khatru"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/sdk"
 )
@@ -134,7 +135,9 @@ func newAggregatedQuery(
 	trackingStore eventstore.Store,
 ) func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
 	return func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
-		if len(filter.Authors) == 0 || len(filter.Tags) > 0 {
+		// Internal calls (khatru's own replace/delete/expiration lookups)
+		// only need what this relay already stores.
+		if len(filter.Authors) == 0 || len(filter.Tags) > 0 || khatru.IsInternalCall(ctx) {
 			return db.QueryEvents(ctx, filter)
 		}
 

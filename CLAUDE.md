@@ -11229,3 +11229,26 @@ scan) was deleted 2026-10-15 (`31c4745`, 16,526 wraps; ordinary DMs kept).
 - Once `client/` or `server/` gain real code, add a subdirectory
   `CLAUDE.md` in each for stack-specific instructions (commands, style)
   instead of growing this root file indefinitely.
+
+## Display name field in the profile editor + slow replaceable-event acks fixed (2026-10-16)
+
+User-reported: NostrHub still showed "MMOnostr". Checked the relays first: the
+current kind:0 was not stale. It had `name: "MMO 🇨🇭"` but a leftover
+`display_name: "MMOnostr"`, which many clients show first. NOSTRAS's editor
+only edited `name`, kept other fields on save, and NOSTRAS itself shows
+`name` first, so the stale field was invisible here. `ProfileEditor.tsx` now
+has a "Display name (optional)" field: empty removes `display_name` so
+clients fall back to `name`; saving also drops the legacy camelCase
+`displayName` key some old clients wrote. The cache is updated with
+`profileFromEvent(event)` so the field keeps its value after saving.
+
+**Found while testing**: every kind:0/3/10002 publish took ~8.2–8.5s to be
+acked, locally and on production, just over the client's 8s timeout. Saves
+were stored but the UI reported "Not enough relays received the event".
+Cause: khatru's manual-replace lookup ran through `relay.QueryEvents`, so
+`newAggregatedQuery` fetched from other relays before storing. Fixed: the
+fork marks that lookup with `internalCallKey`, and `newAggregatedQuery`
+skips aggregation when `khatru.IsInternalCall(ctx)` (replace only needs this
+relay's own copy). Local acks went from 8.2s to ~0.45s; only one copy per
+replaceable kind is stored; the UI save completes in ~0.1s with no error.
+Verified against an isolated local relay with a throwaway key.

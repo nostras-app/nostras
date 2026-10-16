@@ -111,10 +111,14 @@ func (rl *Relay) handleNormal(ctx context.Context, evt *nostr.Event) (skipBroadc
 				filter.Tags = nostr.TagMap{"d": []string{evt.Tags.GetD()}}
 			}
 
-			// now we fetch old events and delete them
+			// now we fetch old events and delete them. Marked internal so
+			// query hooks (NOSTRAS's outbox aggregation) only consult this
+			// relay's own store: aggregating here fetched from other relays
+			// and delayed every kind:0/3/10002 ack by ~8s (2026-10-16).
 			shouldStore := true
+			replCtx := context.WithValue(ctx, internalCallKey, struct{}{})
 			for _, query := range rl.QueryEvents {
-				ch, err := query(ctx, filter)
+				ch, err := query(replCtx, filter)
 				if err != nil {
 					continue
 				}

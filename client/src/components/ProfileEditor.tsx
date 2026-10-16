@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { NDKEvent } from '@nostr-dev-kit/ndk'
+import { NDKEvent, profileFromEvent } from '@nostr-dev-kit/ndk'
 import { ndk, devPublishRelaySet, profileQueryRelaySet } from '../lib/ndk'
 import { fetchLatestReplaceableEvent } from '../lib/fetchLatestReplaceable'
 import { useProfile, setCachedProfile } from '../hooks/useProfile'
@@ -38,6 +38,7 @@ export function ProfileEditor() {
   const [confirmNew, setConfirmNew] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [name, setName] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [about, setAbout] = useState('')
   const [picture, setPicture] = useState('')
   const [banner, setBanner] = useState('')
@@ -130,6 +131,7 @@ export function ProfileEditor() {
 
   useEffect(() => {
     setName(profile?.name ?? '')
+    setDisplayName(profile?.displayName ?? '')
     setAbout(profile?.about ?? '')
     setPicture(profile?.picture ?? '')
     setBanner(profile?.banner ?? '')
@@ -156,7 +158,17 @@ export function ProfileEditor() {
     setSaving(true)
     setSaveError('')
     try {
-      const newProfile = { ...rawProfile, name, about, picture, banner }
+      // display_name is what many clients show first when it's set, so a
+      // stale one outlives a rename of `name` (seen 2026-10-16: "MMOnostr"
+      // kept showing on NostrHub). Empty means remove it, so clients fall
+      // back to `name`. Also drop the legacy camelCase `displayName` key
+      // some older clients wrote, which would otherwise linger the same way.
+      const { displayName: _legacyDisplayName, ...rest } = rawProfile
+      void _legacyDisplayName
+      const newProfile: Record<string, unknown> = { ...rest, name, about, picture, banner }
+      const trimmedDisplayName = displayName.trim()
+      if (trimmedDisplayName) newProfile.display_name = trimmedDisplayName
+      else delete newProfile.display_name
       const event = new NDKEvent(ndk, {
         kind: 0,
         content: JSON.stringify(newProfile),
@@ -167,7 +179,9 @@ export function ProfileEditor() {
       // The profile cache may already hold a stale (e.g. null) entry for
       // this pubkey from before this save — update it directly rather than
       // waiting on a relay round-trip that a subscription may not pick up.
-      setCachedProfile(pubkey, newProfile)
+      // Parse the way profile reads do (display_name -> displayName), so the
+      // cache and the form's own fields stay consistent after this save.
+      setCachedProfile(pubkey, profileFromEvent(event))
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Could not save profile')
     } finally {
@@ -247,6 +261,16 @@ export function ProfileEditor() {
           onChange={(e) => setName(e.target.value)}
           placeholder="Name"
         />
+        <input
+          className="input"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="Display name (optional)"
+        />
+        <p className="field-hint">
+          Many clients show the display name instead of the name when it's set. Leave it empty to
+          have them show your name.
+        </p>
         <textarea
           className="textarea"
           value={about}
