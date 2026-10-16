@@ -22,6 +22,7 @@ const { subscribeToInbox } = await import('./dmInbox.js')
 const { sendReply } = await import('./dmOutbox.js')
 const { processMessage } = await import('./claudeSession.js')
 const { startReconnectLoop } = await import('./relayReconnect.js')
+const { handleOwnerCommand } = await import('./ownerCommands.js')
 
 // The real, already-public MMO pubkey used throughout this project's own
 // verification history — the sole trusted sender. Overridable via env in
@@ -57,7 +58,10 @@ async function main() {
   const agentPubkeyHex = signer.pubkey
 
   const onOwnerMessage = async (content) => {
-    const reply = await processMessage(content)
+    // Control commands (stop/pause/resume/status) are handled here, without
+    // spawning Claude, so the kill switch works even if Claude is failing.
+    const commandReply = handleOwnerCommand(content)
+    const reply = commandReply ?? (await processMessage(content))
     try {
       await sendReply(ndk, agentPubkeyHex, OWNER_PUBKEY_HEX, reply)
     } catch (e) {

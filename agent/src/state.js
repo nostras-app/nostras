@@ -18,6 +18,9 @@ function defaultState() {
     // randomized by NIP-59 and never trustworthy for this.
     processedWraps: {},
     firstBootAt: now,
+    // Kill switch for the evangelist loop. Set by the owner's "stop"/"pause"
+    // DM, cleared by "resume". Persisted so a restart can't silently resume.
+    paused: false,
   }
 }
 
@@ -74,4 +77,13 @@ export function setClaudeSessionId(id) {
 // Generous 7-day margin before the daemon's own first-ever boot.
 export function getSinceFloor() {
   return state.firstBootAt - SEVEN_DAYS_SEC
+}
+
+export function isPaused() {
+  return state.paused === true
+}
+
+export function setPaused(paused) {
+  state.paused = paused
+  saveSync()
 }
