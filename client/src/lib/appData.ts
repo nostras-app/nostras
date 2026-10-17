@@ -9,6 +9,7 @@ import {
   saveSeenMessageWrapIds,
   MAX_SEEN_MESSAGE_WRAP_IDS,
 } from './unreadState'
+import { loadDmHiddenForSync, mergeDmHiddenFromSync } from './dmHidden'
 
 // Real, previously-unbounded hang caught live while verifying this, not
 // hypothetical: ndk.fetchEvent() with no explicit timeout genuinely
@@ -83,6 +84,10 @@ export type AppPreferences = {
   // lib/unreadState.ts's own comment on why.
   lastSeenNotificationsAt?: number
   seenMessageWrapIds?: string[]
+  // DMs the user deleted on their side (lib/dmHidden.ts). Synced so a
+  // message deleted on the phone stays gone on desktop too.
+  dmHiddenWrapIds?: string[]
+  dmClearedBefore?: Record<string, number>
 }
 
 // Deliberately small: only preferences that are (a) genuinely useful
@@ -97,6 +102,8 @@ function currentLocalPreferences(): AppPreferences {
     customRelays: getCustomRelays(),
     lastSeenNotificationsAt: loadLastSeenNotifications(),
     seenMessageWrapIds: loadSeenMessageWrapIds(),
+    dmHiddenWrapIds: loadDmHiddenForSync().hiddenWrapIds,
+    dmClearedBefore: loadDmHiddenForSync().clearedBefore,
   }
 }
 
@@ -140,8 +147,25 @@ export async function fetchAppPreferences(pubkey: string): Promise<AppPreference
 // a snapshot as a parameter, so every call site (a feed-mode toggle, a
 // relay add/remove) can just fire-and-forget this without first having
 // to gather the other fields itself.
+// Publishing before this device has merged the synced copy would replace
+// the relay's copy with this device's partial state (e.g. a fresh device
+// would wipe every synced DM deletion and read marker). So every publish
+// waits for the boot-time sync to finish first (it's bounded by
+// FETCH_TIMEOUT_MS, so this never waits forever).
+let bootSync: Promise<void> | null = null
+
+export function syncPreferencesOnBoot(pubkey: string): Promise<void> {
+  bootSync = fetchAppPreferences(pubkey)
+    .then((prefs) => {
+      if (prefs) applyFetchedPreferences(prefs)
+    })
+    .catch(() => {})
+  return bootSync
+}
+
 export async function publishCurrentPreferences(): Promise<void> {
   if (!ndk.signer) return
+  if (bootSync) await bootSync
   const prefs = currentLocalPreferences()
   const user = await ndk.signer.user()
   const plaintext = JSON.stringify(prefs)
@@ -181,4 +205,5 @@ export function applyFetchedPreferences(prefs: AppPreferences): void {
     const merged = Array.from(new Set([...loadSeenMessageWrapIds(), ...prefs.seenMessageWrapIds]))
     saveSeenMessageWrapIds(merged.slice(-MAX_SEEN_MESSAGE_WRAP_IDS))
   }
+  mergeDmHiddenFromSync({ hiddenWrapIds: prefs.dmHiddenWrapIds, clearedBefore: prefs.dmClearedBefore })
 }

@@ -4,6 +4,7 @@ import { ndk } from '../lib/ndk'
 import { useActiveUser } from './useActiveUser'
 import { useRelayStatus } from './useRelayStatus'
 import { decryptGiftWrap, type DecryptedDm } from '../lib/dm'
+import { canSkipDecrypt, useDmHidden } from '../lib/dmHidden'
 
 // See useNoteFeed.ts's own comment — same missing-EOSE-fallback bug
 // found across every long-lived subscription hook in this codebase.
@@ -74,21 +75,36 @@ export function useDirectMessages(active: boolean) {
     })
   }
 
+  // Wraps already handled for the current user. Kept across relay-recovery
+  // resubscribes (a `generation` bump) and only reset when the user changes.
+  // Real bug, 2026-10-17: this used to reset on every resubscribe, so each
+  // time a relay dropped and came back (relay.damus.io does this every
+  // minute or so) every DM was wiped and decrypted again: threads went
+  // empty for seconds, and a bunker signer paid a full round of decrypts.
+  const seenWrapIdsRef = useRef<Set<string>>(new Set())
+  const currentUserRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (!activeUser || !ndk.signer) {
       setMessages([])
       setLoading(false)
       pendingWrapsRef.current.clear()
       setPendingCount(0)
+      seenWrapIdsRef.current = new Set()
+      currentUserRef.current = null
       return
     }
 
-    setMessages([])
-    setLoading(true)
-    pendingWrapsRef.current.clear()
-    setPendingCount(0)
-    setWrapIds([])
-    const seenWrapIds = new Set<string>()
+    if (currentUserRef.current !== activeUser.pubkey) {
+      currentUserRef.current = activeUser.pubkey
+      setMessages([])
+      setLoading(true)
+      pendingWrapsRef.current.clear()
+      setPendingCount(0)
+      setWrapIds([])
+      seenWrapIdsRef.current = new Set()
+    }
+    const seenWrapIds = seenWrapIdsRef.current
 
     const sub = ndk.subscribe({
       kinds: [1059],
@@ -99,6 +115,9 @@ export function useDirectMessages(active: boolean) {
     sub.on('event', (wrap: NDKEvent) => {
       if (seenWrapIds.has(wrap.id)) return
       seenWrapIds.add(wrap.id)
+      // Messages the user deleted are never decrypted again (the expensive
+      // part of loading DMs with a bunker signer) and never count as unread.
+      if (canSkipDecrypt(wrap.id)) return
       setWrapIds((prev) => [...prev, wrap.id])
       if (activeRef.current) {
         decryptOneRef.current(wrap)
@@ -127,11 +146,15 @@ export function useDirectMessages(active: boolean) {
     }
   }, [active])
 
+  const hidden = useDmHidden()
+
   const conversations = useMemo<Conversation[]>(() => {
     if (!activeUser) return []
     const byPeer = new Map<string, DecryptedDm[]>()
     for (const msg of messages) {
       const peer = msg.senderPubkey === activeUser.pubkey ? msg.recipientPubkey : msg.senderPubkey
+      if (hidden.hiddenWrapIds.has(msg.wrapId)) continue
+      if (msg.createdAt <= (hidden.clearedBefore[peer] ?? 0)) continue
       const list = byPeer.get(peer) ?? []
       list.push(msg)
       byPeer.set(peer, list)
@@ -143,7 +166,7 @@ export function useDirectMessages(active: boolean) {
         lastMessage: msgs[msgs.length - 1],
       }))
       .sort((a, b) => b.lastMessage.createdAt - a.lastMessage.createdAt)
-  }, [messages, activeUser])
+  }, [messages, activeUser, hidden])
 
   // True while Messages is open and there's at least one raw wrap still
   // waiting on a signer round trip — lets the UI show "Decrypting…"

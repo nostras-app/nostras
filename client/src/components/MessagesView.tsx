@@ -7,7 +7,9 @@ import { viewProfile } from '../lib/navigation'
 import type { Conversation } from '../hooks/useDirectMessages'
 import { sendDirectMessage } from '../lib/dm'
 import { formatRelativeTime } from '../lib/time'
-import { ArrowLeftIcon, MessageSquareIcon } from './icons'
+import { ArrowLeftIcon, MessageSquareIcon, TrashIcon } from './icons'
+import { hideDmMessage, clearDmConversation } from '../lib/dmHidden'
+import { publishCurrentPreferences } from '../lib/appData'
 import { isSecureImageUrl } from '../lib/parseContent'
 
 function peerLabel(peerPubkey: string, name: string | null | undefined) {
@@ -121,6 +123,25 @@ function Thread({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(false)
   const [npubCopied, setNpubCopied] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  // Deletions only affect this user's view (see lib/dmHidden.ts) and sync
+  // to their other devices through NIP-78 app data.
+  function handleDelete(wrapId: string) {
+    hideDmMessage(wrapId)
+    publishCurrentPreferences().catch(() => {})
+  }
+
+  function handleClearChat() {
+    const newest = messages.reduce((max, m) => Math.max(max, m.createdAt), 0)
+    clearDmConversation(
+      peerPubkey,
+      messages.map((m) => m.wrapId),
+      Math.max(newest, Math.floor(Date.now() / 1000)),
+    )
+    setConfirmClear(false)
+    publishCurrentPreferences().catch(() => {})
+  }
 
   function handleCopyNpub() {
     navigator.clipboard.writeText(npub)
@@ -174,7 +195,34 @@ function Thread({
             {npubCopied ? 'Copied!' : `${npub.slice(0, 16)}…`}
           </button>
         </div>
+        {messages.length > 0 && !confirmClear && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm dm-clear-btn"
+            onClick={() => setConfirmClear(true)}
+          >
+            Clear chat
+          </button>
+        )}
       </div>
+
+      {confirmClear && (
+        <div className="dm-clear-confirm">
+          <p className="field-hint">
+            Delete {messages.length === 1 ? 'this message' : `all ${messages.length} messages`} in
+            this chat from NOSTRAS on your devices? Nostr
+            can't remove them from relays or from the other person's app.
+          </p>
+          <div className="btn-row">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirmClear(false)}>
+              Cancel
+            </button>
+            <button type="button" className="btn btn-danger btn-sm" onClick={handleClearChat}>
+              Delete all
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="dm-thread-messages">
         {messages.length === 0 && (
@@ -188,7 +236,18 @@ function Thread({
             }`}
           >
             <p>{msg.content}</p>
-            <span className="dm-bubble-time">{formatRelativeTime(msg.createdAt)}</span>
+            <div className="dm-bubble-footer">
+              <span className="dm-bubble-time">{formatRelativeTime(msg.createdAt)}</span>
+              <button
+                type="button"
+                className="dm-bubble-delete"
+                onClick={() => handleDelete(msg.wrapId)}
+                title="Delete for me (it stays on relays and in the other person's app)"
+                aria-label="Delete message"
+              >
+                <TrashIcon />
+              </button>
+            </div>
           </div>
         ))}
       </div>

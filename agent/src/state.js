@@ -17,6 +17,10 @@ function defaultState() {
     // entries by age; the wrap's own created_at is deliberately
     // randomized by NIP-59 and never trustworthy for this.
     processedWraps: {},
+    // rumorId -> rumor created_at. The same message can arrive in more
+    // than one gift wrap (seen 2026-10-16: one DM handled twice), so
+    // wrap ids alone don't dedupe it.
+    processedRumors: {},
     firstBootAt: now,
     // Kill switch for the evangelist loop. Set by the owner's "stop"/"pause"
     // DM, cleared by "resume". Persisted so a restart can't silently resume.
@@ -43,6 +47,9 @@ function saveSync() {
   const cutoff = Math.floor(Date.now() / 1000) - THIRTY_DAYS_SEC
   for (const [wrapId, createdAt] of Object.entries(state.processedWraps)) {
     if (createdAt < cutoff) delete state.processedWraps[wrapId]
+  }
+  for (const [rumorId, createdAt] of Object.entries(state.processedRumors ?? {})) {
+    if (createdAt < cutoff) delete state.processedRumors[rumorId]
   }
   writeFileSync(statePath, JSON.stringify(state, null, 2))
 }
@@ -85,5 +92,15 @@ export function isPaused() {
 
 export function setPaused(paused) {
   state.paused = paused
+  saveSync()
+}
+
+export function hasProcessedRumor(rumorId) {
+  return Object.hasOwn(state.processedRumors ?? {}, rumorId)
+}
+
+export function markRumorProcessed(rumorId, rumorCreatedAt) {
+  state.processedRumors ??= {}
+  state.processedRumors[rumorId] = rumorCreatedAt
   saveSync()
 }

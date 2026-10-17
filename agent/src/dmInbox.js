@@ -1,5 +1,5 @@
 import { giftUnwrap } from '@nostr-dev-kit/ndk'
-import { hasProcessedWrap, markWrapProcessed, getSinceFloor } from './state.js'
+import { hasProcessedWrap, markWrapProcessed, getSinceFloor, hasProcessedRumor, markRumorProcessed } from './state.js'
 import { log } from './logger.js'
 
 // Ported from client/src/lib/dm.ts's decryptGiftWrap — same fail-closed
@@ -85,6 +85,11 @@ export function subscribeToInbox(ndk, agentPubkeyHex, ownerPubkeyHex, signer, on
     // must not cause this exact message to be replayed into a second,
     // duplicate turn on restart.
     markWrapProcessed(wrap.id, result.rumorCreatedAt)
+    if (result.rumorId && hasProcessedRumor(result.rumorId)) {
+      log.info('Skipped duplicate DM (same message, different wrap)', { rumorId: result.rumorId })
+      return
+    }
+    if (result.rumorId) markRumorProcessed(result.rumorId, result.rumorCreatedAt)
     log.info('Accepted DM from owner', { rumorId: result.rumorId })
 
     try {

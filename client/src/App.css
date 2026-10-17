@@ -2333,6 +2333,60 @@ a.profile-external-identity:hover {
   opacity: 0.7;
 }
 
+.dm-bubble-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Faint until the bubble is hovered or focused; always visible on touch
+   screens, which have no hover. */
+.dm-bubble-delete {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 2px;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.dm-bubble-delete svg {
+  width: 14px;
+  height: 14px;
+}
+
+.dm-bubble:hover .dm-bubble-delete,
+.dm-bubble-delete:focus-visible {
+  opacity: 0.7;
+}
+
+.dm-bubble-delete:hover {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .dm-bubble-delete {
+    opacity: 0.6;
+  }
+}
+
+.dm-clear-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.dm-clear-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
 .dm-compose {
   display: flex;
   flex-direction: column;

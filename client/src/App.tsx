@@ -4,7 +4,7 @@ import { hasAnyLocalIdentity, getBootSignerState } from './lib/identities'
 import { restoreSignerSession } from './lib/remoteSigner'
 import { resolveDeepLinkFromUrl } from './lib/deeplink'
 import { openExistingArkWallet } from './lib/arkWallet'
-import { fetchAppPreferences, applyFetchedPreferences, publishCurrentPreferences } from './lib/appData'
+import { syncPreferencesOnBoot, publishCurrentPreferences } from './lib/appData'
 import {
   loadLastSeenNotifications,
   saveLastSeenNotifications,
@@ -277,9 +277,7 @@ function App() {
     const pubkey = ndk.activeUser?.pubkey
     if (!pubkey) return
     appPreferencesSynced.current = true
-    fetchAppPreferences(pubkey).then((prefs) => {
-      if (prefs) applyFetchedPreferences(prefs)
-    })
+    syncPreferencesOnBoot(pubkey)
   }, [state, authState])
 
   function panelClass(view: View) {
