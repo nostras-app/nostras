@@ -1,0 +1,15 @@
+[Unit]
+Description=NOSTRAS Agent daemon (owner DM channel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/Documents-LENOVO/LLMOps.Pro/NOSTR/NOSTRAS/agent
+ExecStart=/home/user/.config/nvm/versions/node/v24.14.0/bin/node /home/user/Documents-LENOVO/LLMOps.Pro/NOSTR/NOSTRAS/agent/src/index.js
+Restart=always
+RestartSec=10
+Environment=PATH=/home/user/.config/nvm/versions/node/v24.14.0/bin:/usr/local/bin:/usr/bin:/bin:/home/user/.local/bin
+
+[Install]
+WantedBy=default.target

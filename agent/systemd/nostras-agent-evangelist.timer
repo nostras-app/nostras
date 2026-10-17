@@ -1,0 +1,10 @@
+[Unit]
+Description=NOSTRAS Agent evangelist schedule (08:00-20:00 Zurich, every 4 hours)
+
+[Timer]
+OnCalendar=*-*-* 08,12,16,20:00:00 Europe/Zurich
+RandomizedDelaySec=15min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -25,3 +25,7 @@ content-assets/
 last-claude-sessions-about-NOSTR.txt
 latest-claude-session-*.txt
 to-do-posts-for-nostras.txt
+
+# nostr-agent runtime state (logs, ledgers, action history)
+agent/state/*
+!agent/state/.gitkeep

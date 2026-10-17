@@ -16,7 +16,7 @@ function write(level, msg, extra) {
   // Local, single-operator log — full detail (including message content)
   // is fine here since this is the owner's own private conversation on
   // their own machine, not shared/multi-tenant infra.
-  console.log(text)
+  if (!process.env.NOSTR_AGENT_QUIET) console.log(text)
   try {
     appendFileSync(logPath, text + '\n')
   } catch {
