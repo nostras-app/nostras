@@ -1,3 +1,8 @@
+---
+name: podcast
+description: Use when the user wants a new episode of the NOSTRAS podcast ("make this week's podcast", "record an episode", "podcast about what we shipped"). Builds a weekly, manually-triggered spoken episode from this project's real dated history in CLAUDE.md (never invented facts), writes a script for the ear, synthesizes it with Gemini TTS (Sulafat voice, gemini-tts.sh), uploads the audio to Blossom with the skill's own throwaway uploader key, and hands the user a ready-to-review package for both NOSTRAS's Podcast composer (kind:54, NIP-F4) and a plain kind:1 note. Never publishes the episode itself.
+---
+
 # The NOSTRAS podcast — a weekly episode telling this project's real story
 
 A weekly (manually-triggered, not scheduled) episode narrating what's
