@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { NDKEvent } from '@nostr-dev-kit/ndk'
 import { ndk } from '../lib/ndk'
 import { useRelayStatus } from '../hooks/useRelayStatus'
+import { getCachedProfile, useProfileCacheVersion } from '../hooks/useProfile'
 import { KIND_LISTING, parseListingMeta } from '../lib/listing'
 import { ListingCard } from './ListingCard'
 import { FeedSkeleton } from './Feed'
@@ -88,23 +89,41 @@ export function MarketplaceView() {
     return [...set].sort()
   }, [active])
 
+  // Profiles load per card (ListingCard's useProfile); re-filter as they
+  // arrive so a seller-name search matches once the name is known.
+  const profileVersion = useProfileCacheVersion()
+
   // Category (exact match against a listing's own "t" tags) and free-text
-  // search (substring match against title/description/categories) combine
+  // search (substring match against title/description/categories and the
+  // seller's name, display name, NIP-05 and npub) combine
   // with AND — picking a category narrows the pool, typing further
   // narrows within it, matching how category+search filters normally
   // compose on any marketplace/shopping UI.
   const visible = useMemo(() => {
+    void profileVersion // read so the memo re-runs when profiles arrive
     const needle = searchText.trim().toLowerCase()
     return active.filter((e) => {
       const meta = parseListingMeta(e)
       if (categoryFilter && !meta.categories.includes(categoryFilter)) return false
       if (needle) {
-        const haystack = [meta.title, meta.description, ...meta.categories].join(' ').toLowerCase()
+        const seller = getCachedProfile(e.pubkey)
+        const haystack = [
+          meta.title,
+          meta.description,
+          ...meta.categories,
+          seller?.name,
+          seller?.displayName,
+          seller?.nip05,
+          e.author.npub,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
         if (!haystack.includes(needle)) return false
       }
       return true
     })
-  }, [active, categoryFilter, searchText])
+  }, [active, categoryFilter, searchText, profileVersion])
 
   if (loading) {
     return <FeedSkeleton />

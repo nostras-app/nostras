@@ -10,8 +10,13 @@ import { subscribeRelayStatus, getRelayGeneration } from '../lib/relayStatus'
 const cache = new Map<string, NDKUserProfile | null>()
 const inFlight = new Set<string>()
 const listeners = new Set<() => void>()
+// Bumped on every cache change, so useProfileCacheVersion() lets a
+// component re-run work that reads several cached profiles at once
+// (e.g. the marketplace filter matching seller names).
+let version = 0
 
 function notify() {
+  version++
   for (const listener of listeners) listener()
 }
 
@@ -105,4 +110,15 @@ export function useProfile(pubkey: string | undefined): NDKUserProfile | null {
     ensureFetched(pubkey)
     return cache.get(pubkey) ?? null
   })
+}
+
+// Read-only lookup for code that matches on many pubkeys at once. Doesn't
+// trigger a fetch; pair with useProfileCacheVersion() to re-run when
+// profiles arrive.
+export function getCachedProfile(pubkey: string): NDKUserProfile | null {
+  return cache.get(pubkey) ?? null
+}
+
+export function useProfileCacheVersion(): number {
+  return useSyncExternalStore(subscribe, () => version)
 }
