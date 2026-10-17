@@ -22,6 +22,7 @@ const { buildNdk } = await import('../src/ndkClient.js')
 const { isPaused } = await import('../src/state.js')
 const { loadLedger, saveLedger, dayEntry } = await import('./ledger.js')
 const nwc = await import('./nwc.js')
+const { claudeChildEnv } = await import('../src/childEnv.js')
 const { goalStatus, fetchBtcUsd, lastKnownBtcUsd, usdToSats, GOAL_MULTIPLIER } = await import('./goal.js')
 
 function logRun(entry) {
@@ -156,7 +157,7 @@ const claudeArgs = [
 // Run from a workspace outside the repo so the repo's very large CLAUDE.md
 // files aren't loaded into every run (cost); the repo stays readable via --add-dir.
 const result = await new Promise((resolve) => {
-  const child = spawn('claude', claudeArgs, { cwd: workspace, shell: false })
+  const child = spawn('claude', claudeArgs, { cwd: workspace, shell: false, env: claudeChildEnv() })
   let stdout = ''
   let stderr = ''
   const timer = setTimeout(() => child.kill('SIGTERM'), 15 * 60 * 1000)

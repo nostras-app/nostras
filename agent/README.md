@@ -53,7 +53,9 @@ Commands are matched on the whole message and answered without Claude.
 Coding tasks run headless Claude Code with full autonomy
 (`--permission-mode bypassPermissions`) and keep one conversation across
 restarts, so only send tasks you'd be comfortable an unattended agent doing.
-That mode never sends payments (prompt rule plus the `hooks/deny-payments.sh` hook).
+That mode never sends payments (prompt rule, the `hooks/deny-payments.sh`
+hook, and Claude processes never receive the agent's key or wallet
+connection: `src/childEnv.js`).
 
 ## Operating
 

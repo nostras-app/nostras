@@ -134,6 +134,9 @@ Also enforced in code:
 - Only `tool.js zap` pays, and only after every limit check has passed.
 - The DM coding mode keeps its payment-deny hook (`claude-settings.json`); the
   evangelist doesn't use it, because it can only run `tool.js` anyway.
+- Neither Claude process (DM coding or evangelist) receives `AGENT_NWC_URI`
+  or the agent's key in its environment (`src/childEnv.js`); `tool.js`
+  reads them from `agent.env` itself.
 
 ## Content (value for value)
 

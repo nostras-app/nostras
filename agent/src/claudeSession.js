@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getClaudeSessionId, setClaudeSessionId } from './state.js'
 import { log } from './logger.js'
+import { claudeChildEnv } from './childEnv.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // agent/src -> agent -> repo root. This is what scopes the daemon to
@@ -71,7 +72,7 @@ function runClaude(content, sessionArgs) {
     // never touches argv or a shell string. It's piped via stdin below,
     // which also sidesteps ARG_MAX and matches how the CLI itself
     // documents piped headless usage.
-    const child = spawn('claude', args, { cwd: repoRoot, shell: false })
+    const child = spawn('claude', args, { cwd: repoRoot, shell: false, env: claudeChildEnv() })
 
     let stdout = ''
     let stderr = ''
