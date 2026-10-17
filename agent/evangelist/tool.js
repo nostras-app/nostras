@@ -9,7 +9,7 @@ globalThis.WebSocket = WebSocket
 process.env.NOSTR_AGENT_QUIET = '1'
 
 import path from 'node:path'
-import { NDKEvent, NDKRelaySet, getNip57ZapSpecFromLud } from '@nostr-dev-kit/ndk'
+import { NDKEvent, NDKRelaySet, getNip57ZapSpecFromLud, nip19 } from '@nostr-dev-kit/ndk'
 import { loadEnvFile } from '../src/env.js'
 import { AGENT_DIR, caps, isDryRun, PUBLISH_RELAYS, READ_RELAYS, SEARCH_RELAYS } from './config.js'
 
@@ -103,6 +103,25 @@ function checkContent(text, maxChars) {
   return null
 }
 
+// Normalizes links and mentions so other clients make them tappable:
+//  - a bare app.nostras.app / nostras.app becomes https://...
+//  - "@MMO" becomes a NIP-27 nostr:npub mention of the operator
+// and returns p tags for every nostr:npub mention in the text (NIP-27).
+const OWNER_NPUB = nip19.npubEncode(OWNER_PUBKEY)
+function normalizeText(text) {
+  let t = text
+    .replace(/(^|[^\w/.:@-])((?:app\.)?nostras\.app)\b/g, '$1https://$2')
+    .replace(/(^|[^\w])@MMO\b/g, `$1nostr:${OWNER_NPUB}`)
+  const pTags = []
+  for (const m of t.matchAll(/nostr:(npub1[0-9a-z]{58})/g)) {
+    try {
+      const pk = nip19.decode(m[1]).data
+      if (!pTags.some((x) => x[1] === pk)) pTags.push(['p', pk])
+    } catch {}
+  }
+  return { text: t, pTags }
+}
+
 function looksLikeBot(e) {
   const c = (e.content ?? '').trim()
   return c.startsWith('{') || c.startsWith('[')
@@ -189,8 +208,9 @@ switch (command) {
     const tags = (Array.isArray(args.hashtags) ? args.hashtags : [])
       .slice(0, 5)
       .map((t) => ['t', String(t).replace(/^#/, '').toLowerCase()])
-    const event = new NDKEvent(ndk, { kind: 1, content: args.content, tags })
-    const result = await publish(event, 'post', { content: args.content })
+    const { text, pTags } = normalizeText(args.content)
+    const event = new NDKEvent(ndk, { kind: 1, content: text, tags: [...tags, ...pTags] })
+    const result = await publish(event, 'post', { content: text })
     day.post += 1
     ledger.lastPostAt = now
     saveLedger(ledger)
@@ -215,8 +235,10 @@ switch (command) {
       ...(rootTag ? [['e', rootTag[1], '', 'root'], ['e', target.id, '', 'reply']] : [['e', target.id, '', 'root']]),
       ['p', target.pubkey],
     ]
-    const event = new NDKEvent(ndk, { kind: 1, content: args.content, tags })
-    const result = await publish(event, 'reply', { to: target.id, toAuthor: target.pubkey, content: args.content })
+    const { text, pTags } = normalizeText(args.content)
+    const extraP = pTags.filter((t) => !tags.some((x) => x[0] === 'p' && x[1] === t[1]))
+    const event = new NDKEvent(ndk, { kind: 1, content: text, tags: [...tags, ...extraP] })
+    const result = await publish(event, 'reply', { to: target.id, toAuthor: target.pubkey, content: text })
     day.reply += 1
     day.repliedTo.push(target.pubkey)
     saveLedger(ledger)
@@ -319,17 +341,19 @@ switch (command) {
     if (!args.title || String(args.title).length > 120) fail('title is required (max 120 chars)')
     if (now < ledger.lastArticleAt + c.articleMinGapSec) fail('one article per week')
     const d = String(args.d ?? `nostras-agent-report-${new Date().toISOString().slice(0, 10)}`)
+    const { text: articleText, pTags: articleP } = normalizeText(args.content)
     const event = new NDKEvent(ndk, {
       kind: 30023,
-      content: args.content,
+      content: articleText,
       tags: [
         ['d', d],
         ['title', String(args.title)],
         ...(args.summary ? [['summary', String(args.summary).slice(0, 300)]] : []),
         ['published_at', String(now)],
+        ...articleP,
       ],
     })
-    const result = await publish(event, 'article', { title: args.title, d, content: args.content })
+    const result = await publish(event, 'article', { title: args.title, d, content: articleText })
     ledger.lastArticleAt = now
     saveLedger(ledger)
     out(result)
