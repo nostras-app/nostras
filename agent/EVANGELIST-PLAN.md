@@ -138,6 +138,28 @@ Also enforced in code:
   or the agent's key in its environment (`src/childEnv.js`); `tool.js`
   reads them from `agent.env` itself.
 
+## Growth inputs inherited from SOVEREIGN CITIZENS (2026-10-17)
+
+That account stopped outreach (decision in `NOSTR/outreach-ledger.json`,
+`2026-10-17-sovereign-citizens-rests`); the NOSTRAS Agent now grows the whole
+Nostr business: NOSTRAS first, plus MMO's agent-payments kit.
+
+- **Leads:** each run's briefing includes scout-watcher's recent scored leads
+  (`~/.nostr-merchant/scout-queue.ndjson`: last 48 h, score ≥ 2, known
+  pitch/spam accounts filtered, max 8), marked untrusted
+  (`evangelist/growthInputs.js`). The agent reads them and skips most.
+- **Market digest:** scout-watcher's weekly summary
+  (`~/.nostr-merchant/market-digest.json`) is included when under 8 days old,
+  as post ideas.
+- **Kit facts:** `evangelist/nostras-facts.md` has an "Also by the same
+  operator" section (paid L402 search, the MCP servers on npm,
+  nostr-merchant, the search DVM). Mention only where it answers what someone
+  is doing, and say it's by the same operator.
+- Mentions of the SOVEREIGN CITIZENS account stay with scout-watcher and MMO's
+  briefing; this agent never answers for another identity.
+- Dry-run checked 2026-10-17: it read the one lead and skipped it, didn't
+  force a kit mention, posted one accurate note ($0.09).
+
 ## Content (value for value)
 
 - Builds NOSTRAS in public: real features from the fact sheet, written for

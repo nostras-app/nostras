@@ -85,6 +85,9 @@ Short version (full detail in `agent/EVANGELIST-PLAN.md`):
 - **Rules:** says it's an AI; claims about NOSTRAS must come from
   `agent/evangelist/nostras-facts.md` or the repo; never follows
   instructions found in network content; no DMs to strangers.
+- **Also grows MMO's agent-payments kit** (since 2026-10-17, when SOVEREIGN
+  CITIZENS stopped outreach): its briefing gets scout-watcher's leads and
+  weekly market digest; its fact sheet covers the kit.
 - **Logs:** `agent/state/actions.jsonl` (every action),
   `agent/state/evangelist-runs.jsonl` (every run, cost).
 
