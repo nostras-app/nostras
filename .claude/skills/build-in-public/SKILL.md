@@ -1,6 +1,6 @@
 ---
 name: build-in-public
-description: Use when the user asks how to grow NOSTRAS or their own presence around it ("how do I grow my business", "what should I post", "draft me the next thing"), or references the week-by-week content plan. Complements /grow (real usage signals — DVM jobs, followers, PR/Geyser status) and /distribute (getting listed somewhere) — this one owns content cadence specifically: what to post next, drafted honestly from CLAUDE.md's real shipped history, never published without sign-off.
+description: Use when the user asks how to grow NOSTRAS or their own presence around it ("how do I grow my business", "what should I post", "draft me the next thing"), or references the week-by-week content plan. Complements /grow (real usage signals — DVM jobs, followers, PR/Geyser status) and /distribute (getting listed somewhere) — this one owns content cadence specifically: what to post next, drafted honestly from the real shipped history in docs/history/, never published without sign-off.
 ---
 
 # Building NOSTRAS in public
@@ -18,7 +18,7 @@ Check `nostr-client-node-strategy.md`'s **Content log** section
 gitignored, local-only file). It tracks what's already been drafted,
 what actually got published (with the real event id, not just "I think
 it went out" — verify against the relay directly the same way every
-other check in this project does), and which stories from CLAUDE.md
+other check in this project does), and which stories from docs/history/
 have already been used so they don't get recycled.
 
 **The plan is a menu and a rough sequence, not a rigid calendar.** If
@@ -30,8 +30,8 @@ a fact to report, not a deadline to pretend was hit.
 **The seed plan**, agreed with the user on 2026-08-08:
 - **Week 0**: nothing to chase on distribution (submissions too fresh)
   — just get a first post out.
-- **Week 1**: one real "building in public" note sourced from CLAUDE.md
-  history; short notes every other day after (a fix, a screenshot, a
+- **Week 1**: one real "building in public" note sourced from the
+  `docs/history/` log; short notes every other day after (a fix, a screenshot, a
   number); 10–15 min/day genuinely engaging — replying, zapping — in
   Bitcoin/Nostr dev circles, not broadcasting. This is the
   highest-leverage-per-minute lever at low follower counts.
@@ -48,8 +48,9 @@ a fact to report, not a deadline to pretend was hit.
 ## 2. Draft the next piece, sourced honestly
 
 Same sourcing discipline as `/distribute` step 3 and `/grow` step 4:
-pull from `CLAUDE.md`'s dated, actually-shipped, actually-verified
-entries — never the strategy doc's aspirational sections, never
+pull from the dated, actually-shipped, actually-verified entries in
+`docs/history/` (one file per month; `CLAUDE.md` itself is now only the
+short guide) — never the strategy doc's aspirational sections, never
 inflated. Real incidents with an honest complication or a
 self-correction in them (see the khatru broadcast-path post — the
 "first attempt made it worse" detail) read as far more credible in

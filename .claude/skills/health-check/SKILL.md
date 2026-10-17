@@ -194,7 +194,7 @@ Pass = a real `kind:7000` (`payment-required` or `processing`) or
 timeout. **If a `payment-required` event comes back with a real bolt11
 invoice, do not pay it** — this only proves the pipeline works, never
 send a real payment as part of a health check (standing project rule,
-see `payInvoiceWithNwc` in CLAUDE.md).
+see `payInvoiceWithNwc` in CLAUDE.md and `docs/history/`).
 
 ## 2. DVM's NWC wallet connection
 
@@ -303,7 +303,7 @@ flyctl ssh console --app nostras --machine <web-machine-id> -C "cat /data/analyt
 Pass = valid JSON, `total` > 0, a `by_day` entry for today. A missing or
 empty file most likely means `NOSTRAS_ANALYTICS_PATH` fell back off the
 persistent `/data` volume again — see the "silently living on ephemeral
-storage" incident in CLAUDE.md for the exact failure mode.
+storage" incident in `docs/history/2026-08.md` for the exact failure mode.
 
 ## Reporting back
 

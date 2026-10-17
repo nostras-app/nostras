@@ -1,13 +1,13 @@
 ---
 name: podcast
-description: Use when the user wants a new episode of the NOSTRAS podcast ("make this week's podcast", "record an episode", "podcast about what we shipped"). Builds a weekly, manually-triggered spoken episode from this project's real dated history in CLAUDE.md (never invented facts), writes a script for the ear, synthesizes it with Gemini TTS (Sulafat voice, gemini-tts.sh), uploads the audio to Blossom with the skill's own throwaway uploader key, and hands the user a ready-to-review package for both NOSTRAS's Podcast composer (kind:54, NIP-F4) and a plain kind:1 note. Never publishes the episode itself.
+description: Use when the user wants a new episode of the NOSTRAS podcast ("make this week's podcast", "record an episode", "podcast about what we shipped"). Builds a weekly, manually-triggered spoken episode from this project's real dated history in docs/history/ (never invented facts), writes a script for the ear, synthesizes it with Gemini TTS (Sulafat voice, gemini-tts.sh), uploads the audio to Blossom with the skill's own throwaway uploader key, and hands the user a ready-to-review package for both NOSTRAS's Podcast composer (kind:54, NIP-F4) and a plain kind:1 note. Never publishes the episode itself.
 ---
 
 # The NOSTRAS podcast — a weekly episode telling this project's real story
 
 A weekly (manually-triggered, not scheduled) episode narrating what's
 actually happened on NOSTRAS — sourced from this project's own real,
-accumulated history (`CLAUDE.md`'s dated entries, same sourcing
+accumulated history (the dated entries in `docs/history/`, same sourcing
 discipline as `/build-in-public`), turned into a real spoken-word
 script, synthesized into real audio via the Gemini TTS API (the Sulafat
 voice, chosen 2026-09-06 by listening to real generated samples against
@@ -76,8 +76,8 @@ memory each time.
 
 ## 1. Gather real source material — never invent a single fact
 
-**Episode 1** ("the announcement"): read `CLAUDE.md` broadly — the
-Project/Status sections at the top, plus a representative arc across its
+**Episode 1** ("the announcement"): read `CLAUDE.md` for the overview, then `docs/history/` broadly —
+the start of `2026-08.md` (the original Status section), plus a representative arc across its
 dated entries — and draft a genuine origin-story overview: what NOSTRAS
 is, why it exists (the "Own Your Keys, Own Your Voice, Own Your Money"
 mantra, made real — not just a slogan, actual shipped features behind
@@ -85,7 +85,7 @@ each clause), and a few real, well-chosen highlights (not an exhaustive
 catalog) that give a new listener a true sense of what's been built and
 how. This is the show's introduction, not a changelog.
 
-**Every subsequent episode**: scan `CLAUDE.md`'s dated entries for
+**Every subsequent episode**: scan the current month's file in `docs/history/` for
 roughly the last 7 days (same date-scoped-real-history approach
 `/engage`'s own step 1 already uses elsewhere in this project) and turn
 that into "here's what actually happened this week." A quiet week is a

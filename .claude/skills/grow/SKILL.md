@@ -85,7 +85,7 @@ failure to find something to announce.
 ## 4. When a milestone is real, draft an honest announcement — never post it without sign-off
 
 Same discipline as `/distribute` step 3: source every claim from
-`CLAUDE.md`'s actually-shipped, actually-verified feature history, not
+the actually-shipped, actually-verified feature history in `docs/history/`, not
 aspirational framing. Same discipline as `/distribute` step 4: drafting
 is free, publishing anywhere (a Nostr note, the Telegram group, a
 follow-up on an existing channel) needs the user's explicit sign-off

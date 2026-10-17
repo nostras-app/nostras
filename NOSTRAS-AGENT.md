@@ -59,8 +59,9 @@ project's `CLAUDE.md`, skills and memory
 (`~/.claude/projects/-home-user-Documents-LENOVO-LLMOps-Pro-NOSTR-NOSTRAS/memory/`).
 
 **Limits per DM task:** 10-minute timeout, $5 cost ceiling. The first
-message after a while can cost over $1 just to reload this repo's large
-`CLAUDE.md` into Claude's cache. A typo in a command (e.g. "kedger") is
+message after a while used to cost over $1 just to reload this repo's
+`CLAUDE.md` (687 KB) into Claude's cache; it was cut to ~11 KB on
+2026-10-17, so expect much less. A typo in a command (e.g. "kedger") is
 treated as a coding task.
 
 **DM coding tasks never send payments**, enforced three ways:
@@ -109,7 +110,7 @@ the pause flag).
 ## History
 
 - 2026-08-17: built as a private, DM-only Claude Code daemon (see the
-  "nostr-agent" entries in `CLAUDE.md`).
+  "nostr-agent" entries in `docs/history/2026-08.md`).
 - 2026-09-11 → 2026-10-16: down after a dropped relay connection and a
   2026-10-04 reboot; nothing restarted it.
 - 2026-10-16/17: systemd units; public profile; evangelist built, dry-run,

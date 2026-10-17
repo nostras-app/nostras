@@ -55,7 +55,7 @@ the nostr.net listing pulled the real format directly from
 
 ## 3. Draft honestly, from the actual feature history
 
-Source claims from `CLAUDE.md`'s dated entries — what's genuinely
+Source claims from the dated entries in `docs/history/` (one file per month) — what's genuinely
 shipped and verified — not from the strategy doc's aspirational roadmap
 sections. A listing that oversells gets caught by exactly the audience
 it's trying to reach.

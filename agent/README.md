@@ -10,7 +10,7 @@ never public infrastructure). It has two jobs:
    Full description, limits and rollout: [`EVANGELIST-PLAN.md`](EVANGELIST-PLAN.md).
 
 More background: the DM daemon's original design is in the project
-`CLAUDE.md` (the nostr-agent entries) and `../NOSTRAS-AGENT.md`.
+`docs/history/2026-08.md` (the nostr-agent entries) and `../NOSTRAS-AGENT.md`.
 
 ## Setup
 

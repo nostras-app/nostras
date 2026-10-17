@@ -74,7 +74,7 @@ Each run (`evangelist/run.js`):
 - builds a briefing: wallet balance, the goal, today's counts and limits, its
   own recent notes, and (marked as untrusted) mentions and zaps since the last run;
 - runs headless Claude **Opus** from `~/.local/share/nostras-agent/workspace`
-  (outside the repo, so the huge `CLAUDE.md` files aren't loaded every run; the
+  (outside the repo, so the repo's `CLAUDE.md` files aren't loaded every run; the
   repo stays readable via `--add-dir`), with a per-run budget of $0.75;
 - only allows `Bash(node agent/evangelist/tool.js …)`, `Read`, `Grep`, `Glob`;
   no file writes, web access or sub-agents;

@@ -451,8 +451,8 @@ querying, and query that one.
 No "nice post!", no emoji-only reactions, nothing that could have been
 written without reading the note. Ground every draft in the user's
 actual experience and this project's real, shipped history (same
-sourcing discipline as `/build-in-public` — pull from `CLAUDE.md`'s
-dated entries when a reply calls for "here's how we hit that exact
+sourcing discipline as `/build-in-public` — pull from the
+dated entries in `docs/history/` when a reply calls for "here's how we hit that exact
 problem," not from the strategy doc's aspirational sections). Never
 invent a stance, credential, or experience the user doesn't actually
 have.
