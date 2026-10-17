@@ -55,7 +55,14 @@ export function ledgerSummary() {
     const text = (a.content ?? a.title ?? '').replace(/\s+/g, ' ').slice(0, 140)
     return `• ${what}${a.dryRun ? ' (dry run)' : ''}${text ? `: ${text}` : ''}`
   })
+  let goalLine = ''
+  try {
+    const all = readJsonl('evangelist-runs.jsonl').filter((r) => r.dryRun === false)
+    const invested = Number(process.env.AGENT_START_SATS || '2500') + all.reduce((s, r) => s + (r.costSats || 0), 0)
+    goalLine = `Invested ${invested} sats (start + live Claude cost). Goal: ${invested * 100} sats.`
+  } catch {}
   return [
+    goalLine,
     `Last 24h: ${runs.length} runs, ${actions.length} actions, $${cost.toFixed(2)} Claude cost.`,
     ...(lines.length ? lines : ['No actions.']),
   ].join('\n')

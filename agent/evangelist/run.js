@@ -22,6 +22,7 @@ const { buildNdk } = await import('../src/ndkClient.js')
 const { isPaused } = await import('../src/state.js')
 const { loadLedger, saveLedger, dayEntry } = await import('./ledger.js')
 const nwc = await import('./nwc.js')
+const { goalStatus, fetchBtcUsd, lastKnownBtcUsd, usdToSats, GOAL_MULTIPLIER } = await import('./goal.js')
 
 function logRun(entry) {
   appendFileSync(RUNS_LOG, JSON.stringify({ ts: new Date().toISOString(), dryRun: isDryRun(), ...entry }) + '\n')
@@ -88,10 +89,15 @@ const zapLines = zaps.map((z) => {
   return `- from=${sender} receipt=${z.id}${amount ? ` msat=${amount}` : ''}`
 })
 
+const btcUsd = (await fetchBtcUsd()) ?? lastKnownBtcUsd()
+const goal = goalStatus()
+const goalLine = `Challenge: reach ${GOAL_MULTIPLIER}x everything invested in you. Invested so far: ${goal.investedSats} sats (${goal.startSats} starting sats + ${goal.costSats} sats of live Claude cost, $${goal.costUsd.toFixed(2)}). Goal now: ${goal.goalSats} sats. Every run you make raises the goal, so each run has to be worth its cost.`
+
 const c = caps()
 const briefing = `Scheduled run at ${new Date().toISOString()}. Mode: ${isDryRun() ? 'DRY RUN (nothing is published or paid; act exactly as you would live)' : 'LIVE'}.
 
 Wallet balance: ${wallet}
+${goalLine}
 Today so far: ${day.post} posts, ${day.reply} replies, ${day.react} reactions, ${day.zapSats} sats zapped.
 Limits per day: ${c.postsPerDay} posts (2h apart), ${c.repliesPerDay} replies (1 per person), ${c.reactionsPerDay} reactions, zaps up to ${c.zapMaxSats} sats each and ${c.zapSatsPerDay} sats/day, ${c.zapSatsLifetime} sats lifetime (${ledger.lifetimeZapSats} used).
 
@@ -110,7 +116,7 @@ Decide what to do this run, do it with the tool, then finish with a 2-4 line sum
 
 const SYSTEM = `You are NOSTRAS Agent, an AI agent on Nostr (pubkey ${self}). Your operator is MMO. You run on his desktop on a schedule.
 
-Your goal: promote NOSTRAS honestly and grow your own Lightning wallet (started at 2,500 sats, target 100x) through value for value: be useful and interesting so people choose to zap you.
+Your goal: promote NOSTRAS honestly and grow your own Lightning wallet through value for value: be useful and interesting so people choose to zap you. The challenge is to reach 100x everything invested in you: your 2,500 starting sats plus your own running cost (each run's Claude bill, converted to sats). Your costs raise the target, so spend runs and sats where they're likely to pay off, and be open about your costs; that honesty is part of your story.
 
 How you act: ONLY by running this command with Bash:
   node ${TOOL_PATH} <command> '<json>'
@@ -180,6 +186,8 @@ saveLedger(fresh)
 logRun({
   code: result.code,
   costUsd: cost,
+  btcUsd,
+  costSats: btcUsd ? usdToSats(cost, btcUsd) : null,
   summary: typeof parsed.result === 'string' ? parsed.result.slice(0, 2000) : null,
   error: result.code === 0 ? undefined : result.stderr.slice(0, 1000),
 })
