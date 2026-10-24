@@ -101,3 +101,51 @@ func TestFetchOutboxAuthorsSaturated(t *testing.T) {
 	}
 	<-sem
 }
+
+func addrEvent(id string, kind int, d string, at nostr.Timestamp) *nostr.Event {
+	evt := &nostr.Event{ID: id, PubKey: "pk", Kind: kind, CreatedAt: at}
+	if d != "" {
+		evt.Tags = nostr.Tags{{"d", d}}
+	}
+	return evt
+}
+
+// An outbox relay still holding an older version of an addressable or
+// replaceable event must not get it passed through next to the newer one
+// (2026-10-24, a kind:30617 announcement returned twice).
+func TestDropSupersededVersions(t *testing.T) {
+	localRepo := addrEvent("new", 30617, "nostras", 200)
+	sent := map[string]*nostr.Event{}
+	addr, _ := replaceableAddress(localRepo)
+	sent[addr] = localRepo
+
+	fetched := []*nostr.Event{
+		addrEvent("old", 30617, "nostras", 100),   // stale copy of a sent version
+		addrEvent("note1", 1, "", 50),             // regular event
+		addrEvent("p1", 0, "", 10),                // two kind:0 versions,
+		addrEvent("p2", 0, "", 20),                // only the newer one stays
+		addrEvent("badgeA", 30009, "a", 10),       // different d values are
+		addrEvent("badgeB", 30009, "b", 10),       // different addresses
+		addrEvent("newer", 30617, "nostras", 300), // newer than local: kept
+		addrEvent("tieHigh", 10002, "", 5),        // tie: lowest id wins
+		addrEvent("tieA", 10002, "", 5),
+	}
+	got := map[string]bool{}
+	for _, evt := range dropSupersededVersions(fetched, sent) {
+		got[evt.ID] = true
+	}
+	want := []string{"note1", "p2", "badgeA", "badgeB", "newer", "tieA"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for _, id := range want {
+		if !got[id] {
+			t.Errorf("missing %s in %v", id, got)
+		}
+	}
+
+	// Same version as the local one (already sent, same id) is dropped too.
+	if out := dropSupersededVersions([]*nostr.Event{localRepo}, sent); len(out) != 0 {
+		t.Errorf("same version as local passed through: %v", out)
+	}
+}

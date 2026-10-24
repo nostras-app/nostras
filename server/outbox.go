@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/fiatjaf/eventstore"
@@ -147,11 +148,15 @@ func newAggregatedQuery(
 			defer close(out)
 
 			seen := make(map[string]bool)
+			sent := make(map[string]*nostr.Event) // address -> version sent
 
 			local, err := db.QueryEvents(ctx, filter)
 			if err == nil {
 				for evt := range local {
 					seen[evt.ID] = true
+					if addr, ok := replaceableAddress(evt); ok {
+						sent[addr] = evt
+					}
 					select {
 					case out <- evt:
 					case <-ctx.Done():
@@ -177,7 +182,7 @@ func newAggregatedQuery(
 			fetched := fetchOutboxAuthors(fetchCtx, authorFetchSem, filter.Authors, perAuthor,
 				newOutboxAuthorFetcher(sys, relays, trackingStore, filter.Kinds, until))
 			cancel()
-			for _, evt := range fetched {
+			for _, evt := range dropSupersededVersions(fetched, sent) {
 				if seen[evt.ID] {
 					continue
 				}
@@ -192,4 +197,59 @@ func newAggregatedQuery(
 
 		return out, nil
 	}
+}
+
+// replaceableAddress returns the identity a replaceable (kind:pubkey) or
+// addressable (kind:pubkey:d) event replaces older versions under.
+func replaceableAddress(evt *nostr.Event) (string, bool) {
+	switch {
+	case nostr.IsReplaceableKind(evt.Kind):
+		return fmt.Sprintf("%d:%s", evt.Kind, evt.PubKey), true
+	case nostr.IsAddressableKind(evt.Kind):
+		return fmt.Sprintf("%d:%s:%s", evt.Kind, evt.PubKey, evt.Tags.GetD()), true
+	}
+	return "", false
+}
+
+// supersedes reports whether a replaces b under NIP-01's rule: newer
+// created_at wins, and on a tie the lowest id wins.
+func supersedes(a, b *nostr.Event) bool {
+	if a.CreatedAt != b.CreatedAt {
+		return a.CreatedAt > b.CreatedAt
+	}
+	return a.ID < b.ID
+}
+
+// dropSupersededVersions keeps, for each replaceable/addressable address,
+// only the newest fetched version, and drops it entirely if the version
+// already sent from the local store is at least as new. Outbox relays can
+// still hold a version this relay has already replaced (2026-10-24: a
+// kind:30617 repo announcement came back twice, the stale copy from
+// relay.damus.io); passing it through hands clients two versions of one
+// event. Regular events pass through unchanged, in order.
+func dropSupersededVersions(fetched []*nostr.Event, sent map[string]*nostr.Event) []*nostr.Event {
+	newest := make(map[string]*nostr.Event)
+	for _, evt := range fetched {
+		addr, ok := replaceableAddress(evt)
+		if !ok {
+			continue
+		}
+		if cur, ok := newest[addr]; !ok || supersedes(evt, cur) {
+			newest[addr] = evt
+		}
+	}
+	out := make([]*nostr.Event, 0, len(fetched))
+	for _, evt := range fetched {
+		addr, ok := replaceableAddress(evt)
+		if ok {
+			if newest[addr] != evt {
+				continue
+			}
+			if local, ok := sent[addr]; ok && !supersedes(evt, local) {
+				continue
+			}
+		}
+		out = append(out, evt)
+	}
+	return out
 }
