@@ -37,6 +37,20 @@ same shape:
   review state (pending/live/rejected) that later becomes an ongoing
   contribution total once live, so "check status" means both "did it
   get approved" and, once live, "how's it doing"
+- **nostrhub.io listing** (kind:31990, author `0da1a169…`,
+  `d=2vr3lgb0`) — nostrhub publishes only to its own relays,
+  `relay.ditto.pub` and `relay.dreamith.to`. Check that the newest
+  revision there is also on nos.lol, relay.damus.io, relay.primal.net
+  and nostras.app (`nak req -k 31990 -a <pubkey> -t d=2vr3lgb0
+  wss://<relay>`). **After every edit on nostrhub** it won't be, so
+  NIP-89-aware clients reading the big relays keep the old version or
+  none. Fix: fetch the newest event from relay.ditto.pub, check it with
+  `nak verify`, and with the user's sign-off send it unchanged with
+  `python3 -I .claude/skills/distribute/rebroadcast.py event.json
+  wss://nos.lol wss://relay.damus.io wss://relay.primal.net
+  wss://nostras.app`. Never use `nak event` for this: it re-signs its
+  input. Read the event back from each relay (damus often 503s; retry).
+  First done 2026-10-27.
 
 If `nostr-client-node-strategy.md` doesn't exist in this checkout (it's
 gitignored, local-only), say so and ask the user for context instead of
