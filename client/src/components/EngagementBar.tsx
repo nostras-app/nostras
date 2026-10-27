@@ -6,6 +6,7 @@ import { useEventCount, useReactionList } from '../hooks/useEventCount'
 import { useBookmark } from '../hooks/useBookmark'
 import { viewNote } from '../lib/navigation'
 import { getSubject, replySubject } from '../lib/subject'
+import { buildReplyTags } from '../lib/nip10'
 import { ZapButton } from './ZapButton'
 import { TranslateButton } from './TranslateButton'
 import { NoteMenu } from './NoteMenu'
@@ -117,10 +118,7 @@ export function EngagementBar({
     if (!replyText.trim() || busy) return
     setBusy(true)
     try {
-      const tags: string[][] = [
-        ['e', event.id, '', 'reply'],
-        ['p', event.pubkey],
-      ]
+      const tags = buildReplyTags(event, ndk.activeUser?.pubkey)
       if (replySubjectText.trim()) tags.push(['subject', replySubjectText.trim()])
       const reply = new NDKEvent(ndk, {
         kind: 1,
