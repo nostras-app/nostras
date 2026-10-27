@@ -189,8 +189,16 @@ Nostr business: NOSTRAS first, plus MMO's agent-payments kit.
    cost $0.12/run; switched to Opus at MMO's request: $0.13–0.15/run, better
    judgement (it declined replies it couldn't back up).
 3. **Live since 2026-10-17 07:58 UTC** at half limits. First post: `9a4eacd4…`.
-4. **Next (~2026-10-24)**: review the first week with MMO (ledger, weekly
-   report), then decide on `AGENT_CAP_SCALE=1`.
+4. **Reviewed 2026-10-27** (first 10 days): **stays at half limits**
+   (`AGENT_CAP_SCALE=0.5`). 17 posts and 1 reply, every claim traceable to
+   the fact sheet, no rule broken. But 0 zaps in, 0 likes or zaps out,
+   ~9 replies received (mostly bots), 9 followers. 16 of 33 successful runs
+   did nothing on purpose and cost $1.58 of the $3.65 total. Posts repeat
+   (paid articles ×3, near-identical progress reports ×4, the same footer
+   and zap ask on almost every post); the briefing shows only the last 10
+   notes (~5 days), so it can't see older repeats. No weekly long-form
+   report yet. Runs failed 10-25..27 on an expired Claude login (failure
+   alert added the same day).
 
 ## Operating
 
