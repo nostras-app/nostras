@@ -24,6 +24,11 @@ const NOISE_PREFIXES = [
   'd1433712', // automated answer account
   'e6a35697', // repeated red-team scanner pitch
   '0f0db1c9', // DOH.MONEY news bot
+  // Seen in the Nostr-client searches (2026-10-27):
+  '7febe2a5', // GitHub commit feed
+  '957dd368', // news headline feed
+  '34273aba', // "hourly dose of #Bitcoin facts"
+  '8ae7965a', // canned "Cryter observing" replies
 ]
 
 function noisePrefixes() {
@@ -36,11 +41,71 @@ function looksLikeBot(content) {
   if (c.startsWith('{') || c.startsWith('[')) return true
   const hashtags = (c.match(/#\w+/g) || []).length
   const words = c.split(/\s+/).length
-  return hashtags >= 6 && hashtags > words / 4
+  if (hashtags >= 6 && hashtags > words / 4) return true
+  // Encoded blobs: a long unbroken run that isn't a link or nostr: reference.
+  if (c.split(/\s+/).some((w) => w.length >= 80 && !/^(https?:\/\/|nostr:)/.test(w))) return true
+  // Commit feeds ("[ owner/repo ] message") and link dumps.
+  if (/^\[ ?[\w.-]+\/[\w.-]+ ?\]/.test(c)) return true
+  return (c.match(/https?:\/\//g) || []).length > 1
+}
+
+function isNoise(author, content, noise = noisePrefixes()) {
+  return noise.some((p) => author.startsWith(p)) || looksLikeBot(content)
+}
+
+// NIP-50 searches for people talking about Nostr clients, relays and the
+// features NOSTRAS has, so the agent has real conversations to join, not
+// only scout-watcher's agent-payment leads (mostly bot ads, review
+// 2026-10-27). Run against SEARCH_RELAYS; search.nos.today and our relay
+// answer, relay.nostr.band returns nothing.
+export const CLIENT_LEAD_QUERIES = [
+  'nostr client',
+  'which client',
+  'nostr app',
+  'nostr relay',
+  'NIP-29',
+  'nostr groups',
+  'paid articles',
+  'zap goal',
+  'nostr podcast',
+  'DVM',
+]
+
+/**
+ * Filters search results into leads, newest first. `results` is one
+ * { query, events } per search. Relays match search terms loosely (any
+ * word, or none for the newest notes), so a note is kept only if it
+ * contains the query phrase itself. Never throws.
+ */
+export function clientLeads(results, { limit = 6, excludePubkeys = [], excludeIds = [] } = {}) {
+  const noise = noisePrefixes()
+  const skipIds = new Set(excludeIds)
+  const perAuthor = new Set()
+  const leads = []
+  const events = results.flatMap(({ query, events }) => {
+    const re = new RegExp(`\\b${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    // Links and nostr: references are stripped first: their encoded
+    // characters contain words like "dvm" by chance.
+    return events.filter((e) => re.test((e?.content || '').replace(/(nostr:|https?:\/\/)\S+/g, ' ')))
+  })
+  for (const e of events.sort((a, b) => b.created_at - a.created_at)) {
+    if (leads.length >= limit) break
+    if (!e?.id || !e.pubkey || skipIds.has(e.id) || excludePubkeys.includes(e.pubkey)) continue
+    if (perAuthor.has(e.pubkey) || isNoise(e.pubkey, e.content, noise)) continue
+    perAuthor.add(e.pubkey)
+    skipIds.add(e.id)
+    leads.push({
+      id: e.id,
+      author: e.pubkey,
+      created_at: e.created_at,
+      content: (e.content || '').replace(/\s+/g, ' ').slice(0, 400),
+    })
+  }
+  return leads
 }
 
 /** Recent scored leads from scout-watcher, newest first. Never throws. */
-export function readScoutLeads({ maxAgeHours = 48, minScore = 2, limit = 8, excludePubkeys = [] } = {}) {
+export function readScoutLeads({ maxAgeHours = 48, minScore = 2, limit = 8, excludePubkeys = [], excludeIds = [] } = {}) {
   let lines = []
   try {
     lines = readFileSync(QUEUE_PATH, 'utf8').split('\n').filter(Boolean)
@@ -58,12 +123,11 @@ export function readScoutLeads({ maxAgeHours = 48, minScore = 2, limit = 8, excl
     } catch {
       continue
     }
-    if (e.type !== 'lead' || !e.id || seen.has(e.id)) continue
+    if (e.type !== 'lead' || !e.id || seen.has(e.id) || excludeIds.includes(e.id)) continue
     seen.add(e.id)
     if ((e.created_at || 0) < cutoff || (e.score || 0) < minScore) continue
     if (!e.author || excludePubkeys.includes(e.author)) continue
-    if (noise.some((p) => e.author.startsWith(p))) continue
-    if (looksLikeBot(e.content)) continue
+    if (isNoise(e.author, e.content, noise)) continue
     leads.push({
       id: e.id,
       author: e.author,

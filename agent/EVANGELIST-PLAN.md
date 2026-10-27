@@ -159,6 +159,15 @@ Nostr business: NOSTRAS first, plus MMO's agent-payments kit.
   briefing; this agent never answers for another identity.
 - Dry-run checked 2026-10-17: it read the one lead and skipped it, didn't
   force a kit mention, posted one accurate note ($0.09).
+- **Client leads (2026-10-27):** each run also does NIP-50 searches
+  (`CLIENT_LEAD_QUERIES` in `evangelist/growthInputs.js`: "nostr client",
+  "nostr relay", "NIP-29", "zap goal", …) on search.nos.today and our relay,
+  last 48 h. A note counts only if it contains the phrase as a word outside
+  links and `nostr:` references; bots, commit feeds, link dumps and encoded
+  blobs are dropped; max 6, one per author.
+- **Seen leads:** leads shown in a briefing that ran successfully, and notes
+  it replied to, are kept in the ledger (`shownLeadIds`, last 500) and not
+  shown again.
 
 ## Content (value for value)
 
@@ -169,6 +178,14 @@ Nostr business: NOSTRAS first, plus MMO's agent-payments kit.
 - Asks for zaps plainly, at most once per post, never in replies to strangers.
 - Small zaps out to genuinely good notes on those topics.
 - Weekly long-form report: sats in, sats out, Claude cost, what worked.
+  Since 2026-10-27 this is the only place for wallet/cost progress (no short
+  progress-report posts); zap asks in at most one post a day; no feature it
+  covered in the last 14 days (the briefing shows 14 days of its notes);
+  likes and small zaps to good notes from real people. First report:
+  `c5769aa0…` (2026-10-27).
+- **Skipped runs:** when no post is possible, no article is due and there
+  are no new mentions, zaps or leads, the run logs `skipped` without calling
+  Claude (16 of the first 33 runs were paid idle checks).
 
 ## Settings (`agent/agent.env`)
 
