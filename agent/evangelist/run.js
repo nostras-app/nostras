@@ -8,7 +8,7 @@ process.env.NOSTR_AGENT_QUIET = '1'
 import path from 'node:path'
 import os from 'node:os'
 import { spawn } from 'node:child_process'
-import { mkdirSync, appendFileSync } from 'node:fs'
+import { mkdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { NDKRelaySet } from '@nostr-dev-kit/ndk'
 import { loadEnvFile } from '../src/env.js'
 import {
@@ -25,6 +25,9 @@ const nwc = await import('./nwc.js')
 const { claudeChildEnv } = await import('../src/childEnv.js')
 const { readScoutLeads, readMarketDigest } = await import('./growthInputs.js')
 const { goalStatus, fetchBtcUsd, lastKnownBtcUsd, usdToSats, GOAL_MULTIPLIER } = await import('./goal.js')
+const { failureAlert } = await import('./failureAlert.js')
+const { sendReply } = await import('../src/dmOutbox.js')
+const { ownerPubkeyHex } = await import('../src/owner.js')
 
 function logRun(entry) {
   appendFileSync(RUNS_LOG, JSON.stringify({ ts: new Date().toISOString(), dryRun: isDryRun(), ...entry }) + '\n')
@@ -200,4 +203,19 @@ logRun({
   summary: typeof parsed.result === 'string' ? parsed.result.slice(0, 2000) : null,
   error: result.code === 0 ? undefined : result.stderr.slice(0, 1000),
 })
+
+// Tell the owner when runs keep failing (and when they recover). Never
+// lets a DM problem fail the run itself.
+try {
+  const runs = readFileSync(RUNS_LOG, 'utf8').split('\n').filter(Boolean).slice(-50).map((l) => JSON.parse(l))
+  const alert = failureAlert(runs)
+  if (alert) {
+    await Promise.race([
+      sendReply(ndk, self, ownerPubkeyHex(), alert),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), 20000)),
+    ])
+  }
+} catch (e) {
+  console.error('failure alert DM not sent:', e instanceof Error ? e.message : e)
+}
 process.exit(0)

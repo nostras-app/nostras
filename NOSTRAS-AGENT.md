@@ -91,6 +91,9 @@ Short version (full detail in `agent/EVANGELIST-PLAN.md`):
   weekly market digest; its fact sheet covers the kit.
 - **Logs:** `agent/state/actions.jsonl` (every action),
   `agent/state/evangelist-runs.jsonl` (every run, cost).
+- **Failure alert:** after 2 failed runs in a row it DMs MMO the last
+  error, repeats about once a day (every 4th failed run), and DMs once
+  more when a run succeeds again (`agent/evangelist/failureAlert.js`).
 
 ## Operating
 
