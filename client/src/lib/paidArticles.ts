@@ -1,5 +1,6 @@
 import { NDKEvent, NDKKind, type NDKSubscription } from '@nostr-dev-kit/ndk'
-import { ndk, localRelaySet, devPublishRelaySet } from './ndk'
+import { ndk, devPublishRelaySet } from './ndk'
+import { fetchNewestDvmAnnouncement } from './dvmAnnouncement'
 
 // Paid long-form articles (NIP-23 + a NIP-90 DVM unlock job, kind
 // 5904->6904 on server/cmd/dvm/main.go). Shared by ArticleComposer
@@ -7,8 +8,6 @@ import { ndk, localRelaySet, devPublishRelaySet } from './ndk'
 // payment) — see the full design in
 // /home/user/.claude/plans/crystalline-puzzling-gosling.md.
 
-const DVM_HANDLER_D_TAG = 'nostras-dvm'
-const KIND_HANDLER_ANNOUNCEMENT = 31990
 const KIND_JOB_FEEDBACK = 7000
 
 export const KIND_ARTICLE_UNLOCK_REQUEST = 5904
@@ -55,11 +54,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 // Scoped to localRelaySet since the DVM only ever publishes this to its
 // own relay, not the public bootstrap pool.
 export async function fetchDvmArticleEncryptionPubkey(): Promise<string | null> {
-  const evt = await withTimeout(
-    ndk.fetchEvent({ kinds: [KIND_HANDLER_ANNOUNCEMENT], '#d': [DVM_HANDLER_D_TAG] }, undefined, localRelaySet),
-    PAID_ARTICLE_TIMEOUT_MS,
-    'Timed out looking up the DVM',
-  )
+  const evt = await fetchNewestDvmAnnouncement()
   if (!evt) return null
   try {
     const content = JSON.parse(evt.content) as { articleEncryptionPubkey?: string }

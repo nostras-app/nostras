@@ -1,11 +1,8 @@
 import { NDKEvent, NDKUser, type NDKRelaySet, type NDKSubscription } from '@nostr-dev-kit/ndk'
-import { ndk, devPublishRelaySet, localRelaySet, localRelayUrl } from './ndk'
-import { withTimeout } from './podcast'
+import { ndk, devPublishRelaySet, localRelayUrl } from './ndk'
+import { fetchNewestDvmAnnouncement } from './dvmAnnouncement'
 
 const KIND_JOB_FEEDBACK = 7000
-const KIND_HANDLER_ANNOUNCEMENT = 31990
-const DVM_HANDLER_D_TAG = 'nostras-dvm'
-const DVM_LOOKUP_TIMEOUT_MS = 8000
 const DVM_PUBKEY_CACHE_MS = 10 * 60 * 1000
 
 const PREFERRED_MODEL_KEY = 'nostras:dvm-model'
@@ -27,22 +24,12 @@ let cachedDvmInfo: { info: DvmInfo; at: number } | null = null
 
 // The NOSTRAS DVM's current identity pubkey and model list, read from its
 // kind:31990 NIP-89 announcement (signed by that identity). Encrypted job
-// requests are encrypted to this key. Announcements from older DVM
-// identities stay on the relay, so this takes the newest one: the DVM
-// republishes on every (re)connect, so newest = current.
+// requests are encrypted to this key.
 export async function fetchDvmInfo(): Promise<DvmInfo> {
   if (cachedDvmInfo && Date.now() - cachedDvmInfo.at < DVM_PUBKEY_CACHE_MS) {
     return cachedDvmInfo.info
   }
-  const events = await withTimeout(
-    ndk.fetchEvents({ kinds: [KIND_HANDLER_ANNOUNCEMENT], '#d': [DVM_HANDLER_D_TAG] }, undefined, localRelaySet),
-    DVM_LOOKUP_TIMEOUT_MS,
-    'Timed out looking up the DVM',
-  )
-  let newest: NDKEvent | null = null
-  for (const e of events) {
-    if (!newest || (e.created_at ?? 0) > (newest.created_at ?? 0)) newest = e
-  }
+  const newest = await fetchNewestDvmAnnouncement()
   if (!newest) throw new Error('Could not find the DVM')
   let models: DvmModel[] = []
   try {

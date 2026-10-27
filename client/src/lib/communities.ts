@@ -1,27 +1,9 @@
 import { requestDvmJob, type DvmJobUpdate } from './dvm'
-import { ndk, localRelaySet } from './ndk'
+import { localRelaySet } from './ndk'
+import { fetchNewestDvmAnnouncement } from './dvmAnnouncement'
 
 const KIND_JOB_REQUEST_COMMUNITY_JOIN = 5906
 const KIND_JOB_RESULT_COMMUNITY_JOIN = 6906
-const DVM_HANDLER_D_TAG = 'nostras-dvm'
-const KIND_HANDLER_ANNOUNCEMENT = 31990
-const COMMUNITY_DVM_LOOKUP_TIMEOUT_MS = 8000
-
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms)
-    promise.then(
-      (v) => {
-        clearTimeout(timer)
-        resolve(v)
-      },
-      (e) => {
-        clearTimeout(timer)
-        reject(e)
-      },
-    )
-  })
-}
 
 // Fetches the DVM's persisted community-admin pubkey from its real,
 // already-published kind:31990 NIP-89 handler announcement — same
@@ -33,11 +15,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 // separate from the DVM's per-boot signing identity and must stay
 // stable across restarts.
 export async function fetchDvmCommunityAdminPubkey(): Promise<string | null> {
-  const evt = await withTimeout(
-    ndk.fetchEvent({ kinds: [KIND_HANDLER_ANNOUNCEMENT], '#d': [DVM_HANDLER_D_TAG] }, undefined, localRelaySet),
-    COMMUNITY_DVM_LOOKUP_TIMEOUT_MS,
-    'Timed out looking up the DVM',
-  )
+  const evt = await fetchNewestDvmAnnouncement()
   if (!evt) return null
   try {
     const content = JSON.parse(evt.content) as { communityAdminPubkey?: string }
