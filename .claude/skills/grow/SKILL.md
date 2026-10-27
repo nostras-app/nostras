@@ -27,10 +27,18 @@ progress — not follower counts.
   regenerated on redeploy): `nak req -k 31990 -t d=nostras-dvm
   wss://nostras.app`. Then count real results:
   `nak req -k 6001,6002,6050 -a <dvm-pubkey> wss://nostras.app`.
-- **GitHub activity** — `gh api repos/nostras-app/nostras` for
-  stars/watchers. This is the docs-only public org; the source repo
-  stays private by design, so this is the only public repo signal that
-  exists to check.
+- **GitHub activity** — `nostras-app/nostras` is the public source
+  repo (AGPL, since 2026-10-11). `gh api repos/nostras-app/nostras`
+  for stars/forks/watchers, plus the traffic endpoints (owner-only,
+  rolling 14-day window, so log every check or the history is lost):
+  `.../traffic/clones`, `.../traffic/views`,
+  `.../traffic/popular/referrers`. Always report clones **next to
+  views**: on 2026-10-27 the repo had 260 clones (110 unique) but only
+  4 page views (2 unique), and our own CI checkouts were just 7 of
+  them. Clones with almost no views are mirrors, scanners and
+  crawlers, not people reading the code. Real interest shows up as
+  views, referrers, stars, forks and issues; treat a clone count alone
+  as reach of the code, not adoption.
 - **Distribution channel status** — defer to `/distribute` rather than
   re-deriving it; don't duplicate that skill's own status-check logic
   here.
